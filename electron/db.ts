@@ -21,6 +21,11 @@ import type {
   RelatedNote,
   RemovedPart,
   SearchResult,
+  LibraryFilter,
+  LibraryNote,
+  ReviewRating,
+  ReviewStats,
+  TagCount,
 } from '../shared/types.js'
 
 import { normalizeReaderStyle, parseStyleJson } from './reader-style.js'
@@ -183,6 +188,18 @@ export function initDatabase(dataDir: string): void {
       vector TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS note_reviews (
+      note_id TEXT PRIMARY KEY REFERENCES notes(id) ON DELETE CASCADE,
+      due_at TEXT NOT NULL,
+      interval_days REAL NOT NULL DEFAULT 0,
+      ease REAL NOT NULL DEFAULT 2.5,
+      reps INTEGER NOT NULL DEFAULT 0,
+      lapses INTEGER NOT NULL DEFAULT 0,
+      last_rating TEXT,
+      last_reviewed_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_note_reviews_due ON note_reviews(due_at);
 
     CREATE TABLE IF NOT EXISTS meta (
       key TEXT PRIMARY KEY,
@@ -817,14 +834,185 @@ function makeSnippet(text: string, query: string): string {
   return `${start > 0 ? '…' : ''}${flat.slice(start, end)}${end < flat.length ? '…' : ''}`
 }
 
+const REVIEWABLE_SQL = "n.kind IN ('point', 'claim', 'summary', 'question', 'thought') AND length(trim(n.content)) > 0"
+
+interface LibraryRow extends NoteRow {
+  book_title: string
+  chapter_title: string | null
+  review_due_at: string | null
+  review_reps: number | null
+}
+
+function libraryRows(): LibraryRow[] {
+  return database()
+    .prepare(
+      `SELECT n.*, b.title AS book_title, c.title AS chapter_title,
+              r.due_at AS review_due_at, r.reps AS review_reps
+       FROM notes n
+       JOIN books b ON b.id = n.book_id
+       LEFT JOIN chapters c ON c.id = n.chapter_id
+       LEFT JOIN note_reviews r ON r.note_id = n.id
+       ORDER BY n.updated_at DESC, n.rowid DESC`,
+    )
+    .all() as unknown as LibraryRow[]
+}
+
+function mapLibraryNote(row: LibraryRow): LibraryNote {
+  return {
+    ...mapNote(row),
+    bookTitle: row.book_title,
+    chapterTitle: row.chapter_title,
+    dueAt: row.review_due_at,
+    reviewReps: Number(row.review_reps ?? 0),
+  }
+}
+
+export function listLibraryNotes(filter: LibraryFilter = {}): LibraryNote[] {
+  const term = filter.query?.replace(/\s+/g, ' ').trim().toLowerCase() ?? ''
+  const limit = Math.min(Math.max(filter.limit ?? 300, 1), 1000)
+  return libraryRows()
+    .map(mapLibraryNote)
+    .filter((note) => {
+      if (filter.bookId && note.bookId !== filter.bookId) return false
+      if (filter.kind && note.kind !== filter.kind) return false
+      if (filter.tag && !note.tags.includes(filter.tag)) return false
+      if (term && !`${note.title}\n${note.content}`.toLowerCase().includes(term)) return false
+      return true
+    })
+    .slice(0, limit)
+}
+
+export function listLibraryTags(bookId?: string | null): TagCount[] {
+  const counts = new Map<string, number>()
+  for (const note of libraryRows()) {
+    if (bookId && note.book_id !== bookId) continue
+    for (const tag of parseTags(note.tags)) {
+      const text = tag.trim()
+      if (text) counts.set(text, (counts.get(text) ?? 0) + 1)
+    }
+  }
+  return [...counts.entries()]
+    .map(([tag, count]) => ({ tag, count }))
+    .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag))
+}
+
+export function getReviewStats(): ReviewStats {
+  const conn = database()
+  const row = (sql: string, ...params: string[]): number => {
+    const result = conn.prepare(sql).get(...params) as { count: number } | undefined
+    return Number(result?.count ?? 0)
+  }
+  const now = new Date().toISOString()
+  const total = row(`SELECT COUNT(*) AS count FROM notes n WHERE ${REVIEWABLE_SQL}`)
+  const newCount = row(
+    `SELECT COUNT(*) AS count FROM notes n
+     LEFT JOIN note_reviews r ON r.note_id = n.id
+     WHERE ${REVIEWABLE_SQL} AND r.note_id IS NULL`,
+  )
+  const due = row(
+    `SELECT COUNT(*) AS count FROM notes n
+     LEFT JOIN note_reviews r ON r.note_id = n.id
+     WHERE ${REVIEWABLE_SQL} AND (r.note_id IS NULL OR r.due_at <= ?)`,
+    now,
+  )
+  const reviewedToday = row(
+    `SELECT COUNT(*) AS count FROM note_reviews
+     WHERE date(last_reviewed_at, 'localtime') = date('now', 'localtime')`,
+  )
+  return { due, total, newCount, reviewedToday }
+}
+
+export function getReviewQueue(limit = 30): LibraryNote[] {
+  const rows = database()
+    .prepare(
+      `SELECT n.*, b.title AS book_title, c.title AS chapter_title,
+              r.due_at AS review_due_at, r.reps AS review_reps
+       FROM notes n
+       JOIN books b ON b.id = n.book_id
+       LEFT JOIN chapters c ON c.id = n.chapter_id
+       LEFT JOIN note_reviews r ON r.note_id = n.id
+       WHERE ${REVIEWABLE_SQL} AND (r.note_id IS NULL OR r.due_at <= ?)
+       ORDER BY CASE WHEN r.note_id IS NULL THEN 1 ELSE 0 END, r.due_at, n.updated_at DESC
+       LIMIT ?`,
+    )
+    .all(new Date().toISOString(), Math.min(Math.max(limit, 1), 100)) as unknown as LibraryRow[]
+  return rows.map(mapLibraryNote)
+}
+
+export function reviewNote(noteId: string, rating: ReviewRating): void {
+  if (rating !== 'again' && rating !== 'hard' && rating !== 'good' && rating !== 'easy') {
+    throw new Error('复习评分无效。')
+  }
+  const conn = database()
+  const note = conn.prepare('SELECT kind, content FROM notes WHERE id = ?').get(noteId) as
+    | { kind: string; content: string }
+    | undefined
+  if (!note) throw new Error('笔记不存在。')
+  if (!REVIEWABLE_KINDS.has(note.kind as NoteKind) || !note.content.trim()) {
+    throw new Error('这条笔记不需要复习。')
+  }
+  const current = conn.prepare('SELECT * FROM note_reviews WHERE note_id = ?').get(noteId) as
+    | {
+        due_at: string
+        interval_days: number
+        ease: number
+        reps: number
+        lapses: number
+      }
+    | undefined
+  const now = new Date()
+  let interval = Number(current?.interval_days ?? 0)
+  let ease = Number(current?.ease ?? 2.5)
+  let reps = Number(current?.reps ?? 0)
+  let lapses = Number(current?.lapses ?? 0)
+
+  if (rating === 'again') {
+    interval = 0
+    ease = Math.max(1.3, ease - 0.2)
+    lapses += 1
+    reps = 0
+  } else if (rating === 'hard') {
+    interval = interval > 0 ? interval * 1.2 : 1
+    ease = Math.max(1.3, ease - 0.15)
+    reps += 1
+  } else if (rating === 'good') {
+    interval = interval > 0 ? interval * ease : 1
+    reps += 1
+  } else {
+    interval = interval > 0 ? interval * ease * 1.3 : 3
+    ease = Math.min(3, ease + 0.15)
+    reps += 1
+  }
+  interval = Math.min(3650, Math.round(interval * 100) / 100)
+  const dueAt =
+    rating === 'again'
+      ? new Date(now.getTime() + 10 * 60 * 1000)
+      : new Date(now.getTime() + interval * 24 * 60 * 60 * 1000)
+
+  conn
+    .prepare(
+      `INSERT INTO note_reviews (note_id, due_at, interval_days, ease, reps, lapses, last_rating, last_reviewed_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(note_id) DO UPDATE SET
+         due_at = excluded.due_at,
+         interval_days = excluded.interval_days,
+         ease = excluded.ease,
+         reps = excluded.reps,
+         lapses = excluded.lapses,
+         last_rating = excluded.last_rating,
+         last_reviewed_at = excluded.last_reviewed_at`,
+    )
+    .run(noteId, dueAt.toISOString(), interval, Math.round(ease * 100) / 100, reps, lapses, rating, now.toISOString())
+}
+
+const REVIEWABLE_KINDS = new Set<NoteKind>(['point', 'claim', 'summary', 'question', 'thought'])
+
 export interface NoteForEmbedding {
   id: string
   title: string
   content: string
   tags: string[]
-}
-
-export interface SemanticNote {
+}export interface SemanticNote {
   id: string
   bookId: string
   bookTitle: string

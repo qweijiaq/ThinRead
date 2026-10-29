@@ -10,16 +10,21 @@ import type {
   GenerationDoneEvent,
   GenerationErrorEvent,
   GenerationPartialEvent,
+  LibraryFilter,
+  LibraryNote,
   Note,
   NoteDraft,
   NotePatch,
   ReaderStyle,
   RelatedNote,
   ReadingApi,
+  ReviewRating,
+  ReviewStats,
   SaveFileResult,
   SearchResult,
   SettingsPatch,
   SettingsView,
+  TagCount,
   TestResult,
 } from '../shared/types.js'
 
@@ -67,6 +72,13 @@ const api: ReadingApi = {
   saveMarkdown: (defaultName: string, content: string) =>
     ipcRenderer.invoke('app:save-markdown', defaultName, content) as Promise<SaveFileResult>,
   search: (query: string) => ipcRenderer.invoke('library:search', query) as Promise<SearchResult[]>,
+  listLibraryNotes: (filter?: LibraryFilter) =>
+    ipcRenderer.invoke('library:notes', filter) as Promise<LibraryNote[]>,
+  listLibraryTags: (bookId) => ipcRenderer.invoke('library:tags', bookId) as Promise<TagCount[]>,
+  getReviewStats: () => ipcRenderer.invoke('review:stats') as Promise<ReviewStats>,
+  getReviewQueue: (limit) => ipcRenderer.invoke('review:queue', limit) as Promise<LibraryNote[]>,
+  reviewNote: (noteId: string, rating: ReviewRating) =>
+    ipcRenderer.invoke('review:rate', noteId, rating) as Promise<void>,
   onGenerationPartial: (cb) => subscribe<GenerationPartialEvent>('generation:partial', cb),
   onGenerationDone: (cb) => subscribe<GenerationDoneEvent>('generation:done', cb),
   onGenerationError: (cb) => subscribe<GenerationErrorEvent>('generation:error', cb),

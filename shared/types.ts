@@ -142,6 +142,36 @@ export interface RelatedNote {
   score: number
 }
 
+export interface LibraryNote extends Note {
+  bookTitle: string
+  chapterTitle: string | null
+  /** 下次复习时间；从未复习过为 null。 */
+  dueAt: string | null
+  reviewReps: number
+}
+
+export interface LibraryFilter {
+  bookId?: string | null
+  tag?: string | null
+  kind?: NoteKind | null
+  query?: string
+  limit?: number
+}
+
+export interface TagCount {
+  tag: string
+  count: number
+}
+
+export type ReviewRating = 'again' | 'hard' | 'good' | 'easy'
+
+export interface ReviewStats {
+  due: number
+  total: number
+  newCount: number
+  reviewedToday: number
+}
+
 export interface NoteDraft {
   bookId: string
   chapterId?: string | null
@@ -370,6 +400,11 @@ export interface ReadingApi {
   deleteChapters(chapterIds: string[]): Promise<void>
   listNotes(bookId: string, chapterId?: string | null): Promise<Note[]>
   listRelatedNotes(bookId: string, tags: string[], queryText?: string): Promise<RelatedNote[]>
+  listLibraryNotes(filter?: LibraryFilter): Promise<LibraryNote[]>
+  listLibraryTags(bookId?: string | null): Promise<TagCount[]>
+  getReviewStats(): Promise<ReviewStats>
+  getReviewQueue(limit?: number): Promise<LibraryNote[]>
+  reviewNote(noteId: string, rating: ReviewRating): Promise<void>
   createNote(draft: NoteDraft): Promise<Note>
   updateNote(id: string, patch: NotePatch): Promise<Note>
   deleteNote(id: string): Promise<void>

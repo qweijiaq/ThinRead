@@ -16,12 +16,17 @@ import {
   getChapter,
   getChapters,
   getNote,
+  getReviewQueue,
+  getReviewStats,
   listBooks,
+  listLibraryNotes,
+  listLibraryTags,
   listNotes,
   listRelatedNotes,
   replaceAiNotes,
   replaceBookChapters,
   resetChapterFormat,
+  reviewNote,
   saveBookStyle,
   saveChapterFormat,
   saveNoteDivergences,
@@ -41,9 +46,11 @@ import { configureSemantic, semanticRelatedNotes } from './semantic.js'
 import { getActiveSettings, getSettingsView, saveSettings } from './settings.js'
 import type {
   ChapterFlag,
+  LibraryFilter,
   NoteDraft,
   NotePatch,
   ReaderStyle,
+  ReviewRating,
   SaveFileResult,
   SettingsPatch,
   TestResult,
@@ -189,6 +196,25 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
   ipcMain.handle('library:search', (_event, query: string) =>
     typeof query === 'string' ? searchLibrary(query) : [],
   )
+
+  ipcMain.handle('library:notes', (_event, filter?: LibraryFilter) =>
+    listLibraryNotes(filter && typeof filter === 'object' ? filter : {}),
+  )
+
+  ipcMain.handle('library:tags', (_event, bookId?: string | null) =>
+    listLibraryTags(typeof bookId === 'string' ? bookId : null),
+  )
+
+  ipcMain.handle('review:stats', () => getReviewStats())
+
+  ipcMain.handle('review:queue', (_event, limit?: number) =>
+    getReviewQueue(typeof limit === 'number' ? limit : 30),
+  )
+
+  ipcMain.handle('review:rate', async (_event, noteId: string, rating: ReviewRating) => {
+    if (typeof noteId !== 'string') throw new Error('笔记无效。')
+    reviewNote(noteId, rating)
+  })
 
   ipcMain.handle('notes:list', (_event, bookId: string, chapterId?: string | null) =>
     listNotes(bookId, chapterId ?? null),

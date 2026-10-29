@@ -2526,3 +2526,339 @@ button {
     padding: 44px 40px 120px;
   }
 }
+
+/* ─── notes library ──────────────────────────────────────── */
+
+.notes-library {
+  flex: 1;
+  overflow-y: auto;
+  padding: 40px 44px 80px;
+}
+.notes-library-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 22px;
+}
+.notes-library-head h1 {
+  margin: 0 0 4px;
+  font-family: 'Songti SC', 'Noto Serif SC', Georgia, serif;
+  font-size: 32px;
+  letter-spacing: 0.04em;
+}
+.notes-library-head p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.notes-library-actions {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.notes-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin-bottom: 13px;
+}
+.notes-filter-input,
+.notes-select {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--white);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 12.5px;
+  padding: 8px 11px;
+  outline: none;
+}
+.notes-filter-input {
+  flex: 1;
+  min-width: 220px;
+}
+.notes-filter-input:focus,
+.notes-select:focus {
+  border-color: var(--line-strong);
+}
+.notes-select {
+  min-width: 110px;
+}
+.tag-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 18px;
+}
+.tag-filter button {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 10.5px;
+  padding: 3px 9px;
+  cursor: pointer;
+}
+.tag-filter button:hover {
+  background: var(--white);
+}
+.tag-filter button.is-active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+}
+.tag-filter button span {
+  margin-left: 5px;
+  color: var(--muted);
+}
+.notes-library-list {
+  display: grid;
+  gap: 10px;
+  max-width: 920px;
+}
+.library-note {
+  display: block;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--white);
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+.library-note:hover {
+  transform: translateY(-1px);
+  border-color: var(--line-strong);
+  box-shadow: 0 8px 20px rgba(43, 39, 32, 0.06);
+}
+.library-note-top {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.library-note-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.library-note-date {
+  flex: none;
+  color: var(--muted);
+  font-size: 10px;
+}
+.review-badge {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--warn) 14%, var(--white));
+  color: var(--warn);
+  font-size: 9.5px;
+}
+.library-note-meta,
+.library-note-snippet,
+.library-note-tags {
+  display: block;
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 10.5px;
+}
+.library-note-snippet {
+  color: var(--ink-soft);
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+.library-note-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.notes-library-empty {
+  padding: 36px 0;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+/* ─── review session ─────────────────────────────────────── */
+
+.review-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(20, 20, 18, 0.42);
+  backdrop-filter: blur(4px);
+}
+.review-panel {
+  width: min(680px, 94vw);
+  max-height: 88vh;
+  overflow-y: auto;
+  padding: 20px 24px 24px;
+  border-radius: 18px;
+  background: var(--paper-2);
+  box-shadow: 0 30px 80px rgba(30, 26, 20, 0.3);
+}
+.review-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.review-head strong {
+  margin-right: 10px;
+  font-family: 'Songti SC', 'Noto Serif SC', Georgia, serif;
+  font-size: 17px;
+  letter-spacing: 0.04em;
+}
+.review-head .muted {
+  font-size: 10.5px;
+}
+.review-progress {
+  height: 3px;
+  margin: 12px 0 18px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--paper-3);
+}
+.review-progress-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.2s ease;
+}
+.review-meta {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 10.5px;
+}
+.review-card h2 {
+  margin: 0 0 8px;
+  font-family: 'Songti SC', 'Noto Serif SC', Georgia, serif;
+  font-size: 24px;
+  line-height: 1.4;
+}
+.review-answer {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  color: var(--ink-soft);
+  font-size: 14px;
+  line-height: 1.8;
+}
+.review-role {
+  margin: 12px 0 0;
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.review-role span {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--muted);
+  font-size: 10px;
+}
+.review-quote {
+  margin: 12px 0 0;
+  padding: 8px 12px;
+  border-left: 3px solid var(--line-strong);
+  background: var(--paper-3);
+  color: var(--ink-soft);
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+.review-divergences {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+}
+.review-divergences p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.review-divergences strong {
+  margin-right: 6px;
+  color: var(--accent);
+  font-weight: 500;
+}
+.review-ratings {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-top: 18px;
+}
+.review-rating {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 6px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--white);
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+.review-rating:hover {
+  border-color: var(--line-strong);
+}
+.review-rating:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.review-rating span {
+  font-size: 12px;
+}
+.review-rating em {
+  color: var(--muted);
+  font-size: 9.5px;
+  font-style: normal;
+}
+.review-rating.again {
+  color: var(--danger);
+}
+.review-rating.hard {
+  color: var(--warn);
+}
+.review-rating.good {
+  color: var(--ai);
+}
+.review-rating.easy {
+  color: var(--accent);
+}
+.review-reveal {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 20px;
+}
+.review-reveal .muted {
+  font-size: 10.5px;
+}
+.review-done {
+  padding: 34px 0;
+  text-align: center;
+}
+.review-done h2 {
+  margin: 0 0 8px;
+  font-family: 'Songti SC', 'Noto Serif SC', Georgia, serif;
+  font-size: 24px;
+}
+.review-done p {
+  margin: 0 0 20px;
+  color: var(--muted);
+  font-size: 12px;
+}
+@media (max-width: 560px) {
+  .review-ratings {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}

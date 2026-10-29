@@ -10,6 +10,7 @@ import type {
   ChapterSuggestion,
   ClassifyResult,
   GeneratePartial,
+  LibraryNote,
   Note,
   NoteDraft,
   NotePatch,
@@ -23,6 +24,7 @@ import { FormatPanel } from './components/FormatPanel.js'
 import type { FormatMessage } from './components/FormatPanel.js'
 import { Library } from './components/Library.js'
 import { NotesPanel } from './components/NotesPanel.js'
+import { NotesLibrary } from './components/NotesLibrary.js'
 import { OrganizeDialog } from './components/OrganizeDialog.js'
 import { Reader } from './components/Reader.js'
 import { SearchDialog } from './components/SearchDialog.js'
@@ -66,6 +68,7 @@ export function App(): JSX.Element {
   const [toast, setToast] = useState<{ kind: 'error' | 'info'; text: string } | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
+  const [mainView, setMainView] = useState<'reader' | 'notes'>('reader')
   const [focusNote, setFocusNote] = useState<{ id: string; key: number } | null>(null)
   const [pendingNoteId, setPendingNoteId] = useState<string | null>(null)
   const [scrollTarget, setScrollTarget] = useState<{ quote: string; key: number } | null>(null)
@@ -640,6 +643,7 @@ export function App(): JSX.Element {
   const openSearchResult = useCallback(
     async (result: SearchResult) => {
       setSearchOpen(false)
+      setMainView('reader')
       if (result.type === 'book') {
         await openBook(result.bookId)
         return
@@ -675,11 +679,29 @@ export function App(): JSX.Element {
     [book, chapters, openBook, openChapter, appTheme],
   )
 
+  const openLibraryNote = useCallback(
+    async (note: LibraryNote) => {
+      await openSearchResult({
+        type: 'note',
+        id: note.id,
+        bookId: note.bookId,
+        bookTitle: note.bookTitle,
+        chapterId: note.chapterId,
+        chapterTitle: note.chapterTitle,
+        title: note.title,
+        snippet: '',
+        updatedAt: note.updatedAt,
+      })
+    },
+    [openSearchResult],
+  )
+
   function leaveReader(): void {
     void window.api.cancelGeneration()
     setGenerating(false)
     setPartial(null)
     setBook(null)
+    setMainView('reader')
     setOrganizeOpen(false)
   }
 
@@ -694,6 +716,7 @@ export function App(): JSX.Element {
         onSettings={() => setSettingsOpen(true)}
         onReparse={() => void reparseBook()}
         onSearch={() => setSearchOpen(true)}
+        onNotes={() => setMainView('notes')}
       />
 
       {toast ? (
@@ -705,7 +728,13 @@ export function App(): JSX.Element {
         </div>
       ) : null}
 
-      {book ? (
+      {mainView === 'notes' ? (
+        <NotesLibrary
+          books={books}
+          onBack={() => setMainView('reader')}
+          onOpen={(note) => void openLibraryNote(note)}
+        />
+      ) : book ? (
         <div className="workspace">
           <ChapterList
             chapters={chapters}

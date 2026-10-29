@@ -11,9 +11,10 @@ interface TopBarProps {
   onSettings(): void
   onReparse(): void
   onSearch(): void
+  onNotes(): void
 }
 
-export function TopBar({ book, settings, importing, onLibrary, onImport, onSettings, onReparse, onSearch }: TopBarProps): JSX.Element {
+export function TopBar({ book, settings, importing, onLibrary, onImport, onSettings, onReparse, onSearch, onNotes }: TopBarProps): JSX.Element {
   const preset = PROVIDER_PRESETS.find((item) => item.id === settings?.provider)
   const modelLabel = settings?.demo ? '演示模式' : `${preset?.label ?? settings?.provider} · ${settings?.model}`
   return (
@@ -38,6 +39,9 @@ export function TopBar({ book, settings, importing, onLibrary, onImport, onSetti
         ) : null}
       </div>
       <div className="topbar-right">
+        <button type="button" className="ghost-button small" onClick={onNotes} title="全库笔记">
+          笔记
+        </button>
         <button type="button" className="ghost-button small" onClick={onSearch} title="搜索（⌘K）">
           搜索
         </button>
