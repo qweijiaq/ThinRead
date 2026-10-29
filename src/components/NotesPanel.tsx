@@ -1,10 +1,13 @@
-import type { JSX } from 'react'
+import { useEffect, useState, type JSX } from 'react'
 import type { ChapterContent, GeneratePartial, Note, NoteDraft, NotePatch, NoteReport, RelatedNote } from '../../shared/types.js'
+import { buildChapterMarkdown, markdownFilename, todayStamp } from '../lib/export.js'
 import { noteBacklinks, relatedNotes, snippet } from '../lib/links.js'
 import { NoteCard } from './NoteCard.js'
 
 interface NotesPanelProps {
   chapter: ChapterContent | null
+  bookTitle: string
+  author: string
   notes: Note[]
   allNotes: Note[]
   chapterTitles: Record<string, string>
@@ -99,6 +102,8 @@ function StreamingCard({ partial, onCancel }: { partial: GeneratePartial | null;
 
 export function NotesPanel({
   chapter,
+  bookTitle,
+  author,
   notes,
   allNotes,
   chapterTitles,
@@ -126,6 +131,56 @@ export function NotesPanel({
   const questionNotes = notes.filter((note) => note.kind === 'question')
   const mineNotes = notes.filter((note) => note.kind === 'highlight' || note.kind === 'thought')
   const related = relatedNotes(chapter?.id ?? null, notes, allNotes)
+  const [includeCards, setIncludeCards] = useState(false)
+  const [exportState, setExportState] = useState<'idle' | 'copied' | 'saved'>('idle')
+  const [exportError, setExportError] = useState<string | null>(null)
+
+  useEffect(() => {
+    setExportState('idle')
+    setExportError(null)
+  }, [chapter?.id])
+
+  function markdown(): string {
+    if (!condensedNote) return ''
+    return buildChapterMarkdown({
+      bookTitle,
+      author,
+      chapterTitle: chapter?.title ?? '',
+      date: todayStamp(),
+      condensed: condensedNote,
+      cards: pointNotes,
+      includeCards,
+    })
+  }
+
+  async function copyDraft(): Promise<void> {
+    if (!condensedNote) return
+    setExportError(null)
+    try {
+      await window.api.copyText(markdown())
+      setExportState('copied')
+      window.setTimeout(() => setExportState('idle'), 1800)
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  async function exportDraft(): Promise<void> {
+    if (!condensedNote) return
+    setExportError(null)
+    try {
+      const result = await window.api.saveMarkdown(
+        markdownFilename(bookTitle, chapter?.title ?? ''),
+        markdown(),
+      )
+      if (result.saved) {
+        setExportState('saved')
+        window.setTimeout(() => setExportState('idle'), 1800)
+      }
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : String(err))
+    }
+  }
 
   function renderCard(note: Note): JSX.Element {
     return (
@@ -251,10 +306,21 @@ export function NotesPanel({
         <section className="condensed-section">
           <div className="note-group-head">
             <span>读薄稿</span>
-            <span className="muted">
-              {report && report.ratio > 0 ? `约 1/${report.ratio.toFixed(1)}` : ''}
-            </span>
+            <div className="condensed-tools">
+              {report && report.ratio > 0 ? <span className="muted">约 1/{report.ratio.toFixed(1)}</span> : null}
+              <label className="export-check">
+                <input type="checkbox" checked={includeCards} onChange={(event) => setIncludeCards(event.target.checked)} />
+                附卡片
+              </label>
+              <button type="button" className="text-button" onClick={() => void copyDraft()}>
+                {exportState === 'copied' ? '已复制' : '复制'}
+              </button>
+              <button type="button" className="text-button" onClick={() => void exportDraft()}>
+                {exportState === 'saved' ? '已导出' : '导出 .md'}
+              </button>
+            </div>
           </div>
+          {exportError ? <div className="inline-error">{exportError}</div> : null}
           {renderCard(condensedNote)}
         </section>
       ) : null}

@@ -298,6 +298,25 @@ export interface TestResult {
   message: string
 }
 
+export interface SaveFileResult {
+  saved: boolean
+  path: string | null
+}
+
+export type SearchResultType = 'book' | 'chapter' | 'note'
+
+export interface SearchResult {
+  type: SearchResultType
+  id: string
+  bookId: string
+  bookTitle: string
+  chapterId: string | null
+  chapterTitle: string | null
+  title: string
+  snippet: string
+  updatedAt: string | null
+}
+
 export interface GenerationProgress {
   phase: 'condense' | 'cards' | 'expand'
   done: number
@@ -350,7 +369,7 @@ export interface ReadingApi {
   applyChapterFlags(flags: ChapterFlag[]): Promise<void>
   deleteChapters(chapterIds: string[]): Promise<void>
   listNotes(bookId: string, chapterId?: string | null): Promise<Note[]>
-  listRelatedNotes(bookId: string, tags: string[]): Promise<RelatedNote[]>
+  listRelatedNotes(bookId: string, tags: string[], queryText?: string): Promise<RelatedNote[]>
   createNote(draft: NoteDraft): Promise<Note>
   updateNote(id: string, patch: NotePatch): Promise<Note>
   deleteNote(id: string): Promise<void>
@@ -362,7 +381,11 @@ export interface ReadingApi {
   testConnection(): Promise<TestResult>
   getAppInfo(): Promise<AppInfo>
   openDataDir(): Promise<void>
+  copyText(text: string): Promise<void>
+  saveMarkdown(defaultName: string, content: string): Promise<SaveFileResult>
+  search(query: string): Promise<SearchResult[]>
   onGenerationPartial(cb: (event: GenerationPartialEvent) => void): () => void
   onGenerationDone(cb: (event: GenerationDoneEvent) => void): () => void
   onGenerationError(cb: (event: GenerationErrorEvent) => void): () => void
+  onSemanticReady(cb: () => void): () => void
 }

@@ -15,6 +15,7 @@ import type {
   NotePatch,
   ReaderStyle,
   RelatedNote,
+  SearchResult,
   SettingsView,
 } from '../shared/types.js'
 import { ChapterList } from './components/ChapterList.js'
@@ -24,6 +25,7 @@ import { Library } from './components/Library.js'
 import { NotesPanel } from './components/NotesPanel.js'
 import { OrganizeDialog } from './components/OrganizeDialog.js'
 import { Reader } from './components/Reader.js'
+import { SearchDialog } from './components/SearchDialog.js'
 import { SettingsDialog } from './components/SettingsDialog.js'
 import { TopBar } from './components/TopBar.js'
 
@@ -63,6 +65,7 @@ export function App(): JSX.Element {
   const [error, setError] = useState<string | null>(null)
   const [toast, setToast] = useState<{ kind: 'error' | 'info'; text: string } | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
   const [focusNote, setFocusNote] = useState<{ id: string; key: number } | null>(null)
   const [pendingNoteId, setPendingNoteId] = useState<string | null>(null)
   const [scrollTarget, setScrollTarget] = useState<{ quote: string; key: number } | null>(null)
@@ -80,6 +83,7 @@ export function App(): JSX.Element {
   const [formatMessages, setFormatMessages] = useState<FormatMessage[]>([])
   const [expandingNoteId, setExpandingNoteId] = useState<string | null>(null)
   const [crossBookNotes, setCrossBookNotes] = useState<RelatedNote[]>([])
+  const [semanticTick, setSemanticTick] = useState(0)
   const styleSaveTimer = useRef<number | null>(null)
   const formatTokenRef = useRef(0)
 
@@ -91,6 +95,19 @@ export function App(): JSX.Element {
       // 忽略存储失败；当前会话仍然使用这个主题。
     }
   }, [appTheme])
+
+  useEffect(() => {
+    function onKey(event: KeyboardEvent): void {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        setSearchOpen((current) => !current)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  useEffect(() => window.api.onSemanticReady(() => setSemanticTick((value) => value + 1)), [])
 
   useEffect(() => {
     void Promise.all([window.api.listBooks(), window.api.getSettings(), window.api.getAppInfo()])
@@ -552,14 +569,23 @@ export function App(): JSX.Element {
     [notes],
   )
 
+  const relatedQuery = useMemo(() => {
+    const condensed = notes.find((note) => note.kind === 'condensed')
+    const cards = notes
+      .filter((note) => note.kind === 'point' || note.kind === 'claim')
+      .map((note) => `${note.title}\n${note.content}`)
+    // 读薄稿可能很长，语义查询优先带上短小、概念密集的卡片。
+    return [condensed?.content.slice(0, 900), ...cards].filter(Boolean).join('\n').slice(0, 1800)
+  }, [notes])
+
   useEffect(() => {
-    if (!book || noteTags.length === 0) {
+    if (!book || notes.length === 0) {
       setCrossBookNotes([])
       return
     }
     let cancelled = false
     void window.api
-      .listRelatedNotes(book.id, noteTags)
+      .listRelatedNotes(book.id, noteTags, relatedQuery)
       .then((items) => {
         if (!cancelled) setCrossBookNotes(items)
       })
@@ -569,7 +595,7 @@ export function App(): JSX.Element {
     return () => {
       cancelled = true
     }
-  }, [book?.id, noteTags])
+  }, [book?.id, noteTags, relatedQuery, semanticTick])
 
   const openRelatedNote = useCallback(
     async (related: RelatedNote) => {
@@ -611,6 +637,44 @@ export function App(): JSX.Element {
     [book, chapter?.id, chapters, openChapter, appTheme],
   )
 
+  const openSearchResult = useCallback(
+    async (result: SearchResult) => {
+      setSearchOpen(false)
+      if (result.type === 'book') {
+        await openBook(result.bookId)
+        return
+      }
+      try {
+        if (book?.id === result.bookId) {
+          const meta = chapters.find((item) => item.id === result.chapterId)
+          if (meta) await openChapter(book.id, meta, chapters)
+          if (result.type === 'note') setPendingNoteId(result.id)
+          return
+        }
+
+        const opened = await window.api.openBook(result.bookId)
+        setBook(opened.book)
+        setChapters(opened.chapters)
+        setReaderStyle({ ...opened.style, theme: appTheme })
+        const meta = result.chapterId
+          ? opened.chapters.find((item) => item.id === result.chapterId)
+          : null
+        if (meta) {
+          await openChapter(opened.book.id, meta, opened.chapters)
+        } else {
+          const target =
+            opened.chapters.find((item) => !item.hidden && item.kind === 'content') ??
+            opened.chapters.find((item) => !item.hidden)
+          if (target) await openChapter(opened.book.id, target, opened.chapters)
+        }
+        if (result.type === 'note') setPendingNoteId(result.id)
+      } catch (err) {
+        setToast({ kind: 'error', text: messageOf(err) })
+      }
+    },
+    [book, chapters, openBook, openChapter, appTheme],
+  )
+
   function leaveReader(): void {
     void window.api.cancelGeneration()
     setGenerating(false)
@@ -629,6 +693,7 @@ export function App(): JSX.Element {
         onImport={() => void importBook()}
         onSettings={() => setSettingsOpen(true)}
         onReparse={() => void reparseBook()}
+        onSearch={() => setSearchOpen(true)}
       />
 
       {toast ? (
@@ -679,6 +744,8 @@ export function App(): JSX.Element {
             {sideTab === 'notes' ? (
               <NotesPanel
                 chapter={chapter}
+                bookTitle={book?.title ?? ''}
+                author={book?.author ?? ''}
                 notes={notes}
                 allNotes={allNotes}
                 chapterTitles={chapterTitles}
@@ -740,6 +807,12 @@ export function App(): JSX.Element {
           }}
         />
       ) : null}
+
+      <SearchDialog
+        open={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        onOpen={(result) => void openSearchResult(result)}
+      />
 
       <OrganizeDialog
         open={organizeOpen}

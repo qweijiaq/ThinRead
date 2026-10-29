@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 
-import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { BrowserWindow, clipboard, dialog, ipcMain, shell } from 'electron'
 import { generateText } from 'ai'
 
 import {
@@ -26,6 +26,7 @@ import {
   saveChapterFormat,
   saveNoteDivergences,
   saveNoteReport,
+  searchLibrary,
   setProgress,
   updateNote,
 } from './db.js'
@@ -36,12 +37,14 @@ import { createLanguageModel } from './ai/provider.js'
 import { classifyImportedChapters, importBookFile } from './import.js'
 import { parseEpub } from './parsers/epub.js'
 import { parsePdf } from './parsers/pdf.js'
+import { configureSemantic, semanticRelatedNotes } from './semantic.js'
 import { getActiveSettings, getSettingsView, saveSettings } from './settings.js'
 import type {
   ChapterFlag,
   NoteDraft,
   NotePatch,
   ReaderStyle,
+  SaveFileResult,
   SettingsPatch,
   TestResult,
 } from '../shared/types.js'
@@ -54,6 +57,10 @@ interface ActiveGeneration {
 let active: ActiveGeneration | null = null
 
 export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: string): void {
+  configureSemantic(dataDir, () => {
+    getWindow()?.webContents.send('semantic:ready')
+  })
+
   ipcMain.handle('books:list', () => listBooks())
 
   ipcMain.handle('books:import', async () => {
@@ -179,13 +186,25 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     deleteChapters(chapterIds)
   })
 
+  ipcMain.handle('library:search', (_event, query: string) =>
+    typeof query === 'string' ? searchLibrary(query) : [],
+  )
+
   ipcMain.handle('notes:list', (_event, bookId: string, chapterId?: string | null) =>
     listNotes(bookId, chapterId ?? null),
   )
 
-  ipcMain.handle('notes:related', (_event, bookId: string, tags: string[]) =>
-    listRelatedNotes(bookId, Array.isArray(tags) ? tags : []),
-  )
+  ipcMain.handle('notes:related', async (_event, bookId: string, tags: string[], queryText?: string) => {
+    try {
+      const query = typeof queryText === 'string' ? queryText : ''
+      const semantic = await semanticRelatedNotes(bookId, query, 6)
+      if (semantic && semantic.length > 0) return semantic
+      return listRelatedNotes(bookId, Array.isArray(tags) ? tags : [])
+    } catch (error) {
+      console.warn('[notes:related] 查询相关笔记失败', error instanceof Error ? error.message : error)
+      return []
+    }
+  })
 
   ipcMain.handle('notes:create', (_event, draft: NoteDraft) => createNote(draft))
 
@@ -320,5 +339,26 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
 
   ipcMain.handle('app:open-data', async () => {
     await shell.openPath(dataDir)
+  })
+
+  ipcMain.handle('app:copy-text', (_event, text: string) => {
+    if (typeof text !== 'string') throw new Error('复制内容无效。')
+    clipboard.writeText(text)
+  })
+
+  ipcMain.handle('app:save-markdown', async (_event, defaultName: string, content: string): Promise<SaveFileResult> => {
+    if (typeof content !== 'string') throw new Error('导出内容无效。')
+    const win = getWindow()
+    const suggested = path.basename(typeof defaultName === 'string' && defaultName.trim() ? defaultName : 'reading-note.md')
+    const options = {
+      title: '导出读薄稿',
+      defaultPath: suggested.endsWith('.md') ? suggested : `${suggested}.md`,
+      filters: [{ name: 'Markdown', extensions: ['md'] }],
+    }
+    const result = win ? await dialog.showSaveDialog(win, options) : await dialog.showSaveDialog(options)
+    if (result.canceled || !result.filePath) return { saved: false, path: null }
+    const filePath = path.extname(result.filePath).toLowerCase() === '.md' ? result.filePath : `${result.filePath}.md`
+    await fs.writeFile(filePath, content, 'utf8')
+    return { saved: true, path: filePath }
   })
 }

@@ -16,6 +16,8 @@ import type {
   ReaderStyle,
   RelatedNote,
   ReadingApi,
+  SaveFileResult,
+  SearchResult,
   SettingsPatch,
   SettingsView,
   TestResult,
@@ -48,8 +50,8 @@ const api: ReadingApi = {
   applyChapterFlags: (flags: ChapterFlag[]) => ipcRenderer.invoke('chapters:flags', flags) as Promise<void>,
   deleteChapters: (chapterIds) => ipcRenderer.invoke('chapters:delete', chapterIds) as Promise<void>,
   listNotes: (bookId, chapterId) => ipcRenderer.invoke('notes:list', bookId, chapterId) as Promise<Note[]>,
-  listRelatedNotes: (bookId, tags) =>
-    ipcRenderer.invoke('notes:related', bookId, tags) as Promise<RelatedNote[]>,
+  listRelatedNotes: (bookId, tags, queryText) =>
+    ipcRenderer.invoke('notes:related', bookId, tags, queryText) as Promise<RelatedNote[]>,
   createNote: (draft: NoteDraft) => ipcRenderer.invoke('notes:create', draft) as Promise<Note>,
   updateNote: (id, patch: NotePatch) => ipcRenderer.invoke('notes:update', id, patch) as Promise<Note>,
   deleteNote: (id) => ipcRenderer.invoke('notes:delete', id) as Promise<void>,
@@ -61,9 +63,14 @@ const api: ReadingApi = {
   testConnection: () => ipcRenderer.invoke('settings:test') as Promise<TestResult>,
   getAppInfo: () => ipcRenderer.invoke('app:info') as Promise<{ version: string; dataDir: string; demo: boolean }>,
   openDataDir: () => ipcRenderer.invoke('app:open-data') as Promise<void>,
+  copyText: (text: string) => ipcRenderer.invoke('app:copy-text', text) as Promise<void>,
+  saveMarkdown: (defaultName: string, content: string) =>
+    ipcRenderer.invoke('app:save-markdown', defaultName, content) as Promise<SaveFileResult>,
+  search: (query: string) => ipcRenderer.invoke('library:search', query) as Promise<SearchResult[]>,
   onGenerationPartial: (cb) => subscribe<GenerationPartialEvent>('generation:partial', cb),
   onGenerationDone: (cb) => subscribe<GenerationDoneEvent>('generation:done', cb),
   onGenerationError: (cb) => subscribe<GenerationErrorEvent>('generation:error', cb),
+  onSemanticReady: (cb) => subscribe<void>('semantic:ready', () => cb()),
 }
 
 contextBridge.exposeInMainWorld('api', api)

@@ -2,7 +2,7 @@
   "name": "reading-notes",
   "version": "0.1.0",
   "private": true,
-  "description": "页边 — 本地优先的 AI 读书笔记应用",
+  "description": "页边 · ThinRead — 本地优先的 AI 读书笔记应用",
   "type": "module",
   "main": "dist-electron/main.cjs",
   "scripts": {
@@ -17,6 +17,7 @@
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.0",
     "@ai-sdk/openai-compatible": "^3.0.0",
+    "@huggingface/transformers": "^4.3.2",
     "ai": "^7.0.0",
     "cheerio": "^1.0.0",
     "fflate": "^0.8.2",
@@ -38,5 +39,9 @@
     "esbuild": "^0.27.0",
     "typescript": "^5.7.0",
     "vite": "^8.3.5"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/qweijiaq/ThinRead.git"
   }
 }

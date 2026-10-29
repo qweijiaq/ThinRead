@@ -20,6 +20,7 @@ import type {
   ReaderStyle,
   RelatedNote,
   RemovedPart,
+  SearchResult,
 } from '../shared/types.js'
 
 import { normalizeReaderStyle, parseStyleJson } from './reader-style.js'
@@ -174,6 +175,14 @@ export function initDatabase(dataDir: string): void {
 
     CREATE INDEX IF NOT EXISTS idx_notes_book ON notes(book_id);
     CREATE INDEX IF NOT EXISTS idx_notes_chapter ON notes(chapter_id);
+
+    CREATE TABLE IF NOT EXISTS note_embeddings (
+      note_id TEXT PRIMARY KEY REFERENCES notes(id) ON DELETE CASCADE,
+      model TEXT NOT NULL,
+      dim INTEGER NOT NULL,
+      vector TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
 
     CREATE TABLE IF NOT EXISTS meta (
       key TEXT PRIMARY KEY,
@@ -689,6 +698,237 @@ export function listRelatedNotes(bookId: string, tags: string[], limit = 6): Rel
   return scored.sort((a, b) => b.score - a.score).slice(0, limit)
 }
 
+export function searchLibrary(rawQuery: string, limit = 40): SearchResult[] {
+  const query = rawQuery.replace(/\s+/g, ' ').trim()
+  if (!query) return []
+  const escaped = query.replace(/[\\%_]/g, (char) => `\\${char}`)
+  const like = `%${escaped}%`
+  const conn = database()
+  const results: SearchResult[] = []
+
+  const books = conn
+    .prepare(
+      `SELECT b.id, b.title, b.author, b.last_opened_at, b.created_at,
+              (SELECT COUNT(*) FROM chapters c WHERE c.book_id = b.id AND c.hidden = 0) AS chapter_count,
+              (SELECT COUNT(*) FROM notes n WHERE n.book_id = b.id) AS note_count
+       FROM books b
+       WHERE b.title LIKE ? ESCAPE '\\' OR b.author LIKE ? ESCAPE '\\'
+       ORDER BY b.last_opened_at DESC, b.created_at DESC
+       LIMIT 6`,
+    )
+    .all(like, like) as unknown as Array<{
+    id: string
+    title: string
+    author: string
+    last_opened_at: string | null
+    created_at: string
+    chapter_count: number
+    note_count: number
+  }>
+  for (const row of books) {
+    results.push({
+      type: 'book',
+      id: row.id,
+      bookId: row.id,
+      bookTitle: row.title,
+      chapterId: null,
+      chapterTitle: null,
+      title: row.title,
+      snippet: `${row.author || '未知作者'} · ${Number(row.chapter_count)} 章 · ${Number(row.note_count)} 条笔记`,
+      updatedAt: row.last_opened_at ?? row.created_at,
+    })
+  }
+
+  const chapters = conn
+    .prepare(
+      `SELECT c.id, c.book_id, b.title AS book_title, c.title, c.text, c.idx
+       FROM chapters c
+       JOIN books b ON b.id = c.book_id
+       WHERE c.hidden = 0 AND (c.title LIKE ? ESCAPE '\\' OR c.text LIKE ? ESCAPE '\\')
+       ORDER BY CASE WHEN c.title LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END, b.title, c.idx
+       LIMIT 14`,
+    )
+    .all(like, like, like) as unknown as Array<{
+    id: string
+    book_id: string
+    book_title: string
+    title: string
+    text: string
+    idx: number
+  }>
+  for (const row of chapters) {
+    results.push({
+      type: 'chapter',
+      id: row.id,
+      bookId: row.book_id,
+      bookTitle: row.book_title,
+      chapterId: row.id,
+      chapterTitle: row.title,
+      title: row.title,
+      snippet: makeSnippet(row.text, query),
+      updatedAt: null,
+    })
+  }
+
+  const notes = conn
+    .prepare(
+      `SELECT n.id, n.book_id, b.title AS book_title, n.chapter_id, c.title AS chapter_title,
+              n.title, n.content, n.updated_at
+       FROM notes n
+       JOIN books b ON b.id = n.book_id
+       LEFT JOIN chapters c ON c.id = n.chapter_id
+       WHERE n.title LIKE ? ESCAPE '\\' OR n.content LIKE ? ESCAPE '\\' OR n.tags LIKE ? ESCAPE '\\'
+       ORDER BY CASE WHEN n.title LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END, n.updated_at DESC
+       LIMIT 20`,
+    )
+    .all(like, like, like, like) as unknown as Array<{
+    id: string
+    book_id: string
+    book_title: string
+    chapter_id: string | null
+    chapter_title: string | null
+    title: string
+    content: string
+    updated_at: string
+  }>
+  for (const row of notes) {
+    results.push({
+      type: 'note',
+      id: row.id,
+      bookId: row.book_id,
+      bookTitle: row.book_title,
+      chapterId: row.chapter_id,
+      chapterTitle: row.chapter_title,
+      title: row.title,
+      snippet: makeSnippet(row.content, query),
+      updatedAt: row.updated_at,
+    })
+  }
+
+  return results.slice(0, limit)
+}
+
+function makeSnippet(text: string, query: string): string {
+  const flat = text.replace(/\s+/g, ' ').trim()
+  const index = flat.toLowerCase().indexOf(query.toLowerCase())
+  if (index < 0) return flat.length > 120 ? `${flat.slice(0, 120)}…` : flat
+  const start = Math.max(0, index - 48)
+  const end = Math.min(flat.length, index + query.length + 56)
+  return `${start > 0 ? '…' : ''}${flat.slice(start, end)}${end < flat.length ? '…' : ''}`
+}
+
+export interface NoteForEmbedding {
+  id: string
+  title: string
+  content: string
+  tags: string[]
+}
+
+export interface SemanticNote {
+  id: string
+  bookId: string
+  bookTitle: string
+  chapterId: string | null
+  chapterTitle: string | null
+  title: string
+  content: string
+  tags: string[]
+  vector: number[] | null
+  model: string | null
+}
+
+export function listNotesForEmbedding(model: string): NoteForEmbedding[] {
+  const rows = database()
+    .prepare(
+      `SELECT n.id, n.title, n.content, n.tags
+       FROM notes n
+       LEFT JOIN note_embeddings e ON e.note_id = n.id
+       WHERE e.note_id IS NULL OR e.model != ?
+       ORDER BY n.updated_at`,
+    )
+    .all(model) as unknown as Array<{ id: string; title: string; content: string; tags: string }>
+  return rows.map((row) => ({
+    id: row.id,
+    title: row.title,
+    content: row.content,
+    tags: parseTags(row.tags),
+  }))
+}
+
+export function listSemanticCandidates(bookId: string): SemanticNote[] {
+  const rows = database()
+    .prepare(
+      `SELECT n.id, n.book_id, b.title AS book_title, n.chapter_id, c.title AS chapter_title,
+              n.title, n.content, n.tags, e.vector, e.model
+       FROM notes n
+       JOIN books b ON b.id = n.book_id
+       LEFT JOIN chapters c ON c.id = n.chapter_id
+       LEFT JOIN note_embeddings e ON e.note_id = n.id
+       WHERE n.book_id != ?`,
+    )
+    .all(bookId) as unknown as Array<{
+    id: string
+    book_id: string
+    book_title: string
+    chapter_id: string | null
+    chapter_title: string | null
+    title: string
+    content: string
+    tags: string
+    vector: string | null
+    model: string | null
+  }>
+  return rows.map((row) => ({
+    id: row.id,
+    bookId: row.book_id,
+    bookTitle: row.book_title,
+    chapterId: row.chapter_id,
+    chapterTitle: row.chapter_title,
+    title: row.title,
+    content: row.content,
+    tags: parseTags(row.tags),
+    vector: parseVector(row.vector),
+    model: row.model,
+  }))
+}
+
+export function saveNoteEmbedding(noteId: string, model: string, vector: number[]): void {
+  database()
+    .prepare(
+      `INSERT INTO note_embeddings (note_id, model, dim, vector, updated_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(note_id) DO UPDATE SET
+         model = excluded.model,
+         dim = excluded.dim,
+         vector = excluded.vector,
+         updated_at = excluded.updated_at`,
+    )
+    .run(noteId, model, vector.length, JSON.stringify(vector), new Date().toISOString())
+}
+
+function parseTags(raw: string): string[] {
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    if (Array.isArray(parsed)) return parsed.filter((tag): tag is string => typeof tag === 'string')
+  } catch {
+    // 忽略无法解析的旧数据。
+  }
+  return []
+}
+
+function parseVector(raw: string | null): number[] | null {
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    if (Array.isArray(parsed) && parsed.every((value) => typeof value === 'number')) {
+      return parsed as number[]
+    }
+  } catch {
+    // 忽略损坏的向量，下次重新计算。
+  }
+  return null
+}
+
 export function getNote(noteId: string): Note {
   const row = database().prepare('SELECT * FROM notes WHERE id = ?').get(noteId) as unknown as NoteRow | undefined
   if (!row) throw new Error('笔记不存在')
@@ -845,6 +1085,7 @@ export function updateNote(noteId: string, patch: NotePatch): Note {
       now,
       noteId,
     )
+  database().prepare('DELETE FROM note_embeddings WHERE note_id = ?').run(noteId)
   return getNote(noteId)
 }
 

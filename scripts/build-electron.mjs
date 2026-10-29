@@ -6,7 +6,7 @@ const shared = {
   target: 'node22',
   sourcemap: true,
   logLevel: 'info',
-  external: ['electron', 'pdfjs-dist', 'pdfjs-dist/*'],
+  external: ['electron', 'pdfjs-dist', 'pdfjs-dist/*', '@huggingface/transformers', 'onnxruntime-node'],
 }
 
 await build({
