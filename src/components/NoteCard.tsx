@@ -31,6 +31,7 @@ interface NoteCardProps {
   onJumpQuote(quote: string): void
   onOpenNote(note: Note): void
   onWikiLink(title: string): void
+  hideTitle?: boolean
 }
 
 function titleFromContent(content: string): string {
@@ -58,6 +59,7 @@ export function NoteCard({
   onJumpQuote,
   onOpenNote,
   onWikiLink,
+  hideTitle = false,
 }: NoteCardProps): JSX.Element {
   const [editing, setEditing] = useState(note.author === 'user' && note.content.trim() === '')
   const [draftTitle, setDraftTitle] = useState(note.title)
@@ -171,7 +173,7 @@ export function NoteCard({
         </div>
       ) : (
         <>
-          <h3 className="note-title">{note.title}</h3>
+          {hideTitle ? null : <h3 className="note-title">{note.title}</h3>}
           {note.content.trim() ? (
             <Markdown text={note.content} onWikiLink={onWikiLink} />
           ) : (

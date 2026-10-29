@@ -111,7 +111,15 @@ export function NotesLibrary({ books, onBack, onOpen }: NotesLibraryProps): JSX.
     setRefreshTick((value) => value + 1)
   }
 
+  function clearFilters(): void {
+    setQuery('')
+    setBookId('')
+    setKind('')
+    setTag(null)
+  }
+
   const dueCount = stats?.due ?? 0
+  const hasFilters = Boolean(query.trim() || bookId || kind || tag)
 
   return (
     <main className="notes-library">
@@ -191,6 +199,15 @@ export function NotesLibrary({ books, onBack, onOpen }: NotesLibraryProps): JSX.
 
       {error ? <div className="inline-error">{error}</div> : null}
 
+      <div className="notes-result-bar">
+        <span>{loading ? '正在筛选…' : `显示 ${notes.length} 条`}</span>
+        {hasFilters ? (
+          <button type="button" className="text-button muted" onClick={clearFilters}>
+            清除筛选
+          </button>
+        ) : null}
+      </div>
+
       {loading && notes.length === 0 ? (
         <p className="notes-library-empty">正在加载笔记…</p>
       ) : notes.length === 0 ? (
@@ -200,7 +217,7 @@ export function NotesLibrary({ books, onBack, onOpen }: NotesLibraryProps): JSX.
           {notes.map((note) => {
             const due = !note.dueAt || new Date(note.dueAt).getTime() <= Date.now()
             return (
-              <button key={note.id} type="button" className="library-note" onClick={() => onOpen(note)}>
+              <button key={note.id} type="button" className={`library-note kind-${note.kind}`} onClick={() => onOpen(note)}>
                 <span className="library-note-top">
                   <span className={`kind-badge kind-${note.kind}`}>{KIND_LABEL[note.kind]}</span>
                   {due ? <span className="review-badge">{note.dueAt ? '待复习' : '新卡片'}</span> : null}

@@ -717,6 +717,7 @@ export function App(): JSX.Element {
         onReparse={() => void reparseBook()}
         onSearch={() => setSearchOpen(true)}
         onNotes={() => setMainView('notes')}
+        notesActive={mainView === 'notes'}
       />
 
       {toast ? (

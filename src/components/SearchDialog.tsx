@@ -19,6 +19,20 @@ const KIND_LABEL: Record<SearchResultType, string> = {
   note: '笔记',
 }
 
+function highlight(text: string, query: string): JSX.Element {
+  const term = query.trim()
+  if (!term) return <>{text}</>
+  const index = text.toLowerCase().indexOf(term.toLowerCase())
+  if (index < 0) return <>{text}</>
+  return (
+    <>
+      {text.slice(0, index)}
+      <mark>{text.slice(index, index + term.length)}</mark>
+      {text.slice(index + term.length)}
+    </>
+  )
+}
+
 export function SearchDialog({ open, onClose, onOpen }: SearchDialogProps): JSX.Element | null {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SearchResult[]>([])
@@ -151,8 +165,8 @@ export function SearchDialog({ open, onClose, onOpen }: SearchDialogProps): JSX.
                         onClick={() => onOpen(result)}
                       >
                         <span className="search-result-line">
-                          <span className="search-result-kind">{KIND_LABEL[result.type]}</span>
-                          <span className="search-result-title">{result.title}</span>
+                          <span className={`search-result-kind type-${result.type}`}>{KIND_LABEL[result.type]}</span>
+                          <span className="search-result-title">{highlight(result.title, query)}</span>
                         </span>
                         <span className="search-result-meta">
                           {result.type === 'book'
@@ -160,7 +174,7 @@ export function SearchDialog({ open, onClose, onOpen }: SearchDialogProps): JSX.
                             : `${result.bookTitle}${result.chapterTitle ? ` · ${result.chapterTitle}` : ''}`}
                         </span>
                         {result.type !== 'book' && result.snippet ? (
-                          <span className="search-result-snippet">{result.snippet}</span>
+                          <span className="search-result-snippet">{highlight(result.snippet, query)}</span>
                         ) : null}
                       </button>
                     )
@@ -169,6 +183,10 @@ export function SearchDialog({ open, onClose, onOpen }: SearchDialogProps): JSX.
               )
             })
           )}
+        </div>
+        <div className="search-footer">
+          <span>↑↓ 选择 · ↵ 打开</span>
+          <span>Esc 关闭</span>
         </div>
       </div>
     </div>

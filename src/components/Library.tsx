@@ -53,7 +53,20 @@ export function Library({ books, importing, onOpen, onImport, onDelete }: Librar
       </div>
       <div className="book-grid">
         {books.map((book) => (
-          <article key={book.id} className="book-card" onClick={() => onOpen(book.id)}>
+          <article
+            key={book.id}
+            className="book-card"
+            role="button"
+            tabIndex={0}
+            onClick={() => onOpen(book.id)}
+            onKeyDown={(event) => {
+              if (event.target !== event.currentTarget) return
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault()
+                onOpen(book.id)
+              }
+            }}
+          >
             <div className={`book-spine ${book.format}`}>
               <span>{book.title.slice(0, 12)}</span>
             </div>

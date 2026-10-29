@@ -182,11 +182,12 @@ export function NotesPanel({
     }
   }
 
-  function renderCard(note: Note): JSX.Element {
+  function renderCard(note: Note, hideTitle = false): JSX.Element {
     return (
       <NoteCard
         key={note.id}
         note={note}
+        hideTitle={hideTitle}
         backlinks={noteBacklinks(note, allNotes)}
         linkCandidates={allNotes.filter((candidate) => candidate.id !== note.id)}
         focusKey={focusNoteId === note.id ? focusKey : 0}
@@ -212,7 +213,7 @@ export function NotesPanel({
           <span>{label}</span>
           <span className="muted">{group.length}</span>
         </div>
-        {group.map(renderCard)}
+        {group.map((note) => renderCard(note))}
       </section>
     )
   }
@@ -262,6 +263,16 @@ export function NotesPanel({
               {report.originalChars.toLocaleString()} → {report.condensedChars.toLocaleString()} 字 ·{' '}
               {report.ratio > 0 ? `1/${report.ratio.toFixed(1)}` : '—'}
             </span>
+          </div>
+          <div
+            className="condense-ratio-bar"
+            title={`读薄稿约为原文的 ${Math.round((report.condensedChars / Math.max(1, report.originalChars)) * 100)}%`}
+          >
+            <span
+              style={{
+                width: `${Math.max(3, Math.min(100, (report.condensedChars / Math.max(1, report.originalChars)) * 100))}%`,
+              }}
+            />
           </div>
           <div className="condense-meta">
             {report.sections} 节 · {report.cards} 张核心卡片 · {report.divergences} 条延伸
@@ -321,7 +332,7 @@ export function NotesPanel({
             </div>
           </div>
           {exportError ? <div className="inline-error">{exportError}</div> : null}
-          {renderCard(condensedNote)}
+          {renderCard(condensedNote, true)}
         </section>
       ) : null}
 

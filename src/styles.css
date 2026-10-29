@@ -2862,3 +2862,537 @@ button {
     grid-template-columns: repeat(2, 1fr);
   }
 }
+
+/* ─── visual refinement pass ─────────────────────────────── */
+
+:where(button, input, select, textarea, [role='button'], [tabindex]):focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 2px;
+}
+
+/* shell */
+.topbar {
+  height: 58px;
+  flex-basis: 58px;
+}
+.topbar .ghost-button.small {
+  font-size: 12px;
+  padding: 6px 10px;
+}
+.ghost-button.is-active {
+  border-color: var(--line-strong);
+  background: var(--white);
+  color: var(--ink);
+}
+.model-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+}
+.model-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ai);
+}
+.model-pill.demo .model-dot {
+  background: var(--warn);
+}
+
+/* workspace and chapter list */
+.workspace {
+  grid-template-columns: 232px minmax(0, 1fr) 452px;
+}
+.sidebar-head {
+  padding: 18px 16px 6px;
+  font-size: 12.5px;
+  letter-spacing: 0.03em;
+}
+.sidebar-meta {
+  font-size: 11px;
+}
+.chapter-item {
+  gap: 10px;
+  padding: 9px;
+  font-size: 13px;
+}
+.chapter-index {
+  font-size: 10.5px;
+}
+.chapter-row.active .chapter-index {
+  color: var(--accent);
+}
+.part-header {
+  font-size: 12.5px;
+}
+.part-count {
+  font-size: 10.5px;
+}
+.side-tabs {
+  padding: 10px 14px 0;
+}
+.side-tab {
+  padding: 8px 13px;
+  font-size: 12.5px;
+}
+
+/* notes panel */
+.notes-panel {
+  padding: 20px 18px 52px;
+}
+.notes-head {
+  top: -20px;
+  padding-top: 20px;
+  padding-bottom: 12px;
+}
+.notes-head h2 {
+  font-size: 16px;
+}
+.notes-head p {
+  max-width: 280px;
+  font-size: 12px;
+}
+.note-group {
+  margin-top: 22px;
+}
+.note-group-head {
+  font-size: 11.5px;
+  letter-spacing: 0.03em;
+}
+.note-card {
+  margin-bottom: 10px;
+  padding: 14px 15px;
+  border-radius: 12px;
+}
+.kind-badge,
+.author-badge {
+  font-size: 10.5px;
+}
+.note-time {
+  font-size: 10.5px;
+}
+.note-title {
+  font-size: 14.5px;
+}
+.markdown {
+  font-size: 13.5px;
+  line-height: 1.8;
+}
+.note-role,
+.divergence {
+  font-size: 12px;
+}
+.divergence-title {
+  font-size: 11.5px;
+}
+.condense-hint {
+  font-size: 11.5px;
+}
+.condense-head {
+  font-size: 12px;
+}
+.condense-meta {
+  font-size: 11px;
+}
+.notes-empty {
+  padding: 32px 18px;
+  font-size: 13px;
+}
+.notes-empty-title {
+  font-size: 15px;
+}
+.streaming-head {
+  font-size: 12.5px;
+}
+.add-note-button {
+  padding: 10px;
+  font-size: 12.5px;
+}
+
+/* format panel */
+.format-panel {
+  padding: 18px 18px 30px;
+}
+.format-head h2 {
+  font-size: 16px;
+}
+.format-head p {
+  font-size: 12px;
+}
+.format-hint {
+  font-size: 12px;
+}
+.format-section-head {
+  font-size: 11.5px;
+  letter-spacing: 0.03em;
+}
+.format-section-note,
+.removed-reason,
+.removed-text {
+  font-size: 12px;
+}
+.style-label,
+.checkbox-label,
+.segmented button {
+  font-size: 12px;
+}
+.style-value {
+  font-size: 11.5px;
+}
+.format-message {
+  font-size: 12px;
+}
+.format-input-row input {
+  font-size: 12.5px;
+}
+
+/* library */
+.library {
+  padding: 44px 48px 80px;
+}
+.library-head h1 {
+  font-size: 34px;
+}
+.book-body h3 {
+  font-size: 17px;
+}
+.book-author {
+  font-size: 12.5px;
+}
+.book-meta {
+  font-size: 11px;
+}
+.book-actions {
+  font-size: 11.5px;
+}
+.welcome h1 {
+  font-size: 40px;
+}
+.welcome-lead {
+  font-size: 15px;
+}
+.welcome-grid h3 {
+  font-size: 15px;
+}
+.welcome-grid p {
+  font-size: 13px;
+}
+
+/* dialogs and forms */
+.modal {
+  width: 560px;
+  padding: 24px 26px 20px;
+}
+.modal-head h2 {
+  font-size: 19px;
+}
+.modal-subtitle,
+.form-row label {
+  font-size: 12.5px;
+}
+.field-hint {
+  font-size: 11.5px;
+}
+.modal-meta {
+  font-size: 10.5px;
+}
+.organize-mode {
+  font-size: 12px;
+}
+.organize-row {
+  padding: 9px 12px;
+  font-size: 13px;
+}
+.organize-row-head {
+  font-size: 12px;
+}
+.organize-index {
+  font-size: 10.5px;
+}
+.organize-sub {
+  font-size: 11px;
+}
+
+/* search */
+.search-modal {
+  width: min(680px, 92vw);
+  max-height: 76vh;
+}
+.search-input-row {
+  padding: 16px 18px;
+}
+.search-input-row input {
+  font-size: 16px;
+}
+.search-results {
+  padding: 8px 10px 6px;
+}
+.search-group-label {
+  padding: 10px 12px 5px;
+  font-size: 10.5px;
+}
+.search-result {
+  padding: 10px 12px;
+  border-radius: 9px;
+}
+.search-result-title {
+  font-size: 13.5px;
+}
+.search-result-meta {
+  font-size: 11px;
+}
+.search-result-snippet {
+  font-size: 12px;
+  line-height: 1.6;
+}
+.search-result mark {
+  padding: 0 1px;
+  border-radius: 2px;
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+}
+.search-footer {
+  display: flex;
+  justify-content: space-between;
+  padding: 9px 18px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 10.5px;
+}
+.search-empty {
+  font-size: 12.5px;
+}
+
+/* notes library */
+.notes-library {
+  padding: 44px 48px 80px;
+}
+.notes-library-head h1 {
+  font-size: 34px;
+}
+.notes-library-head p {
+  font-size: 12.5px;
+}
+.notes-filter-input,
+.notes-select {
+  padding: 9px 12px;
+  font-size: 13px;
+}
+.tag-filter button {
+  padding: 4px 10px;
+  font-size: 11px;
+}
+.notes-result-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.notes-library-list {
+  gap: 11px;
+}
+.library-note {
+  padding: 14px 16px;
+}
+.library-note-title {
+  font-size: 14.5px;
+}
+.library-note-date {
+  font-size: 10.5px;
+}
+.library-note-meta {
+  font-size: 11px;
+}
+.library-note-snippet {
+  font-size: 12.5px;
+}
+.library-note-tags {
+  font-size: 11px;
+}
+.notes-library-empty {
+  font-size: 13px;
+}
+
+/* review */
+.review-panel {
+  width: min(720px, 94vw);
+  padding: 22px 28px 28px;
+}
+.review-meta {
+  font-size: 11px;
+}
+.review-card h2 {
+  font-size: 27px;
+}
+.review-answer {
+  font-size: 15px;
+  line-height: 1.9;
+}
+.review-answer .markdown {
+  font-size: 15px;
+  line-height: 1.9;
+}
+.review-role,
+.review-divergences p {
+  font-size: 13px;
+}
+.review-quote {
+  font-size: 13px;
+}
+.review-prompt {
+  margin: 18px 0 0;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.review-rate-hint {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 20px;
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+.review-rate-hint em {
+  color: var(--muted);
+  font-size: 10.5px;
+  font-style: normal;
+}
+.review-ratings {
+  gap: 9px;
+  margin-top: 8px;
+}
+.review-rating {
+  padding: 10px 8px;
+}
+.review-rating span {
+  font-size: 13px;
+}
+.review-rating em {
+  font-size: 10.5px;
+}
+.review-reveal {
+  margin-top: 18px;
+}
+
+@media (max-width: 1200px) {
+  .workspace {
+    grid-template-columns: 210px minmax(0, 1fr) 410px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* editorial headings and note accents */
+.notes-head h2,
+.format-head h2,
+.modal-head h2 {
+  font-family: 'Songti SC', 'Noto Serif SC', Georgia, serif;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.condense-ratio-bar {
+  height: 3px;
+  margin-top: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--paper-3);
+}
+.condense-ratio-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+}
+.library-note {
+  border-left-width: 3px;
+}
+.library-note.kind-condensed,
+.library-note.kind-point,
+.library-note.kind-summary {
+  border-left-color: var(--accent);
+}
+.library-note.kind-claim {
+  border-left-color: var(--ai);
+}
+.library-note.kind-question {
+  border-left-color: var(--warn);
+}
+.library-note.kind-highlight {
+  border-left-color: #8a6fa8;
+}
+.library-note.kind-thought {
+  border-left-color: #5f7f95;
+}
+
+.search-result-kind.type-book {
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+}
+.search-result-kind.type-chapter {
+  background: var(--ai-soft);
+  color: var(--ai);
+}
+.search-result-kind.type-note {
+  background: color-mix(in srgb, var(--warn) 14%, var(--white));
+  color: var(--warn);
+}
+
+/* the refinement .modal width must not collapse the wide organize dialog */
+.organize-modal {
+  width: 780px;
+  max-width: calc(100vw - 60px);
+}
+
+.review-front {
+  padding-top: 4px;
+}
+.review-front-quote {
+  margin: 20px 0 0;
+  padding: 16px 18px;
+  border-left: 3px solid var(--accent);
+  border-radius: 0 10px 10px 0;
+  background: var(--paper-3);
+  color: var(--ink);
+  font-family: 'Songti SC', 'Noto Serif SC', Georgia, serif;
+  font-size: 20px;
+  line-height: 1.8;
+}
+.review-section {
+  margin: 16px 0 0;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.review-front-tags {
+  margin-top: 14px;
+}
+
+.review-front-title {
+  margin: 20px 0 0;
+  font-family: 'Songti SC', 'Noto Serif SC', Georgia, serif;
+  font-size: 24px;
+  line-height: 1.45;
+}
+
+/* book spines follow the active global theme instead of a fixed rust */
+.book-spine {
+  background: linear-gradient(160deg, color-mix(in srgb, var(--accent) 80%, var(--white)), var(--accent-dark));
+}
+
+.model-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

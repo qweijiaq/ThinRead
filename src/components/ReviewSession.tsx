@@ -102,19 +102,19 @@ export function ReviewSession({ initialCards, onRate, onClose }: ReviewSessionPr
               {current.bookTitle}
               {current.chapterTitle ? ` · ${current.chapterTitle}` : ''}
             </p>
-            <h2>{current.title}</h2>
-            {current.tags.length > 0 ? (
-              <div className="tag-row">
-                {current.tags.slice(0, 6).map((tag) => (
-                  <span key={tag} className="tag">
-                    {tag}
-                  </span>
-                ))}
-              </div>
-            ) : null}
 
             {revealed ? (
               <>
+                <h2>{current.title}</h2>
+                {current.tags.length > 0 ? (
+                  <div className="tag-row">
+                    {current.tags.slice(0, 6).map((tag) => (
+                      <span key={tag} className="tag">
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
                 <div className="review-answer">
                   <Markdown text={current.content} />
                 </div>
@@ -137,6 +137,10 @@ export function ReviewSession({ initialCards, onRate, onClose }: ReviewSessionPr
                     ))}
                   </div>
                 ) : null}
+                <div className="review-rate-hint">
+                  <span>这张卡片记得怎么样？</span>
+                  <em>1–4 键评分</em>
+                </div>
                 <div className="review-ratings">
                   {RATINGS.map((item) => (
                     <button
@@ -153,11 +157,28 @@ export function ReviewSession({ initialCards, onRate, onClose }: ReviewSessionPr
                 </div>
               </>
             ) : (
-              <div className="review-reveal">
-                <button type="button" className="primary-button" onClick={() => setRevealed(true)}>
-                  显示答案
-                </button>
-                <span className="muted">空格 / 回车</span>
+              <div className="review-front">
+                <p className="review-prompt">先在心里回忆这张卡片，再显示答案。</p>
+                {current.quote ? <blockquote className="review-front-quote">“{current.quote}”</blockquote> : null}
+                {!current.quote && current.section ? <p className="review-section">{current.section}</p> : null}
+                {!current.quote && current.tags.length > 0 ? (
+                  <div className="tag-row review-front-tags">
+                    {current.tags.slice(0, 5).map((tag) => (
+                      <span key={tag} className="tag">
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+                {!current.quote && current.tags.length === 0 ? (
+                  <h2 className="review-front-title">{current.title}</h2>
+                ) : null}
+                <div className="review-reveal">
+                  <button type="button" className="primary-button" onClick={() => setRevealed(true)}>
+                    显示答案
+                  </button>
+                  <span className="muted">空格 / 回车</span>
+                </div>
               </div>
             )}
           </article>
