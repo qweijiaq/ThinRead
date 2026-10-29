@@ -11,6 +11,7 @@ import type {
   ClassifyResult,
   GeneratePartial,
   LibraryNote,
+  KnowledgeMapNode,
   Note,
   NoteDraft,
   NotePatch,
@@ -24,6 +25,7 @@ import { ChatPanel } from './components/ChatPanel.js'
 import { FeynmanPanel } from './components/FeynmanPanel.js'
 import { FormatPanel } from './components/FormatPanel.js'
 import type { FormatMessage } from './components/FormatPanel.js'
+import { KnowledgeMap } from './components/KnowledgeMap.js'
 import { Library } from './components/Library.js'
 import { ListenPanel } from './components/ListenPanel.js'
 import { NotesPanel } from './components/NotesPanel.js'
@@ -71,7 +73,7 @@ export function App(): JSX.Element {
   const [toast, setToast] = useState<{ kind: 'error' | 'info'; text: string } | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
-  const [mainView, setMainView] = useState<'reader' | 'notes'>('reader')
+  const [mainView, setMainView] = useState<'reader' | 'notes' | 'map'>('reader')
   const [autoReview, setAutoReview] = useState(false)
   const [listen, setListen] = useState<{ title: string; text: string } | null>(null)
   const [focusNote, setFocusNote] = useState<{ id: string; key: number } | null>(null)
@@ -723,6 +725,33 @@ export function App(): JSX.Element {
     [openSearchResult],
   )
 
+  const openMapNote = useCallback(
+    async (node: KnowledgeMapNode) => {
+      if (!node.noteId) return
+      setMainView('reader')
+      await openSearchResult({
+        type: 'note',
+        id: node.noteId,
+        bookId: node.bookId,
+        bookTitle: node.bookTitle,
+        chapterId: node.chapterId,
+        chapterTitle: node.chapterTitle,
+        title: node.label,
+        snippet: '',
+        updatedAt: '',
+      })
+    },
+    [openSearchResult],
+  )
+
+  const openMapBook = useCallback(
+    async (bookId: string) => {
+      setMainView('reader')
+      await openBook(bookId)
+    },
+    [openBook],
+  )
+
   function leaveReader(): void {
     void window.api.cancelGeneration()
     setGenerating(false)
@@ -750,6 +779,8 @@ export function App(): JSX.Element {
         onSearch={() => setSearchOpen(true)}
         onNotes={() => setMainView('notes')}
         notesActive={mainView === 'notes'}
+        onMap={() => setMainView('map')}
+        mapActive={mainView === 'map'}
       />
 
       {toast ? (
@@ -768,6 +799,12 @@ export function App(): JSX.Element {
           onOpen={(note) => void openLibraryNote(note)}
           autoStartReview={autoReview}
           onAutoStarted={() => setAutoReview(false)}
+        />
+      ) : mainView === 'map' ? (
+        <KnowledgeMap
+          onBack={() => setMainView('reader')}
+          onOpenNote={(node) => void openMapNote(node)}
+          onOpenBook={(bookId) => void openMapBook(bookId)}
         />
       ) : book ? (
         <div className="workspace">

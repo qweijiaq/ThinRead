@@ -133,8 +133,13 @@ async function embed(texts: string[]): Promise<number[][]> {
 }
 
 /** 把尚未建立索引的笔记补齐；多个入口共用同一个后台任务。 */
+export function warmSemanticIndex(): void {
+  void warm()
+}
+
 function warm(): Promise<void> {
   if (warming) return warming
+  if (lastFailure > 0 && Date.now() - lastFailure < RETRY_DELAY) return Promise.resolve()
   warming = (async () => {
     const pending = listNotesForEmbedding(MODEL)
     if (pending.length === 0) {

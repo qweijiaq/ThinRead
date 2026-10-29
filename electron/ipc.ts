@@ -41,9 +41,10 @@ import { expandPoint, generateChapterNotes } from './ai/notes.js'
 import { createLanguageModel } from './ai/provider.js'
 import { askChapter, evaluateExplanation } from './ai/tutor.js'
 import { classifyImportedChapters, importBookFile } from './import.js'
+import { buildKnowledgeMap } from './knowledge-map.js'
 import { parseEpub } from './parsers/epub.js'
 import { parsePdf } from './parsers/pdf.js'
-import { configureSemantic, semanticRelatedNotes } from './semantic.js'
+import { configureSemantic, semanticRelatedNotes, warmSemanticIndex } from './semantic.js'
 import { getActiveSettings, getSettingsView, isDemoMode, saveSettings } from './settings.js'
 import type {
   ChapterFlag,
@@ -263,6 +264,12 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
       context: tutorContextFor(chapterId),
       explanation,
     })
+  })
+
+  ipcMain.handle('map:get', () => {
+    const map = buildKnowledgeMap()
+    if (!map.semanticReady && map.displayedNotes > 0) warmSemanticIndex()
+    return map
   })
 
   ipcMain.handle('notes:list', (_event, bookId: string, chapterId?: string | null) =>

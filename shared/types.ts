@@ -197,6 +197,40 @@ export interface FeynmanResult {
   misconceptions: string[]
 }
 
+export type KnowledgeNodeType = 'book' | 'note'
+
+export interface KnowledgeMapNode {
+  id: string
+  type: KnowledgeNodeType
+  label: string
+  bookId: string
+  bookTitle: string
+  chapterId: string | null
+  chapterTitle: string | null
+  noteId: string | null
+  kind: NoteKind | null
+  weight: number
+  tags: string[]
+  noteCount: number | null
+}
+
+export interface KnowledgeMapEdge {
+  id: string
+  source: string
+  target: string
+  kind: 'book' | 'semantic' | 'tag'
+  weight: number
+  cross: boolean
+}
+
+export interface KnowledgeMapData {
+  nodes: KnowledgeMapNode[]
+  edges: KnowledgeMapEdge[]
+  semanticReady: boolean
+  totalNotes: number
+  displayedNotes: number
+}
+
 export interface NoteDraft {
   bookId: string
   chapterId?: string | null
@@ -432,6 +466,7 @@ export interface ReadingApi {
   reviewNote(noteId: string, rating: ReviewRating): Promise<void>
   askChapter(chapterId: string, question: string, history: ChatTurn[], mode: ChatMode): Promise<ChatAnswer>
   evaluateExplanation(chapterId: string, explanation: string): Promise<FeynmanResult>
+  getKnowledgeMap(): Promise<KnowledgeMapData>
   createNote(draft: NoteDraft): Promise<Note>
   updateNote(id: string, patch: NotePatch): Promise<Note>
   deleteNote(id: string): Promise<void>

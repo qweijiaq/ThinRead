@@ -12,7 +12,9 @@ interface TopBarProps {
   onReparse(): void
   onSearch(): void
   onNotes(): void
+  onMap(): void
   notesActive?: boolean
+  mapActive?: boolean
 }
 
 export function TopBar({
@@ -25,7 +27,9 @@ export function TopBar({
   onReparse,
   onSearch,
   onNotes,
+  onMap,
   notesActive = false,
+  mapActive = false,
 }: TopBarProps): JSX.Element {
   const preset = PROVIDER_PRESETS.find((item) => item.id === settings?.provider)
   const modelLabel = settings?.demo ? '演示模式' : `${preset?.label ?? settings?.provider} · ${settings?.model}`
@@ -46,16 +50,16 @@ export function TopBar({
         >
           页边
         </span>
-        {book || notesActive ? (
+        {book || notesActive || mapActive ? (
           <>
             <span className="topbar-divider" />
-            <span className="topbar-book" title={notesActive ? '全库笔记' : book?.title}>
-              {notesActive ? '全库笔记' : book?.title}
+            <span className="topbar-book" title={mapActive ? '知识地图' : notesActive ? '全库笔记' : book?.title}>
+              {mapActive ? '知识地图' : notesActive ? '全库笔记' : book?.title}
             </span>
             <button type="button" className="ghost-button small" onClick={onLibrary}>
               书架
             </button>
-            {book && !notesActive ? (
+            {book && !notesActive && !mapActive ? (
               <button type="button" className="ghost-button small" onClick={onReparse} title="用新的解析器重新拆分章节">
                 重新解析
               </button>
@@ -71,6 +75,14 @@ export function TopBar({
           title="全库笔记"
         >
           笔记
+        </button>
+        <button
+          type="button"
+          className={`ghost-button small${mapActive ? ' is-active' : ''}`}
+          onClick={onMap}
+          title="知识地图"
+        >
+          地图
         </button>
         <button type="button" className="ghost-button small" onClick={onSearch} title="搜索（⌘K）">
           搜索

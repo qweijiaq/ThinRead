@@ -14,6 +14,7 @@ import type {
   GenerationDoneEvent,
   GenerationErrorEvent,
   GenerationPartialEvent,
+  KnowledgeMapData,
   LibraryFilter,
   LibraryNote,
   Note,
@@ -87,6 +88,7 @@ const api: ReadingApi = {
     ipcRenderer.invoke('tutor:ask', chapterId, question, history, mode) as Promise<ChatAnswer>,
   evaluateExplanation: (chapterId: string, explanation: string) =>
     ipcRenderer.invoke('tutor:evaluate', chapterId, explanation) as Promise<FeynmanResult>,
+  getKnowledgeMap: () => ipcRenderer.invoke('map:get') as Promise<KnowledgeMapData>,
   onGenerationPartial: (cb) => subscribe<GenerationPartialEvent>('generation:partial', cb),
   onGenerationDone: (cb) => subscribe<GenerationDoneEvent>('generation:done', cb),
   onGenerationError: (cb) => subscribe<GenerationErrorEvent>('generation:error', cb),

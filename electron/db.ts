@@ -1031,6 +1031,65 @@ export function reviewNote(noteId: string, rating: ReviewRating): void {
 
 const REVIEWABLE_KINDS = new Set<NoteKind>(['point', 'claim', 'summary', 'question', 'thought'])
 
+export interface MapNote {
+  id: string
+  bookId: string
+  bookTitle: string
+  chapterId: string | null
+  chapterTitle: string | null
+  title: string
+  kind: NoteKind
+  tags: string[]
+  importance: number
+  updatedAt: string
+  vector: number[] | null
+}
+
+export function listMapNotes(limit = 300): { notes: MapNote[]; total: number } {
+  const conn = database()
+  const totalRow = conn.prepare('SELECT COUNT(*) AS count FROM notes').get() as { count: number } | undefined
+  const rows = conn
+    .prepare(
+      `SELECT n.id, n.book_id, b.title AS book_title, n.chapter_id, c.title AS chapter_title,
+              n.title, n.kind, n.tags, n.importance, n.updated_at, e.vector
+       FROM notes n
+       JOIN books b ON b.id = n.book_id
+       LEFT JOIN chapters c ON c.id = n.chapter_id
+       LEFT JOIN note_embeddings e ON e.note_id = n.id
+       ORDER BY CASE WHEN n.importance IS NULL THEN 1 ELSE 0 END, n.importance DESC, n.updated_at DESC
+       LIMIT ?`,
+    )
+    .all(Math.min(Math.max(limit, 1), 500)) as unknown as Array<{
+    id: string
+    book_id: string
+    book_title: string
+    chapter_id: string | null
+    chapter_title: string | null
+    title: string
+    kind: string
+    tags: string
+    importance: number | null
+    updated_at: string
+    vector: string | null
+  }>
+  return {
+    total: Number(totalRow?.count ?? 0),
+    notes: rows.map((row) => ({
+      id: row.id,
+      bookId: row.book_id,
+      bookTitle: row.book_title,
+      chapterId: row.chapter_id,
+      chapterTitle: row.chapter_title,
+      title: row.title,
+      kind: row.kind as NoteKind,
+      tags: parseTags(row.tags),
+      importance: row.importance == null ? 2 : Number(row.importance),
+      updatedAt: row.updated_at,
+      vector: parseVector(row.vector),
+    })),
+  }
+}
+
 export interface NoteForEmbedding {
   id: string
   title: string
