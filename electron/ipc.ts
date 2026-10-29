@@ -39,13 +39,16 @@ import { classifyChapters } from './ai/classify.js'
 import { formatChapter as formatChapterWithAI } from './ai/format.js'
 import { expandPoint, generateChapterNotes } from './ai/notes.js'
 import { createLanguageModel } from './ai/provider.js'
+import { askChapter, evaluateExplanation } from './ai/tutor.js'
 import { classifyImportedChapters, importBookFile } from './import.js'
 import { parseEpub } from './parsers/epub.js'
 import { parsePdf } from './parsers/pdf.js'
 import { configureSemantic, semanticRelatedNotes } from './semantic.js'
-import { getActiveSettings, getSettingsView, saveSettings } from './settings.js'
+import { getActiveSettings, getSettingsView, isDemoMode, saveSettings } from './settings.js'
 import type {
   ChapterFlag,
+  ChatMode,
+  ChatTurn,
   LibraryFilter,
   NoteDraft,
   NotePatch,
@@ -55,6 +58,7 @@ import type {
   SettingsPatch,
   TestResult,
 } from '../shared/types.js'
+import type { TutorContext } from './ai/tutor.js'
 
 interface ActiveGeneration {
   chapterId: string
@@ -62,6 +66,26 @@ interface ActiveGeneration {
 }
 
 let active: ActiveGeneration | null = null
+
+function tutorContextFor(chapterId: string): TutorContext {
+  const chapter = getChapter(chapterId)
+  const book = getBookSummary(chapter.bookId)
+  const notes = listNotes(chapter.bookId, chapterId)
+  return {
+    bookTitle: book?.title ?? '',
+    chapterTitle: chapter.title,
+    chapterText: chapter.text,
+    condensed: notes.find((note) => note.kind === 'condensed')?.content ?? '',
+    cards: notes
+      .filter((note) => note.kind === 'point' || note.kind === 'claim')
+      .map((note) => ({
+        title: note.title,
+        content: note.content,
+        role: note.role,
+        quote: note.quote,
+      })),
+  }
+}
 
 export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: string): void {
   configureSemantic(dataDir, () => {
@@ -214,6 +238,31 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
   ipcMain.handle('review:rate', async (_event, noteId: string, rating: ReviewRating) => {
     if (typeof noteId !== 'string') throw new Error('笔记无效。')
     reviewNote(noteId, rating)
+  })
+
+  ipcMain.handle(
+    'tutor:ask',
+    async (_event, chapterId: string, question: string, history: ChatTurn[], mode: ChatMode) => {
+      if (typeof chapterId !== 'string' || typeof question !== 'string') throw new Error('问题无效。')
+      return askChapter({
+        config: getActiveSettings(),
+        demo: isDemoMode(),
+        context: tutorContextFor(chapterId),
+        question,
+        history: Array.isArray(history) ? history : [],
+        mode: mode === 'socratic' ? 'socratic' : 'answer',
+      })
+    },
+  )
+
+  ipcMain.handle('tutor:evaluate', async (_event, chapterId: string, explanation: string) => {
+    if (typeof chapterId !== 'string' || typeof explanation !== 'string') throw new Error('解释无效。')
+    return evaluateExplanation({
+      config: getActiveSettings(),
+      demo: isDemoMode(),
+      context: tutorContextFor(chapterId),
+      explanation,
+    })
   })
 
   ipcMain.handle('notes:list', (_event, bookId: string, chapterId?: string | null) =>

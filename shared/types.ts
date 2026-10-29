@@ -170,6 +170,31 @@ export interface ReviewStats {
   total: number
   newCount: number
   reviewedToday: number
+  streakDays: number
+}
+
+export type ChatMode = 'answer' | 'socratic'
+
+export interface ChatTurn {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export interface ChatCitation {
+  quote: string
+  verified: boolean
+}
+
+export interface ChatAnswer {
+  answer: string
+  citations: ChatCitation[]
+}
+
+export interface FeynmanResult {
+  feedback: string
+  covered: string[]
+  missing: string[]
+  misconceptions: string[]
 }
 
 export interface NoteDraft {
@@ -405,6 +430,8 @@ export interface ReadingApi {
   getReviewStats(): Promise<ReviewStats>
   getReviewQueue(limit?: number): Promise<LibraryNote[]>
   reviewNote(noteId: string, rating: ReviewRating): Promise<void>
+  askChapter(chapterId: string, question: string, history: ChatTurn[], mode: ChatMode): Promise<ChatAnswer>
+  evaluateExplanation(chapterId: string, explanation: string): Promise<FeynmanResult>
   createNote(draft: NoteDraft): Promise<Note>
   updateNote(id: string, patch: NotePatch): Promise<Note>
   deleteNote(id: string): Promise<void>

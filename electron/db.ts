@@ -919,7 +919,31 @@ export function getReviewStats(): ReviewStats {
     `SELECT COUNT(*) AS count FROM note_reviews
      WHERE date(last_reviewed_at, 'localtime') = date('now', 'localtime')`,
   )
-  return { due, total, newCount, reviewedToday }
+  const days = new Set(
+    (
+      database()
+        .prepare(
+          `SELECT DISTINCT date(last_reviewed_at, 'localtime') AS day
+           FROM note_reviews WHERE last_reviewed_at IS NOT NULL`,
+        )
+        .all() as unknown as Array<{ day: string }>
+    ).map((item) => String(item.day)),
+  )
+  const cursor = new Date()
+  cursor.setHours(0, 0, 0, 0)
+  if (!days.has(localDateKey(cursor))) cursor.setDate(cursor.getDate() - 1)
+  let streakDays = 0
+  while (days.has(localDateKey(cursor))) {
+    streakDays += 1
+    cursor.setDate(cursor.getDate() - 1)
+  }
+  return { due, total, newCount, reviewedToday, streakDays }
+}
+
+function localDateKey(date: Date): string {
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${date.getFullYear()}-${month}-${day}`
 }
 
 export function getReviewQueue(limit = 30): LibraryNote[] {

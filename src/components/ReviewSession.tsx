@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
 import type { LibraryNote, ReviewRating } from '../../shared/types.js'
+import { buildCloze, normalizeClozeAnswer } from '../lib/cloze.js'
 import { Markdown } from './Markdown.js'
 
 interface ReviewSessionProps {
@@ -27,10 +28,33 @@ export function ReviewSession({ initialCards, onRate, onClose }: ReviewSessionPr
   const [busy, setBusy] = useState(false)
   const [reviewed, setReviewed] = useState(0)
   const [error, setError] = useState<string | null>(null)
+  const [clozeMode, setClozeMode] = useState(true)
+  const [answer, setAnswer] = useState('')
+  const [clozeChecked, setClozeChecked] = useState<boolean | null>(null)
   const unique = useRef(new Set<string>())
   const total = useRef(initialCards.length)
 
   const current = cards[0] ?? null
+  const cloze = current && clozeMode ? buildCloze(current) : null
+
+  useEffect(() => {
+    setAnswer('')
+    setClozeChecked(null)
+    setRevealed(false)
+  }, [current?.id])
+
+  function checkCloze(): void {
+    if (!cloze) return
+    setClozeChecked(normalizeClozeAnswer(answer) === normalizeClozeAnswer(cloze.answer))
+    setRevealed(true)
+  }
+
+  function toggleCloze(next: boolean): void {
+    setClozeMode(next)
+    setAnswer('')
+    setClozeChecked(null)
+    setRevealed(false)
+  }
 
   async function rate(rating: ReviewRating): Promise<void> {
     if (!current || busy) return
@@ -54,6 +78,13 @@ export function ReviewSession({ initialCards, onRate, onClose }: ReviewSessionPr
 
   useEffect(() => {
     function onKey(event: KeyboardEvent): void {
+      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
+        if (event.key === 'Escape') {
+          event.preventDefault()
+          onClose()
+        }
+        return
+      }
       if (event.key === 'Escape') {
         event.preventDefault()
         onClose()
@@ -92,6 +123,17 @@ export function ReviewSession({ initialCards, onRate, onClose }: ReviewSessionPr
             关闭
           </button>
         </div>
+        {current ? (
+          <div className="review-subhead">
+            <label className="cloze-toggle">
+              <input type="checkbox" checked={clozeMode} onChange={(event) => toggleCloze(event.target.checked)} />
+              挖空回忆
+            </label>
+            <span className="muted">
+              {cloze && !revealed ? '输入后回车检查' : '1–4 键评分'} · Esc 关闭
+            </span>
+          </div>
+        ) : null}
         <div className="review-progress">
           <div className="review-progress-fill" style={{ width: `${progress}%` }} />
         </div>
@@ -105,6 +147,11 @@ export function ReviewSession({ initialCards, onRate, onClose }: ReviewSessionPr
 
             {revealed ? (
               <>
+                {cloze && clozeChecked !== null ? (
+                  <p className={`review-cloze-result ${clozeChecked ? 'ok' : 'miss'}`}>
+                    {clozeChecked ? `填对了：${cloze.answer}` : `正确答案：${cloze.answer}`}
+                  </p>
+                ) : null}
                 <h2>{current.title}</h2>
                 {current.tags.length > 0 ? (
                   <div className="tag-row">
@@ -156,6 +203,32 @@ export function ReviewSession({ initialCards, onRate, onClose }: ReviewSessionPr
                   ))}
                 </div>
               </>
+            ) : cloze ? (
+              <div className="review-cloze">
+                <p className="review-prompt">补上横线处的词。</p>
+                <p className="review-cloze-text">{cloze.text}</p>
+                <form
+                  className="review-cloze-form"
+                  onSubmit={(event) => {
+                    event.preventDefault()
+                    checkCloze()
+                  }}
+                >
+                  <input
+                    value={answer}
+                    onChange={(event) => setAnswer(event.target.value)}
+                    placeholder="填入缺的词"
+                    autoFocus
+                    aria-label="填空答案"
+                  />
+                  <button type="submit" className="primary-button small" disabled={!answer.trim()}>
+                    检查
+                  </button>
+                </form>
+                <button type="button" className="text-button muted" onClick={() => setRevealed(true)}>
+                  不会，直接看答案
+                </button>
+              </div>
             ) : (
               <div className="review-front">
                 <p className="review-prompt">先在心里回忆这张卡片，再显示答案。</p>

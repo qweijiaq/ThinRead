@@ -1,4 +1,4 @@
-import { useEffect, useState, type JSX } from 'react'
+import { useEffect, useRef, useState, type JSX } from 'react'
 import type { BookSummary, LibraryNote, NoteKind, ReviewStats, TagCount } from '../../shared/types.js'
 import { snippet } from '../lib/links.js'
 import { ReviewSession } from './ReviewSession.js'
@@ -7,6 +7,8 @@ interface NotesLibraryProps {
   books: BookSummary[]
   onBack(): void
   onOpen(note: LibraryNote): void
+  autoStartReview?: boolean
+  onAutoStarted?: () => void
 }
 
 const KIND_LABEL: Record<NoteKind, string> = {
@@ -30,7 +32,7 @@ const KIND_OPTIONS: Array<{ value: NoteKind | ''; label: string }> = [
   { value: 'condensed', label: '读薄稿' },
 ]
 
-export function NotesLibrary({ books, onBack, onOpen }: NotesLibraryProps): JSX.Element {
+export function NotesLibrary({ books, onBack, onOpen, autoStartReview = false, onAutoStarted }: NotesLibraryProps): JSX.Element {
   const [notes, setNotes] = useState<LibraryNote[]>([])
   const [tags, setTags] = useState<TagCount[]>([])
   const [stats, setStats] = useState<ReviewStats | null>(null)
@@ -43,6 +45,7 @@ export function NotesLibrary({ books, onBack, onOpen }: NotesLibraryProps): JSX.
   const [reviewCards, setReviewCards] = useState<LibraryNote[] | null>(null)
   const [starting, setStarting] = useState(false)
   const [refreshTick, setRefreshTick] = useState(0)
+  const autoStartedRef = useRef(false)
 
   useEffect(() => {
     void window.api
@@ -57,6 +60,17 @@ export function NotesLibrary({ books, onBack, onOpen }: NotesLibraryProps): JSX.
       .then(setTags)
       .catch(() => setTags([]))
   }, [bookId, refreshTick])
+
+  useEffect(() => {
+    if (!autoStartReview) {
+      autoStartedRef.current = false
+      return
+    }
+    if (!stats || autoStartedRef.current) return
+    autoStartedRef.current = true
+    onAutoStarted?.()
+    if (stats.due > 0) void startReview()
+  }, [autoStartReview, stats, onAutoStarted])
 
   useEffect(() => {
     let cancelled = false

@@ -1,14 +1,20 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type JSX } from 'react'
 
-import type { ChapterContent, ReaderStyle } from '../../shared/types.js'
+import type { ChapterContent, ReaderStyle, RelatedNote } from '../../shared/types.js'
+import { EchoDialog } from './EchoDialog.js'
 
 interface ReaderProps {
   chapter: ChapterContent | null
   loading: boolean
   style: ReaderStyle
+  bookTitle: string
   scrollTarget: { quote: string; key: number } | null
+  echoes: RelatedNote[]
+  excerpt: string
   onQuote(text: string): void
   onOpenFormat(): void
+  onOpenEcho(echo: RelatedNote): void
+  onListen(): void
 }
 
 /** 旧版本解析出的章节会把标题重复放进正文；渲染时去掉与章节标题相同的前导标题文本。 */
@@ -79,10 +85,23 @@ function findQuoteRange(root: HTMLElement, quote: string): Range | null {
   return range
 }
 
-export function Reader({ chapter, loading, style, scrollTarget, onQuote, onOpenFormat }: ReaderProps): JSX.Element {
+export function Reader({
+  chapter,
+  loading,
+  style,
+  bookTitle,
+  scrollTarget,
+  echoes,
+  excerpt,
+  onQuote,
+  onOpenFormat,
+  onOpenEcho,
+  onListen,
+}: ReaderProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const [selection, setSelection] = useState<string>('')
   const [toolbar, setToolbar] = useState<{ x: number; y: number } | null>(null)
+  const [echoOpen, setEchoOpen] = useState(false)
   const html = useMemo(() => {
     const source = chapter?.formattedHtml ?? chapter?.html
     return source ? stripDuplicateTitle(source, chapter?.title ?? '') : null
@@ -102,6 +121,7 @@ export function Reader({ chapter, loading, style, scrollTarget, onQuote, onOpenF
   useEffect(() => {
     setSelection('')
     setToolbar(null)
+    setEchoOpen(false)
   }, [chapter?.id])
 
   useEffect(() => {
@@ -165,9 +185,19 @@ export function Reader({ chapter, loading, style, scrollTarget, onQuote, onOpenF
                   {chapter.isPart ? '篇首 · ' : null}
                   约 {chapter.chars.toLocaleString()} 字
                 </div>
-                <button type="button" className="ghost-button small" onClick={onOpenFormat}>
-                  排版
-                </button>
+                <div className="chapter-head-actions">
+                  {echoes.length > 0 ? (
+                    <button type="button" className="ghost-button small" onClick={() => setEchoOpen(true)}>
+                      回声 · {echoes.length}
+                    </button>
+                  ) : null}
+                  <button type="button" className="ghost-button small" onClick={onListen}>
+                    听读
+                  </button>
+                  <button type="button" className="ghost-button small" onClick={onOpenFormat}>
+                    排版
+                  </button>
+                </div>
               </div>
               <h1>{chapter.title}</h1>
             </header>
@@ -207,6 +237,19 @@ export function Reader({ chapter, loading, style, scrollTarget, onQuote, onOpenF
             复制
           </button>
         </div>
+      ) : null}
+      {echoOpen && chapter ? (
+        <EchoDialog
+          bookTitle={bookTitle}
+          chapterTitle={chapter.title}
+          excerpt={excerpt}
+          echoes={echoes}
+          onOpen={(echo) => {
+            setEchoOpen(false)
+            onOpenEcho(echo)
+          }}
+          onClose={() => setEchoOpen(false)}
+        />
       ) : null}
     </section>
   )

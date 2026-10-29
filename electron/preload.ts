@@ -5,8 +5,12 @@ import type {
   ChapterContent,
   ChapterFlag,
   ChapterMeta,
+  ChatAnswer,
+  ChatMode,
+  ChatTurn,
   ClassifyResult,
   FormatResult,
+  FeynmanResult,
   GenerationDoneEvent,
   GenerationErrorEvent,
   GenerationPartialEvent,
@@ -79,6 +83,10 @@ const api: ReadingApi = {
   getReviewQueue: (limit) => ipcRenderer.invoke('review:queue', limit) as Promise<LibraryNote[]>,
   reviewNote: (noteId: string, rating: ReviewRating) =>
     ipcRenderer.invoke('review:rate', noteId, rating) as Promise<void>,
+  askChapter: (chapterId: string, question: string, history: ChatTurn[], mode: ChatMode) =>
+    ipcRenderer.invoke('tutor:ask', chapterId, question, history, mode) as Promise<ChatAnswer>,
+  evaluateExplanation: (chapterId: string, explanation: string) =>
+    ipcRenderer.invoke('tutor:evaluate', chapterId, explanation) as Promise<FeynmanResult>,
   onGenerationPartial: (cb) => subscribe<GenerationPartialEvent>('generation:partial', cb),
   onGenerationDone: (cb) => subscribe<GenerationDoneEvent>('generation:done', cb),
   onGenerationError: (cb) => subscribe<GenerationErrorEvent>('generation:error', cb),

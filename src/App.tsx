@@ -20,9 +20,12 @@ import type {
   SettingsView,
 } from '../shared/types.js'
 import { ChapterList } from './components/ChapterList.js'
+import { ChatPanel } from './components/ChatPanel.js'
+import { FeynmanPanel } from './components/FeynmanPanel.js'
 import { FormatPanel } from './components/FormatPanel.js'
 import type { FormatMessage } from './components/FormatPanel.js'
 import { Library } from './components/Library.js'
+import { ListenPanel } from './components/ListenPanel.js'
 import { NotesPanel } from './components/NotesPanel.js'
 import { NotesLibrary } from './components/NotesLibrary.js'
 import { OrganizeDialog } from './components/OrganizeDialog.js'
@@ -69,6 +72,8 @@ export function App(): JSX.Element {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [mainView, setMainView] = useState<'reader' | 'notes'>('reader')
+  const [autoReview, setAutoReview] = useState(false)
+  const [listen, setListen] = useState<{ title: string; text: string } | null>(null)
   const [focusNote, setFocusNote] = useState<{ id: string; key: number } | null>(null)
   const [pendingNoteId, setPendingNoteId] = useState<string | null>(null)
   const [scrollTarget, setScrollTarget] = useState<{ quote: string; key: number } | null>(null)
@@ -77,7 +82,7 @@ export function App(): JSX.Element {
   const [classifyMode, setClassifyMode] = useState<ClassifyResult['mode'] | null>(null)
   const [classifyError, setClassifyError] = useState<string | null>(null)
   const [classifying, setClassifying] = useState(false)
-  const [sideTab, setSideTab] = useState<'notes' | 'format'>('notes')
+  const [sideTab, setSideTab] = useState<'notes' | 'chat' | 'feynman' | 'format'>('notes')
   const [appTheme, setAppTheme] = useState<ReaderStyle['theme']>(loadStoredTheme)
   const [readerStyle, setReaderStyle] = useState<ReaderStyle>(DEFAULT_READER_STYLE)
   const [formatBusy, setFormatBusy] = useState(false)
@@ -364,8 +369,21 @@ export function App(): JSX.Element {
     [book, chapter?.id, refreshNotes],
   )
 
-  const updateNote = useCallback(
-    async (noteId: string, patch: NotePatch) => {
+  const saveTutorNote = useCallback(
+    async (title: string, content: string): Promise<void> => {
+      if (!book || !chapter) throw new Error('先打开一章。')
+      await createNote({
+        bookId: book.id,
+        chapterId: chapter.id,
+        kind: 'thought',
+        title,
+        content,
+      })
+    },
+    [book, chapter, createNote],
+  )
+
+  const updateNote = useCallback(    async (noteId: string, patch: NotePatch) => {
       await window.api.updateNote(noteId, patch)
       if (book) await refreshNotes(book.id, chapter?.id ?? null)
     },
@@ -581,6 +599,15 @@ export function App(): JSX.Element {
     return [condensed?.content.slice(0, 900), ...cards].filter(Boolean).join('\n').slice(0, 1800)
   }, [notes])
 
+  const echoExcerpt = useMemo(() => {
+    const condensed = notes.find((note) => note.kind === 'condensed')
+    if (condensed) return condensed.content
+    return notes
+      .filter((note) => note.kind === 'point' || note.kind === 'claim')
+      .map((note) => `**${note.title}**\n${note.content}`)
+      .join('\n\n')
+  }, [notes])
+
   useEffect(() => {
     if (!book || notes.length === 0) {
       setCrossBookNotes([])
@@ -705,6 +732,11 @@ export function App(): JSX.Element {
     setOrganizeOpen(false)
   }
 
+  function openDailyReview(): void {
+    setAutoReview(true)
+    setMainView('notes')
+  }
+
   return (
     <div className="app">
       <TopBar
@@ -734,6 +766,8 @@ export function App(): JSX.Element {
           books={books}
           onBack={() => setMainView('reader')}
           onOpen={(note) => void openLibraryNote(note)}
+          autoStartReview={autoReview}
+          onAutoStarted={() => setAutoReview(false)}
         />
       ) : book ? (
         <div className="workspace">
@@ -750,9 +784,16 @@ export function App(): JSX.Element {
             chapter={chapter}
             loading={loadingChapter}
             style={readerStyle}
+            bookTitle={book?.title ?? ''}
             scrollTarget={scrollTarget}
+            echoes={crossBookNotes}
+            excerpt={echoExcerpt}
             onQuote={(quote) => void handleQuote(quote)}
             onOpenFormat={() => setSideTab('format')}
+            onOpenEcho={(echo) => void openRelatedNote(echo)}
+            onListen={() => {
+              if (chapter) setListen({ title: chapter.title, text: chapter.text })
+            }}
           />
           <aside className="side-panel">
             <div className="side-tabs">
@@ -762,6 +803,20 @@ export function App(): JSX.Element {
                 onClick={() => setSideTab('notes')}
               >
                 笔记
+              </button>
+              <button
+                type="button"
+                className={`side-tab${sideTab === 'chat' ? ' active' : ''}`}
+                onClick={() => setSideTab('chat')}
+              >
+                问答
+              </button>
+              <button
+                type="button"
+                className={`side-tab${sideTab === 'feynman' ? ' active' : ''}`}
+                onClick={() => setSideTab('feynman')}
+              >
+                自测
               </button>
               <button
                 type="button"
@@ -796,6 +851,25 @@ export function App(): JSX.Element {
                 onExpand={(noteId) => void expandNote(noteId)}
                 onJumpQuote={(quote) => setScrollTarget({ quote, key: Date.now() })}
                 onOpenNote={(note) => void openNote(note)}
+                onListen={(text) => setListen({ title: `朗读 · ${chapter?.title ?? ''}`, text })}
+              />
+            ) : sideTab === 'chat' ? (
+              <ChatPanel
+                key={chapter?.id ?? 'no-chapter'}
+                chapter={chapter}
+                bookTitle={book?.title ?? ''}
+                onJumpQuote={(quote) => setScrollTarget({ quote, key: Date.now() })}
+                onSave={(text) => saveTutorNote(`问答 · ${chapter?.title ?? ''}`, text)}
+              />
+            ) : sideTab === 'feynman' ? (
+              <FeynmanPanel
+                key={chapter?.id ?? 'no-chapter'}
+                chapter={chapter}
+                bookTitle={book?.title ?? ''}
+                hasNotes={notes.some(
+                  (note) => note.kind === 'condensed' || note.kind === 'point' || note.kind === 'claim',
+                )}
+                onSave={(text) => saveTutorNote(`我的理解 · ${chapter?.title ?? ''}`, text)}
               />
             ) : (
               <FormatPanel
@@ -820,6 +894,7 @@ export function App(): JSX.Element {
           onOpen={(bookId) => void openBook(bookId)}
           onImport={() => void importBook()}
           onDelete={(bookId) => void deleteBook(bookId)}
+          onOpenReview={openDailyReview}
         />
       )}
 
@@ -843,6 +918,8 @@ export function App(): JSX.Element {
         onClose={() => setSearchOpen(false)}
         onOpen={(result) => void openSearchResult(result)}
       />
+
+      {listen ? <ListenPanel title={listen.title} text={listen.text} onClose={() => setListen(null)} /> : null}
 
       <OrganizeDialog
         open={organizeOpen}
