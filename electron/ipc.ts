@@ -26,6 +26,9 @@ import {
   replaceAiNotes,
   replaceBookChapters,
   resetChapterFormat,
+  renameBook,
+  renameChapter,
+  renamePart,
   reviewNote,
   saveBookStyle,
   saveChapterFormat,
@@ -117,6 +120,16 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     const book = getBookSummary(bookId)
     if (!book) throw new Error('找不到这本书')
     return { book, chapters: getChapters(bookId), style: getBookStyle(bookId) }
+  })
+
+  ipcMain.handle('books:rename', (_event, bookId: string, title: string) => renameBook(bookId, title))
+
+  ipcMain.handle('chapters:rename', (_event, chapterId: string, title: string) => {
+    renameChapter(chapterId, title)
+  })
+
+  ipcMain.handle('parts:rename', (_event, bookId: string, partIndex: number, title: string) => {
+    renamePart(bookId, partIndex, title)
   })
 
   ipcMain.handle('books:saveStyle', (_event, bookId: string, style: ReaderStyle) =>

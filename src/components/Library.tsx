@@ -8,9 +8,10 @@ interface LibraryProps {
   onImport(): void
   onDelete(bookId: string): void
   onOpenReview(): void
+  onRename(book: BookSummary): void
 }
 
-export function Library({ books, importing, onOpen, onImport, onDelete, onOpenReview }: LibraryProps): JSX.Element {
+export function Library({ books, importing, onOpen, onImport, onDelete, onOpenReview, onRename }: LibraryProps): JSX.Element {
   const [stats, setStats] = useState<ReviewStats | null>(null)
 
   useEffect(() => {
@@ -120,16 +121,28 @@ export function Library({ books, importing, onOpen, onImport, onDelete, onOpenRe
               </div>
               <div className="book-actions">
                 <span>{book.progress > 0 ? `已读 ${Math.round(book.progress * 100)}%` : '尚未开始'}</span>
-                <button
-                  type="button"
-                  className="text-button danger"
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    if (window.confirm(`从书架移除《${book.title}》？笔记也会一并删除。`)) onDelete(book.id)
-                  }}
-                >
-                  移除
-                </button>
+                <span className="book-action-buttons">
+                  <button
+                    type="button"
+                    className="text-button"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      onRename(book)
+                    }}
+                  >
+                    改名
+                  </button>
+                  <button
+                    type="button"
+                    className="text-button danger"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      if (window.confirm(`从书架移除《${book.title}》？笔记也会一并删除。`)) onDelete(book.id)
+                    }}
+                  >
+                    移除
+                  </button>
+                </span>
               </div>
             </div>
           </article>

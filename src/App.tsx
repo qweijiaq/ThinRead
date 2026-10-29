@@ -32,6 +32,7 @@ import { NotesPanel } from './components/NotesPanel.js'
 import { NotesLibrary } from './components/NotesLibrary.js'
 import { OrganizeDialog } from './components/OrganizeDialog.js'
 import { Reader } from './components/Reader.js'
+import { RenameDialog } from './components/RenameDialog.js'
 import { SearchDialog } from './components/SearchDialog.js'
 import { SettingsDialog } from './components/SettingsDialog.js'
 import { TopBar } from './components/TopBar.js'
@@ -42,6 +43,11 @@ function messageOf(error: unknown): string {
 }
 
 const THEME_KEY = 'reading-notes-theme'
+
+type RenameTarget =
+  | { kind: 'book'; bookId: string; value: string }
+  | { kind: 'chapter'; chapterId: string; value: string }
+  | { kind: 'part'; bookId: string; partIndex: number; value: string }
 
 function loadStoredTheme(): ReaderStyle['theme'] {
   try {
@@ -76,6 +82,7 @@ export function App(): JSX.Element {
   const [mainView, setMainView] = useState<'reader' | 'notes' | 'map'>('reader')
   const [autoReview, setAutoReview] = useState(false)
   const [listen, setListen] = useState<{ title: string; text: string } | null>(null)
+  const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null)
   const [focusNote, setFocusNote] = useState<{ id: string; key: number } | null>(null)
   const [pendingNoteId, setPendingNoteId] = useState<string | null>(null)
   const [scrollTarget, setScrollTarget] = useState<{ quote: string; key: number } | null>(null)
@@ -383,6 +390,52 @@ export function App(): JSX.Element {
       })
     },
     [book, chapter, createNote],
+  )
+
+  const startRenameBook = useCallback((target: BookSummary) => {
+    setRenameTarget({ kind: 'book', bookId: target.id, value: target.title })
+  }, [])
+
+  const startRenameChapter = useCallback((target: ChapterMeta) => {
+    setRenameTarget({ kind: 'chapter', chapterId: target.id, value: target.title })
+  }, [])
+
+  const startRenamePart = useCallback(
+    (partIndex: number, title: string) => {
+      if (!book) return
+      setRenameTarget({ kind: 'part', bookId: book.id, partIndex, value: title })
+    },
+    [book],
+  )
+
+  const saveRename = useCallback(
+    async (value: string): Promise<void> => {
+      if (!renameTarget) return
+      const title = value.replace(/\s+/g, ' ').trim()
+      if (!title) throw new Error('标题不能为空。')
+      if (renameTarget.kind === 'book') {
+        const updated = await window.api.renameBook(renameTarget.bookId, title)
+        setBooks((current) => current.map((item) => (item.id === updated.id ? updated : item)))
+        setBook((current) => (current?.id === updated.id ? updated : current))
+        return
+      }
+      if (renameTarget.kind === 'chapter') {
+        await window.api.renameChapter(renameTarget.chapterId, title)
+        setChapters((current) =>
+          current.map((item) => (item.id === renameTarget.chapterId ? { ...item, title } : item)),
+        )
+        setChapter((current) => (current?.id === renameTarget.chapterId ? { ...current, title } : current))
+        return
+      }
+      await window.api.renamePart(renameTarget.bookId, renameTarget.partIndex, title)
+      setChapters((current) =>
+        current.map((item) => (item.partIndex === renameTarget.partIndex ? { ...item, partTitle: title } : item)),
+      )
+      setChapter((current) =>
+        current && current.partIndex === renameTarget.partIndex ? { ...current, partTitle: title } : current,
+      )
+    },
+    [renameTarget],
   )
 
   const updateNote = useCallback(    async (noteId: string, patch: NotePatch) => {
@@ -781,6 +834,7 @@ export function App(): JSX.Element {
         notesActive={mainView === 'notes'}
         onMap={() => setMainView('map')}
         mapActive={mainView === 'map'}
+        onRenameBook={book ? () => startRenameBook(book) : undefined}
       />
 
       {toast ? (
@@ -816,6 +870,8 @@ export function App(): JSX.Element {
             onSelect={(meta) => void openChapter(book.id, meta, chapters)}
             onOrganize={openOrganize}
             onDelete={(meta) => void deleteChapterList([meta.id])}
+            onRename={startRenameChapter}
+            onRenamePart={startRenamePart}
           />
           <Reader
             chapter={chapter}
@@ -830,6 +886,9 @@ export function App(): JSX.Element {
             onOpenEcho={(echo) => void openRelatedNote(echo)}
             onListen={() => {
               if (chapter) setListen({ title: chapter.title, text: chapter.text })
+            }}
+            onRenameChapter={() => {
+              if (chapter) startRenameChapter(chapter)
             }}
           />
           <aside className="side-panel">
@@ -932,6 +991,7 @@ export function App(): JSX.Element {
           onImport={() => void importBook()}
           onDelete={(bookId) => void deleteBook(bookId)}
           onOpenReview={openDailyReview}
+          onRename={startRenameBook}
         />
       )}
 
@@ -957,6 +1017,23 @@ export function App(): JSX.Element {
       />
 
       {listen ? <ListenPanel title={listen.title} text={listen.text} onClose={() => setListen(null)} /> : null}
+
+      {renameTarget ? (
+        <RenameDialog
+          open
+          title={
+            renameTarget.kind === 'book'
+              ? '重命名书名'
+              : renameTarget.kind === 'chapter'
+                ? '重命名章节'
+                : '重命名分篇'
+          }
+          label={renameTarget.kind === 'book' ? '书名' : renameTarget.kind === 'chapter' ? '章节名' : '分篇名'}
+          value={renameTarget.value}
+          onSave={saveRename}
+          onClose={() => setRenameTarget(null)}
+        />
+      ) : null}
 
       <OrganizeDialog
         open={organizeOpen}

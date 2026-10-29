@@ -15,6 +15,7 @@ interface TopBarProps {
   onMap(): void
   notesActive?: boolean
   mapActive?: boolean
+  onRenameBook?: () => void
 }
 
 export function TopBar({
@@ -30,6 +31,7 @@ export function TopBar({
   onMap,
   notesActive = false,
   mapActive = false,
+  onRenameBook,
 }: TopBarProps): JSX.Element {
   const preset = PROVIDER_PRESETS.find((item) => item.id === settings?.provider)
   const modelLabel = settings?.demo ? '演示模式' : `${preset?.label ?? settings?.provider} · ${settings?.model}`
@@ -53,9 +55,20 @@ export function TopBar({
         {book || notesActive || mapActive ? (
           <>
             <span className="topbar-divider" />
-            <span className="topbar-book" title={mapActive ? '知识地图' : notesActive ? '全库笔记' : book?.title}>
-              {mapActive ? '知识地图' : notesActive ? '全库笔记' : book?.title}
-            </span>
+            {book && !notesActive && !mapActive && onRenameBook ? (
+              <button
+                type="button"
+                className="topbar-book topbar-book-button"
+                onClick={onRenameBook}
+                title="重命名书名"
+              >
+                {book.title}
+              </button>
+            ) : (
+              <span className="topbar-book" title={mapActive ? '知识地图' : notesActive ? '全库笔记' : book?.title}>
+                {mapActive ? '知识地图' : notesActive ? '全库笔记' : book?.title}
+              </span>
+            )}
             <button type="button" className="ghost-button small" onClick={onLibrary}>
               书架
             </button>

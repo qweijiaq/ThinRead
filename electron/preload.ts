@@ -48,6 +48,12 @@ const api: ReadingApi = {
       chapters: ChapterMeta[]
       style: ReaderStyle
     }>,
+  renameBook: (bookId: string, title: string) =>
+    ipcRenderer.invoke('books:rename', bookId, title) as Promise<BookSummary>,
+  renameChapter: (chapterId: string, title: string) =>
+    ipcRenderer.invoke('chapters:rename', chapterId, title) as Promise<void>,
+  renamePart: (bookId: string, partIndex: number, title: string) =>
+    ipcRenderer.invoke('parts:rename', bookId, partIndex, title) as Promise<void>,
   reparseBook: (bookId) => ipcRenderer.invoke('books:reparse', bookId) as Promise<BookSummary>,
   deleteBook: (bookId) => ipcRenderer.invoke('books:delete', bookId) as Promise<void>,
   formatChapter: (chapterId, instruction) =>

@@ -447,6 +447,9 @@ export interface ReadingApi {
   listBooks(): Promise<BookSummary[]>
   importBook(): Promise<BookSummary | null>
   openBook(bookId: string): Promise<{ book: BookSummary; chapters: ChapterMeta[]; style: ReaderStyle }>
+  renameBook(bookId: string, title: string): Promise<BookSummary>
+  renameChapter(chapterId: string, title: string): Promise<void>
+  renamePart(bookId: string, partIndex: number, title: string): Promise<void>
   reparseBook(bookId: string): Promise<BookSummary>
   deleteBook(bookId: string): Promise<void>
   formatChapter(chapterId: string, instruction?: string): Promise<FormatResult>

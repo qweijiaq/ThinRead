@@ -15,6 +15,7 @@ interface ReaderProps {
   onOpenFormat(): void
   onOpenEcho(echo: RelatedNote): void
   onListen(): void
+  onRenameChapter(): void
 }
 
 /** 旧版本解析出的章节会把标题重复放进正文；渲染时去掉与章节标题相同的前导标题文本。 */
@@ -97,6 +98,7 @@ export function Reader({
   onOpenFormat,
   onOpenEcho,
   onListen,
+  onRenameChapter,
 }: ReaderProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const [selection, setSelection] = useState<string>('')
@@ -193,6 +195,9 @@ export function Reader({
                   ) : null}
                   <button type="button" className="ghost-button small" onClick={onListen}>
                     听读
+                  </button>
+                  <button type="button" className="ghost-button small" onClick={onRenameChapter}>
+                    改名
                   </button>
                   <button type="button" className="ghost-button small" onClick={onOpenFormat}>
                     排版

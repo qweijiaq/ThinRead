@@ -330,6 +330,37 @@ export function getBookSummary(bookId: string): BookSummary | null {
   return row ? mapBook(row) : null
 }
 
+export function renameBook(bookId: string, title: string): BookSummary {
+  const clean = cleanTitle(title, '书名')
+  const result = database().prepare('UPDATE books SET title = ? WHERE id = ?').run(clean, bookId)
+  if (Number(result.changes) === 0) throw new Error('这本书不存在。')
+  const updated = getBookSummary(bookId)
+  if (!updated) throw new Error('这本书不存在。')
+  return updated
+}
+
+export function renameChapter(chapterId: string, title: string): void {
+  const clean = cleanTitle(title, '章节名')
+  const result = database().prepare('UPDATE chapters SET title = ? WHERE id = ?').run(clean, chapterId)
+  if (Number(result.changes) === 0) throw new Error('这一章不存在。')
+}
+
+export function renamePart(bookId: string, partIndex: number, title: string): void {
+  const clean = cleanTitle(title, '分篇名')
+  if (!Number.isFinite(partIndex)) throw new Error('分篇无效。')
+  const result = database()
+    .prepare('UPDATE chapters SET part_title = ? WHERE book_id = ? AND part_index = ?')
+    .run(clean, bookId, partIndex)
+  if (Number(result.changes) === 0) throw new Error('这个分篇不存在。')
+}
+
+function cleanTitle(value: string, label: string): string {
+  const text = value.replace(/\s+/g, ' ').trim()
+  if (!text) throw new Error(`${label}不能为空。`)
+  if (text.length > 200) throw new Error(`${label}不能超过 200 个字。`)
+  return text
+}
+
 function mapBook(row: BookRow): BookSummary {
   const chapterCount = Number(row.chapter_count ?? 0)
   const readCount = Number(row.read_count ?? 0)

@@ -10,6 +10,8 @@ interface ChapterListProps {
   onSelect(chapter: ChapterMeta): void
   onOrganize(): void
   onDelete(chapter: ChapterMeta): void
+  onRename(chapter: ChapterMeta): void
+  onRenamePart(partIndex: number, title: string): void
 }
 
 interface ChapterEntry {
@@ -55,6 +57,8 @@ export function ChapterList({
   onSelect,
   onOrganize,
   onDelete,
+  onRename,
+  onRenamePart,
 }: ChapterListProps): JSX.Element {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const visible = chapters.filter((chapter) => !chapter.hidden)
@@ -94,6 +98,17 @@ export function ChapterList({
           <span className="chapter-title">{displayTitle}</span>
           {count > 0 ? <span className="chapter-count">{count}</span> : null}
         </button>
+        {chapter.isPart ? null : (
+          <button
+            type="button"
+            className="chapter-rename"
+            title="重命名本章"
+            aria-label={`重命名 ${chapter.title}`}
+            onClick={() => onRename(chapter)}
+          >
+            ✎
+          </button>
+        )}
         <button
           type="button"
           className="chapter-delete"
@@ -132,11 +147,25 @@ export function ChapterList({
           const isCollapsed = collapsed.has(block.key)
           return (
             <div key={block.key} className="part-block">
-              <button type="button" className="part-header" onClick={() => togglePart(block.key)}>
-                <span className={`part-caret${isCollapsed ? ' collapsed' : ''}`}>▾</span>
-                <span className="part-title">{block.title}</span>
-                <span className="part-count">{block.chapters.length}</span>
-              </button>
+              <div className="part-row">
+                <button type="button" className="part-header" onClick={() => togglePart(block.key)}>
+                  <span className={`part-caret${isCollapsed ? ' collapsed' : ''}`}>▾</span>
+                  <span className="part-title">{block.title}</span>
+                  <span className="part-count">{block.chapters.length}</span>
+                </button>
+                <button
+                  type="button"
+                  className="chapter-rename part-rename"
+                  title="重命名分篇"
+                  aria-label={`重命名 ${block.title}`}
+                  onClick={() => {
+                    const partIndex = block.chapters[0]?.chapter.partIndex
+                    if (partIndex != null) onRenamePart(partIndex, block.title)
+                  }}
+                >
+                  ✎
+                </button>
+              </div>
               {isCollapsed ? null : <div className="part-chapters">{block.chapters.map(renderChapter)}</div>}
             </div>
           )
