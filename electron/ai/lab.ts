@@ -348,37 +348,98 @@ export async function suggestConceptMerges(args: {
     .slice(0, 8)
 }
 
+const DUPLICATE_CARD_KINDS = new Set(['point', 'claim'])
+const MIN_DUPLICATE_SEMANTIC = 0.9
+const MIN_DUPLICATE_LEXICAL = 0.45
+const STRONG_DUPLICATE_LEXICAL = 0.82
+
+function normalizeComparable(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[\s\p{P}\p{S}]+/gu, '')
+}
+
+function bigramCounts(text: string): Map<string, number> {
+  const counts = new Map<string, number>()
+  for (let index = 0; index < text.length - 1; index++) {
+    const gram = text.slice(index, index + 2)
+    counts.set(gram, (counts.get(gram) ?? 0) + 1)
+  }
+  return counts
+}
+
+interface PreparedCard {
+  note: ReturnType<typeof listMapNotes>['notes'][number]
+  text: string
+  grams: Map<string, number>
+}
+
+function prepareCard(note: PreparedCard['note']): PreparedCard {
+  const text = normalizeComparable(note.content || note.title)
+  return { note, text, grams: bigramCounts(text) }
+}
+
+/** 语义只负责召回；真正是否重复要正文有足够重合，避免同主题卡片被误删。 */
+function lexicalOverlap(left: PreparedCard, right: PreparedCard): number {
+  if (!left.text || !right.text) return 0
+  if (left.text === right.text) return 1
+  const shorter = left.text.length <= right.text.length ? left.text : right.text
+  const longer = left.text.length <= right.text.length ? right.text : left.text
+  const containment = shorter.length >= 12 && longer.includes(shorter) ? 0.9 : 0
+  const leftGrams = left.text.length <= right.text.length ? left.grams : right.grams
+  const rightGrams = left.text.length <= right.text.length ? right.grams : left.grams
+  let overlap = 0
+  for (const [gram, count] of leftGrams) {
+    const other = rightGrams.get(gram)
+    if (other) overlap += Math.min(count, other)
+  }
+  const total = Math.max(0, left.text.length - 1) + Math.max(0, right.text.length - 1)
+  const dice = total > 0 ? (2 * overlap) / total : 0
+  return Math.max(containment, dice)
+}
+
 export function findDuplicateNotes(): LabDuplicatePair[] {
-  const { notes } = listMapNotes(300)
-  const pairs: Array<{ keep: (typeof notes)[number]; merge: (typeof notes)[number]; score: number }> = []
-  for (let index = 0; index < notes.length; index++) {
-    const left = notes[index]!
-    for (let other = index + 1; other < notes.length; other++) {
-      const right = notes[other]!
-      if (left.bookId !== right.bookId) continue
-      if (left.vector && right.vector && left.vector.length === right.vector.length) {
-        const score = cosine(left.vector, right.vector)
-        if (score >= 0.88) pairs.push({ keep: left, merge: right, score })
-      } else {
-        const a = left.title.replace(/\s+/g, '').toLowerCase()
-        const b = right.title.replace(/\s+/g, '').toLowerCase()
-        if (a && a === b) pairs.push({ keep: left, merge: right, score: 1 })
+  const { notes } = listMapNotes(500)
+  const candidates = notes
+    .filter((note) => DUPLICATE_CARD_KINDS.has(note.kind) && note.chapterId)
+    .map(prepareCard)
+  const pairs: Array<{ keep: PreparedCard; merge: PreparedCard; score: number }> = []
+  for (let index = 0; index < candidates.length; index++) {
+    const left = candidates[index]!
+    for (let other = index + 1; other < candidates.length; other++) {
+      const right = candidates[other]!
+      if (left.note.bookId !== right.note.bookId) continue
+      // 卡片的意义绑定在章节语境里；跨章相似只算相关，不进入去重队列。
+      if (left.note.chapterId !== right.note.chapterId) continue
+      const lexical = lexicalOverlap(left, right)
+      const semantic =
+        left.note.vector && right.note.vector && left.note.vector.length === right.note.vector.length
+          ? cosine(left.note.vector, right.note.vector)
+          : 0
+      if (lexical < STRONG_DUPLICATE_LEXICAL && (semantic < MIN_DUPLICATE_SEMANTIC || lexical < MIN_DUPLICATE_LEXICAL)) {
+        continue
       }
+      const score = Math.round((semantic > 0 ? (semantic + lexical) / 2 : lexical) * 100) / 100
+      pairs.push({ keep: left, merge: right, score })
     }
   }
   return pairs
     .sort((a, b) => b.score - a.score)
     .slice(0, 12)
     .map(({ keep, merge, score }) => ({
-      keepId: keep.id,
-      keepTitle: keep.title,
-      keepBookTitle: keep.bookTitle,
-      keepChapterTitle: keep.chapterTitle,
-      mergeId: merge.id,
-      mergeTitle: merge.title,
-      mergeBookTitle: merge.bookTitle,
-      mergeChapterTitle: merge.chapterTitle,
-      score: Math.round(score * 100) / 100,
+      keepId: keep.note.id,
+      keepTitle: keep.note.title,
+      keepBookTitle: keep.note.bookTitle,
+      keepChapterId: keep.note.chapterId,
+      keepChapterTitle: keep.note.chapterTitle,
+      keepPreview: keep.note.preview,
+      mergeId: merge.note.id,
+      mergeTitle: merge.note.title,
+      mergeBookTitle: merge.note.bookTitle,
+      mergeChapterId: merge.note.chapterId,
+      mergeChapterTitle: merge.note.chapterTitle,
+      mergePreview: merge.note.preview,
+      score,
     }))
 }
 

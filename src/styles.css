@@ -5696,3 +5696,13 @@ button {
   height: auto;
   object-fit: contain;
 }
+.lab-dedupe-preview {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 4px 0 0;
+  color: var(--ink-soft);
+  font-size: 10.5px;
+  line-height: 1.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+}

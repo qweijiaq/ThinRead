@@ -1278,6 +1278,12 @@ export function mergeNotes(keepId: string, mergeId: string): Note {
   const keep = getNote(keepId)
   const duplicate = getNote(mergeId)
   if (keep.bookId !== duplicate.bookId) throw new Error('只能合并同一本书里的卡片。')
+  if (!keep.chapterId || keep.chapterId !== duplicate.chapterId) {
+    throw new Error('只能合并同一章里的卡片，跨章相近内容请保留为相关笔记。')
+  }
+  if ((keep.kind !== 'point' && keep.kind !== 'claim') || (duplicate.kind !== 'point' && duplicate.kind !== 'claim')) {
+    throw new Error('只能合并知识点或论点卡片。')
+  }
   const content = duplicate.content && !keep.content.includes(duplicate.content)
     ? [keep.content, duplicate.content].filter(Boolean).join('\n\n')
     : keep.content
@@ -1321,7 +1327,8 @@ export function mergeNotes(keepId: string, mergeId: string): Note {
   return getNote(keepId)
 }
 
-export interface MapNote {  id: string
+export interface MapNote {
+  id: string
   bookId: string
   bookTitle: string
   chapterId: string | null
@@ -1331,6 +1338,7 @@ export interface MapNote {  id: string
   tags: string[]
   importance: number
   updatedAt: string
+  content: string
   preview: string
   vector: number[] | null
 }
@@ -1376,6 +1384,7 @@ export function listMapNotes(limit = 300): { notes: MapNote[]; total: number } {
       tags: parseTags(row.tags),
       importance: row.importance == null ? 2 : Number(row.importance),
       updatedAt: row.updated_at,
+      content: row.content,
       preview: row.content.replace(/\s+/g, ' ').trim().slice(0, 180),
       vector: parseVector(row.vector),
     })),

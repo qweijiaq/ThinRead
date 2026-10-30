@@ -16,7 +16,14 @@ export function LabDuplicateCards(): JSX.Element {
       if (artifact) {
         try {
           const parsed = JSON.parse(artifact.content) as { pairs?: LabDuplicatePair[]; done?: number }
-          if (Array.isArray(parsed.pairs)) setPairs(parsed.pairs)
+          if (Array.isArray(parsed.pairs)) {
+            // 旧结果可能包含跨章配对；没有章节信息的旧记录也一并丢弃。
+            setPairs(
+              parsed.pairs.filter(
+                (pair) => Boolean(pair.keepChapterId) && pair.keepChapterId === pair.mergeChapterId,
+              ),
+            )
+          }
           if (typeof parsed.done === 'number') setDone(parsed.done)
         } catch {
           // 忽略旧格式。
@@ -77,7 +84,9 @@ export function LabDuplicateCards(): JSX.Element {
     <div className="lab-dedupe">
       <div className="lab-run-row">
         <span className="lab-run-hint">
-          {done > 0 ? `已合并 ${done} 组卡片。` : '只合并同一本书里的相似卡片；合并后保留左边这张。'}
+          {done > 0
+            ? `已合并 ${done} 组卡片。`
+            : '只扫描同一章里的知识点 / 论点卡片；跨章相近内容不会被合并。合并后保留左边这张。'}
         </span>
         <button type="button" className="ghost-button small" onClick={() => void load()} disabled={loading}>
           {loading ? '扫描中…' : '重新扫描'}
@@ -85,11 +94,11 @@ export function LabDuplicateCards(): JSX.Element {
       </div>
       {error ? <div className="inline-error">{error}</div> : null}
       {loading && pairs.length === 0 ? <p className="lab-empty">正在扫描相似卡片…</p> : null}
-      {!loading && pairs.length === 0 ? <p className="lab-empty">没有发现足够相似的卡片。</p> : null}
+      {!loading && pairs.length === 0 ? <p className="lab-empty">没有发现同一章内足够相似的知识点卡片。</p> : null}
       <div className="lab-dedupe-list">
         {pairs.map((pair, index) => (
           <article key={`${pair.keepId}:${pair.mergeId}`} className="lab-dedupe-card">
-            <div className="lab-dedupe-score">相似度 {Math.round(pair.score * 100)}%</div>
+            <div className="lab-dedupe-score">综合相似度 {Math.round(pair.score * 100)}% · 请对照正文确认</div>
             <div className="lab-dedupe-pair">
               <div>
                 <span>保留</span>
@@ -98,6 +107,7 @@ export function LabDuplicateCards(): JSX.Element {
                   {pair.keepBookTitle}
                   {pair.keepChapterTitle ? ` · ${pair.keepChapterTitle}` : ''}
                 </em>
+                <p className="lab-dedupe-preview">{pair.keepPreview}</p>
               </div>
               <span className="lab-dedupe-arrow">+</span>
               <div>
@@ -107,10 +117,11 @@ export function LabDuplicateCards(): JSX.Element {
                   {pair.mergeBookTitle}
                   {pair.mergeChapterTitle ? ` · ${pair.mergeChapterTitle}` : ''}
                 </em>
+                <p className="lab-dedupe-preview">{pair.mergePreview}</p>
               </div>
             </div>
             <button type="button" className="primary-button small" onClick={() => void merge(index)} disabled={merging === index}>
-              {merging === index ? '合并中…' : '合并到左边'}
+              {merging === index ? '合并中…' : '合并为一条'}
             </button>
           </article>
         ))}

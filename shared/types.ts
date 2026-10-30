@@ -285,11 +285,15 @@ export interface LabDuplicatePair {
   keepId: string
   keepTitle: string
   keepBookTitle: string
+  keepChapterId: string | null
   keepChapterTitle: string | null
+  keepPreview: string
   mergeId: string
   mergeTitle: string
   mergeBookTitle: string
+  mergeChapterId: string | null
   mergeChapterTitle: string | null
+  mergePreview: string
   score: number
 }
 
