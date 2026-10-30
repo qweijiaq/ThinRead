@@ -22,9 +22,12 @@ import { chaptersFromHtml, splitTextIntoChapters } from './parsers/text-book.js'
 import { parseUrl } from './parsers/url.js'
 
 /** 导入和重新解析共用：给章节打上来源标记，并自动隐藏高置信度的非正文页。 */
-export function classifyImportedChapters(chapters: NewChapter[]): NewChapter[] {
+export function classifyImportedChapters(
+  chapters: NewChapter[],
+  options: { skipToc?: boolean } = {},
+): NewChapter[] {
   const classified = chapters.map((chapter) => {
-    const judgment = judgeChapter(chapter)
+    const judgment = judgeChapter(chapter, options)
     return {
       ...chapter,
       hidden: shouldAutoHideChapter(judgment.kind, judgment.confidence),
@@ -103,10 +106,11 @@ async function persistParsedBook(
   storedPath: string,
   bookId: string,
   _dataDir: string,
+  classifyOptions: { skipToc?: boolean } = {},
 ): Promise<BookSummary> {
   return insertBook(
     { title: parsed.title.trim() || '未命名', author: parsed.author.trim(), format, filePath: storedPath },
-    classifyImportedChapters(parsed.chapters),
+    classifyImportedChapters(parsed.chapters, classifyOptions),
     bookId,
   )
 }
@@ -216,7 +220,7 @@ export async function importScannedPdf(
   await fs.writeFile(storedPdf, buffer)
   await fs.writeFile(storedText, parsed.sourceText, 'utf8')
   try {
-    return await persistParsedBook(parsed, 'pdf-ocr', storedPdf, bookId, dataDir)
+    return await persistParsedBook(parsed, 'pdf-ocr', storedPdf, bookId, dataDir, { skipToc: true })
   } catch (error) {
     await fs.rm(bookDir, { recursive: true, force: true })
     throw error

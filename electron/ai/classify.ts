@@ -63,7 +63,7 @@ function shouldAutoHide(kind: ChapterKind, confidence: number): boolean {
   return confidence >= (kind === 'unknown' ? 0.85 : 0.75)
 }
 
-function classifyOne(chapter: ClassifiableChapter): Judgment {
+function classifyOne(chapter: ClassifiableChapter, options: { skipToc?: boolean } = {}): Judgment {
   const title = chapter.title.trim()
   const text = chapter.text.trim()
   const chars = text.length
@@ -81,7 +81,7 @@ function classifyOne(chapter: ClassifiableChapter): Judgment {
   if (/(索引|index)$/i.test(title) && chars < 8000) {
     return { kind: 'index', reason: '索引页', confidence: 0.9 }
   }
-  if (/(广告|推广|扫码|二维码|公众号|关注公众号|微信号|QQ\s*群|加微信)/i.test(head)) {
+  if (/(扫码|二维码|公众号|关注公众号|微信号|QQ\s*群|加微信|培训班|网校|招生|课程报名|优惠|促销)/i.test(head)) {
     return { kind: 'ad', reason: '广告或推广内容', confidence: 0.88 }
   }
   if (/(序言|前言|自序|译序|推荐序|扉页|献词|题记|preface|foreword)/i.test(title)) {
@@ -96,7 +96,7 @@ function classifyOne(chapter: ClassifiableChapter): Judgment {
   if (garbledRatio(text) > 0.12) {
     return { kind: 'unknown', reason: '包含大量乱码或无法识别的字符', confidence: 0.9 }
   }
-  if (looksLikeTableOfContents(text)) {
+  if (!options.skipToc && looksLikeTableOfContents(text)) {
     return { kind: 'nav', reason: '正文主要是一串章节标题', confidence: 0.8 }
   }
   return { kind: 'content', reason: '', confidence: 0.9 }
@@ -124,8 +124,11 @@ function looksLikeTableOfContents(text: string): boolean {
   return short / lines.length > 0.8 && chapterLike >= Math.min(4, lines.length * 0.25)
 }
 
-export function judgeChapter(chapter: { title: string; text: string }): Judgment {
-  return classifyOne({ id: '', idx: 0, title: chapter.title, text: chapter.text })
+export function judgeChapter(
+  chapter: { title: string; text: string },
+  options: { skipToc?: boolean } = {},
+): Judgment {
+  return classifyOne({ id: '', idx: 0, title: chapter.title, text: chapter.text }, options)
 }
 
 export function shouldAutoHideChapter(kind: ChapterKind, confidence: number): boolean {

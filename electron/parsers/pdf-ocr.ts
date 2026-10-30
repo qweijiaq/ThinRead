@@ -8,7 +8,41 @@ import type { NewChapter } from '../db.js'
 
 const MAX_OCR_PAGES = 300
 const PAGES_PER_CHAPTER = 10
+const MIN_CHAPTER_CHARS = 200
 const REQUEST_TIMEOUT_MS = 30 * 60 * 1000
+
+const OCR_AD_TERMS = [
+  '培训班',
+  '网校',
+  '招生',
+  '报名',
+  '学费',
+  '课程',
+  '优惠',
+  '促销',
+  '扫码',
+  '二维码',
+  '公众号',
+  '加微信',
+  '微信号',
+  'QQ群',
+  '咨询电话',
+  '代理加盟',
+  '点击链接',
+  '灵语',
+  'YY语音',
+  '英语培训',
+  '外教',
+  '学员',
+]
+
+function isOcrNoisePage(text: string): boolean {
+  const compact = text.replace(/\s+/g, '')
+  if (/图书在版编目|ISBN\s*97[89]|版权所有|出版发行/.test(compact)) return true
+  const hits = OCR_AD_TERMS.filter((term) => compact.includes(term)).length
+  if (hits >= 3) return true
+  return /(培训班|网校|招生|报名)/.test(compact) && /(微信|QQ|扫码|学费|课程|电话)/.test(compact)
+}
 
 export interface ScannedPdfResult {
   title: string
@@ -88,15 +122,25 @@ export async function parseScannedPdf(
 
   if (pages.length === 0) throw new Error('没有从扫描版 PDF 中识别出页面。')
   pages.sort((a, b) => a.page - b.page)
-  const sourceText = pages.map((page) => `[第 ${page.page} 页]\n${page.text}`).join('\n\n').trim()
+  const usable = pages.filter((page) => !isOcrNoisePage(page.text))
+  if (usable.length === 0) throw new Error('扫描版 PDF 没有识别出可阅读的正文，请换一份清晰度更高的文件。')
+  const sourceText = usable.map((page) => `[第 ${page.page} 页]\n${page.text}`).join('\n\n').trim()
   const chapters: NewChapter[] = []
-  for (let start = 0; start < pages.length; start += PAGES_PER_CHAPTER) {
-    const end = Math.min(pages.length, start + PAGES_PER_CHAPTER)
-    const chunk = pages.slice(start, end)
-    const title = chunk.length === 1 ? `第 ${chunk[0]!.page} 页` : `第 ${chunk[0]!.page}–${chunk[chunk.length - 1]!.page} 页`
-    const text = chunk.map((page) => `[第 ${page.page} 页]\n${page.text}`).join('\n\n').trim()
-    if (text.replace(/\s/g, '').length < 20) continue
-    chapters.push({ title, text, html: null })
+  // 按连续页码分段，避免广告/版权页被剔除后把不相邻的正文拼成一章。
+  const runs: Array<Array<{ page: number; text: string }>> = []
+  for (const page of usable) {
+    const run = runs[runs.length - 1]
+    if (run && page.page === run[run.length - 1]!.page + 1) run.push(page)
+    else runs.push([page])
+  }
+  for (const run of runs) {
+    for (let start = 0; start < run.length; start += PAGES_PER_CHAPTER) {
+      const chunk = run.slice(start, start + PAGES_PER_CHAPTER)
+      const title = chunk.length === 1 ? `第 ${chunk[0]!.page} 页` : `第 ${chunk[0]!.page}–${chunk[chunk.length - 1]!.page} 页`
+      const text = chunk.map((page) => `[第 ${page.page} 页]\n${page.text}`).join('\n\n').trim()
+      if (text.replace(/\s/g, '').length < MIN_CHAPTER_CHARS) continue
+      chapters.push({ title, text, html: null })
+    }
   }
   if (chapters.length === 0) throw new Error('扫描版 PDF 没有识别出可阅读的正文，请换一份清晰度更高的文件。')
   return {
