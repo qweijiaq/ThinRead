@@ -1,8 +1,12 @@
+import crypto from 'node:crypto'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 
 import { BrowserWindow, ClipboardItem, clipboard, dialog, ipcMain, nativeImage, shell } from 'electron'
+import type { OpenDialogOptions } from 'electron'
 import { generateText } from 'ai'
+
+import { backupsDir, createBackup, deleteBackup, listBackups, restoreBackup } from './backup.js'
 
 import {
   applyChapterFlags,
@@ -15,16 +19,15 @@ import {
   getBookRecord,
   getBookStyle,
   getBookSummary,
+  mergeBooks,
+  splitBook,
   getChapter,
   getChapters,
   getContent,
   getLabArtifact,
   getNote,
   listLabArtifacts,
-  getReviewQueue,
-  getReviewStats,
   listBooks,
-  listExperiments,
   listContent,
   listLibraryNotes,
   listLibraryTags,
@@ -38,10 +41,10 @@ import {
   renameBook,
   renameChapter,
   renamePart,
-  reviewNote,
   saveBookStyle,
   saveChapterFormat,
   saveLabArtifact,
+  setBookGenre,
   setContentFavorite,
   setContentStatus,
   updateLabArtifact,
@@ -50,15 +53,14 @@ import {
   searchLibrary,
   setProgress,
   updateNote,
-  updateExperimentStatus,
 } from './db.js'
 import { classifyChapters } from './ai/classify.js'
 import { formatChapter as formatChapterWithAI } from './ai/format.js'
 import {
   analyzePdfPage,
   checkQuizAnswer,
+  generateRelationGraph,
   findDuplicateNotes,
-  generateExperiment,
   generateQuiz,
   labChat,
   marginNote,
@@ -69,15 +71,19 @@ import { composeBook } from './ai/book-compose.js'
 import { expandPoint, generateChapterNotes } from './ai/notes.js'
 import { createLanguageModel } from './ai/provider.js'
 import { askChapter, evaluateExplanation } from './ai/tutor.js'
-import { classifyImportedChapters, importBookFile } from './import.js'
+import { classifyImportedChapters, importBookFile, importHighlightsFile, importScannedPdf, importTextBook, importUrlBook, reparseBookFile } from './import.js'
 import { buildKnowledgeMap } from './knowledge-map.js'
-import { parseEpub } from './parsers/epub.js'
-import { parsePdf } from './parsers/pdf.js'
 import { configureSemantic, semanticRelatedNotes, warmSemanticIndex } from './semantic.js'
 import { getActiveSettings, getSettingsView, isDemoMode, saveSettings } from './settings.js'
 import type {
   BookComposeOptions,
   BookComposeResult,
+  BookFormatDoneEvent,
+  BookFormatOptions,
+  BookFormatProgress,
+  BookGenre,
+  BookSummary,
+  FormatResult,
   BookGenerationDoneEvent,
   BookGenerationOptions,
   BookGenerationProgress,
@@ -89,6 +95,7 @@ import type {
   ContentStatus,
   ChatTurn,
   GeneratePartial,
+  HighlightImportResult,
   LabRequest,
   LibraryFilter,
   Note,
@@ -96,10 +103,10 @@ import type {
   NotePatch,
   NoteReport,
   ReaderStyle,
-  ReviewRating,
   SaveFileResult,
   SettingsPatch,
   TestResult,
+  TextImportInput,
 } from '../shared/types.js'
 import type { TutorContext } from './ai/tutor.js'
 
@@ -110,6 +117,7 @@ interface ActiveGeneration {
 
 let active: ActiveGeneration | null = null
 let composeActive: AbortController | null = null
+let activeFormat: AbortController | null = null
 
 async function generateChapterToDb(
   chapterId: string,
@@ -127,6 +135,8 @@ async function generateChapterToDb(
       chapterText: chapter.text,
       chapterHtml: chapter.formattedHtml ?? chapter.html ?? '',
       config: settings,
+      genre: book.genre,
+      mode: settings.generationMode,
       lookupRelatedNotes: (concepts: string[]) =>
         listRelatedNotes(chapter.bookId, concepts, 4).map((item) => ({
           bookTitle: item.bookTitle,
@@ -156,6 +166,58 @@ async function generateChapterToDb(
   return { notes, report: result.report }
 }
 
+function formatSourceHtml(chapter: ReturnType<typeof getChapter>): string {
+  const escapeHtml = (value: string): string =>
+    value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  return (
+    chapter.html ??
+    chapter.text
+      .split(/\n{2,}/)
+      .map((paragraph) => `<p>${escapeHtml(paragraph)}</p>`)
+      .join('')
+  )
+}
+
+async function formatChapterToDb(
+  chapterId: string,
+  instruction: string | undefined,
+  signal?: AbortSignal,
+): Promise<FormatResult> {
+  const chapter = getChapter(chapterId)
+  const style = getBookStyle(chapter.bookId)
+  const result = await formatChapterWithAI({
+    chapterTitle: chapter.title,
+    html: formatSourceHtml(chapter),
+    originalText: chapter.text,
+    currentHtml: chapter.formattedHtml,
+    currentRemoved: chapter.removed,
+    instruction,
+    style,
+    config: getActiveSettings(),
+    signal,
+  })
+  if (signal?.aborted) throw new Error('排版已取消')
+  saveChapterFormat(chapterId, result.html, result.removed)
+  const savedStyle = saveBookStyle(chapter.bookId, result.style)
+  saveLabArtifact({
+    tool: 'chapter-format',
+    scope: `chapter:${chapterId}`,
+    title: `${chapter.title} · AI 排版`,
+    kind: 'format',
+    bookId: chapter.bookId,
+    chapterId,
+    content: JSON.stringify({ html: result.html, removed: result.removed, style: savedStyle, note: result.note }),
+    meta: JSON.stringify({ bookId: chapter.bookId, chapterId, chapterTitle: chapter.title }),
+  })
+  return {
+    chapterId,
+    html: result.html,
+    removed: result.removed,
+    style: savedStyle,
+    note: result.note,
+  }
+}
+
 function tutorContextFor(chapterId: string): TutorContext {
   const chapter = getChapter(chapterId)
   const book = getBookSummary(chapter.bookId)
@@ -181,6 +243,15 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     getWindow()?.webContents.send('semantic:ready')
   })
 
+  async function autoBackup(label: string): Promise<void> {
+    try {
+      createBackup(dataDir, 'auto', label)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      throw new Error(`操作前自动备份失败，已取消本次操作：${detail}`)
+    }
+  }
+
   ipcMain.handle('books:list', () => listBooks())
 
   ipcMain.handle('books:import', async () => {
@@ -189,16 +260,55 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
       ? await dialog.showOpenDialog(win, {
           title: '导入电子书',
           properties: ['openFile'],
-          filters: [{ name: '电子书', extensions: ['epub', 'pdf'] }],
+          filters: [{ name: '电子书', extensions: ['epub', 'pdf', 'mobi', 'azw3', 'docx', 'html', 'htm', 'md', 'markdown', 'txt'] }],
         })
       : await dialog.showOpenDialog({
           title: '导入电子书',
           properties: ['openFile'],
-          filters: [{ name: '电子书', extensions: ['epub', 'pdf'] }],
+          filters: [{ name: '电子书', extensions: ['epub', 'pdf', 'mobi', 'azw3', 'docx', 'html', 'htm', 'md', 'markdown', 'txt'] }],
         })
     if (result.canceled || result.filePaths.length === 0) return null
 
     return importBookFile(result.filePaths[0]!, dataDir)
+  })
+
+  ipcMain.handle('books:import-text', async (_event, input: TextImportInput) => {
+    if (!input || typeof input !== 'object' || typeof input.text !== 'string') {
+      throw new Error('文本导入参数无效。')
+    }
+    return importTextBook(input, dataDir)
+  })
+
+  ipcMain.handle('books:import-url', async (_event, url: string) => {
+    if (typeof url !== 'string') throw new Error('网址无效。')
+    return importUrlBook(url, dataDir)
+  })
+
+  ipcMain.handle('books:import-highlights', async (): Promise<HighlightImportResult | null> => {
+    const win = getWindow()
+    const options: OpenDialogOptions = {
+      title: '导入划线',
+      properties: ['openFile'],
+      filters: [{ name: 'Readwise / Kindle', extensions: ['csv', 'txt'] }],
+    }
+    const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options)
+    if (result.canceled || result.filePaths.length === 0) return null
+    return importHighlightsFile(result.filePaths[0]!, dataDir)
+  })
+
+  ipcMain.handle('books:import-ocr', async (event): Promise<BookSummary | null> => {
+    const win = getWindow()
+    const options: OpenDialogOptions = {
+      title: '导入扫描版 PDF',
+      properties: ['openFile'],
+      filters: [{ name: 'PDF', extensions: ['pdf'] }],
+    }
+    const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options)
+    if (result.canceled || result.filePaths.length === 0) return null
+    const sender = event.sender
+    return importScannedPdf(result.filePaths[0]!, dataDir, (progress) => {
+      if (!sender.isDestroyed()) sender.send('ocr:progress', progress)
+    })
   })
 
   ipcMain.handle('books:open', (_event, bookId: string) => {
@@ -208,6 +318,8 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
   })
 
   ipcMain.handle('books:rename', (_event, bookId: string, title: string) => renameBook(bookId, title))
+
+  ipcMain.handle('books:genre', (_event, bookId: string, genre: BookGenre) => setBookGenre(bookId, genre))
 
   ipcMain.handle('chapters:rename', (_event, chapterId: string, title: string) => {
     renameChapter(chapterId, title)
@@ -221,46 +333,115 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     saveBookStyle(bookId, style),
   )
 
-  ipcMain.handle('chapters:format', async (_event, chapterId: string, instruction?: string) => {
-    const chapter = getChapter(chapterId)
-    const style = getBookStyle(chapter.bookId)
-    const escapeHtml = (value: string): string =>
-      value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    const sourceHtml =
-      chapter.html ??
-      chapter.text
-        .split(/\n{2,}/)
-        .map((paragraph) => `<p>${escapeHtml(paragraph)}</p>`)
-        .join('')
-    const result = await formatChapterWithAI({
-      chapterTitle: chapter.title,
-      html: sourceHtml,
-      originalText: chapter.text,
-      currentHtml: chapter.formattedHtml,
-      currentRemoved: chapter.removed,
-      instruction,
-      style,
-      config: getActiveSettings(),
-    })
-    saveChapterFormat(chapterId, result.html, result.removed)
-    const savedStyle = saveBookStyle(chapter.bookId, result.style)
-    saveLabArtifact({
-      tool: 'chapter-format',
-      scope: `chapter:${chapterId}`,
-      title: `${chapter.title} · AI 排版`,
-      kind: 'format',
-      bookId: chapter.bookId,
-      chapterId,
-      content: JSON.stringify({ html: result.html, removed: result.removed, style: savedStyle, note: result.note }),
-      meta: JSON.stringify({ bookId: chapter.bookId, chapterId, chapterTitle: chapter.title }),
-    })
-    return {
-      chapterId,
-      html: result.html,
-      removed: result.removed,
-      style: savedStyle,
-      note: result.note,
+  ipcMain.handle('chapters:format', async (event, chapterId: string, instruction?: string) => {
+    activeFormat?.abort()
+    const controller = new AbortController()
+    activeFormat = controller
+    const sender = event.sender
+    try {
+      const result = await formatChapterToDb(chapterId, instruction, controller.signal)
+      if (!sender.isDestroyed()) sender.send('chapter:formatted', result)
+      return result
+    } finally {
+      if (activeFormat === controller) activeFormat = null
     }
+  })
+
+  ipcMain.handle('chapters:format-book', (event, bookId: string, options?: BookFormatOptions) => {
+    activeFormat?.abort()
+    const book = getBookSummary(bookId)
+    if (!book) throw new Error('找不到这本书。')
+    const visible = getChapters(bookId).filter((chapter) => !chapter.hidden)
+    const onlyMissing = options?.onlyMissing === true
+    const targets = onlyMissing
+      ? visible.filter((chapter) => {
+          try {
+            return !getChapter(chapter.id).formattedHtml
+          } catch {
+            return false
+          }
+        })
+      : visible
+    const skipped = visible.length - targets.length
+    const controller = new AbortController()
+    activeFormat = controller
+    const sender = event.sender
+    const send = (channel: string, payload: unknown): void => {
+      if (!sender.isDestroyed()) sender.send(channel, payload)
+    }
+
+    void (async () => {
+      let formatted = 0
+      const failed: BookFormatDoneEvent['failed'] = []
+      for (let index = 0; index < targets.length; index++) {
+        if (controller.signal.aborted) break
+        const meta = targets[index]!
+        send('book:format:progress', {
+          bookId,
+          chapterId: meta.id,
+          title: meta.title,
+          index: index + 1,
+          total: targets.length,
+          status: 'start',
+          done: index,
+        } satisfies BookFormatProgress)
+        try {
+          const chapter = getChapter(meta.id)
+          if (chapter.text.trim().length < 80) {
+            send('book:format:progress', {
+              bookId,
+              chapterId: meta.id,
+              title: meta.title,
+              index: index + 1,
+              total: targets.length,
+              status: 'skipped',
+              done: index + 1,
+              message: '正文太短，已跳过',
+            } satisfies BookFormatProgress)
+            continue
+          }
+          const result = await formatChapterToDb(meta.id, undefined, controller.signal)
+          formatted++
+          send('chapter:formatted', result)
+          send('book:format:progress', {
+            bookId,
+            chapterId: meta.id,
+            title: meta.title,
+            index: index + 1,
+            total: targets.length,
+            status: 'done',
+            done: index + 1,
+          } satisfies BookFormatProgress)
+        } catch (error) {
+          if (controller.signal.aborted) break
+          const message = error instanceof Error ? error.message : String(error)
+          failed.push({ chapterId: meta.id, title: meta.title, message })
+          send('book:format:progress', {
+            bookId,
+            chapterId: meta.id,
+            title: meta.title,
+            index: index + 1,
+            total: targets.length,
+            status: 'error',
+            done: index + 1,
+            message,
+          } satisfies BookFormatProgress)
+        }
+      }
+      send('book:format:done', {
+        bookId,
+        formatted,
+        skipped,
+        failed,
+        cancelled: controller.signal.aborted,
+      } satisfies BookFormatDoneEvent)
+      if (activeFormat === controller) activeFormat = null
+    })()
+  })
+
+  ipcMain.handle('chapters:format-cancel', () => {
+    activeFormat?.abort()
+    activeFormat = null
   })
 
   ipcMain.handle('chapters:resetFormat', (_event, chapterId: string) => {
@@ -274,13 +455,69 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     }
     const record = getBookRecord(bookId)
     if (!record) throw new Error('找不到这本书')
-    const buffer = await fs.readFile(record.filePath)
-    const parsed =
-      record.format === 'epub'
-        ? parseEpub(buffer, record.filePath)
-        : await parsePdf(buffer, record.filePath)
+    await autoBackup(`重新解析《${record.title}》前`)
+    const parsed = await reparseBookFile(record)
     const chapters = classifyImportedChapters(parsed.chapters)
     return replaceBookChapters(bookId, { title: parsed.title, author: parsed.author, chapters })
+  })
+
+  ipcMain.handle('books:merge', async (_event, bookIds: string[], title: string, author: string) => {
+    if (!Array.isArray(bookIds) || bookIds.some((id) => typeof id !== 'string')) throw new Error('书籍参数无效。')
+    const ids = [...new Set(bookIds.filter(Boolean))]
+    if (ids.length < 2) throw new Error('至少选择两本书才能合并。')
+    const target = getBookSummary(ids[0]!)
+    if (!target) throw new Error('找不到要合并的第一本书。')
+    await autoBackup(`合并 ${ids.length} 本书前`)
+    const targetDir = path.join(dataDir, 'books', target.id)
+    await fs.mkdir(targetDir, { recursive: true })
+    const mergedText = ids
+      .flatMap((id) => getChapters(id).map((chapter) => `# ${chapter.title}\n\n${getChapter(chapter.id).text}`))
+      .join('\n\n')
+    const mergedPath = path.join(targetDir, 'source-merged.txt')
+    await fs.writeFile(mergedPath, mergedText, 'utf8')
+    try {
+      const merged = mergeBooks(ids, title, author, mergedPath)
+      await Promise.all(
+        ids.slice(1).map((id) => fs.rm(path.join(dataDir, 'books', id), { recursive: true, force: true })),
+      )
+      return merged
+    } catch (error) {
+      await fs.rm(mergedPath, { force: true })
+      throw error
+    }
+  })
+
+  ipcMain.handle('books:split', async (_event, bookId: string, fromChapterId: string, title: string) => {
+    if (typeof bookId !== 'string' || typeof fromChapterId !== 'string') throw new Error('拆分参数无效。')
+    const book = getBookSummary(bookId)
+    if (!book) throw new Error('找不到这本书。')
+    const chapters = getChapters(bookId)
+    const splitIndex = chapters.findIndex((chapter) => chapter.id === fromChapterId)
+    if (splitIndex <= 0 || splitIndex >= chapters.length) throw new Error('拆分点两侧都必须有章节。')
+    await autoBackup(`拆分《${book.title}》前`)
+    const newBookId = crypto.randomUUID()
+    const bookDir = path.join(dataDir, 'books', newBookId)
+    await fs.mkdir(bookDir, { recursive: true })
+    const movedText = chapters
+      .slice(splitIndex)
+      .map((chapter) => `# ${chapter.title}\n\n${getChapter(chapter.id).text}`)
+      .join('\n\n')
+    const storedPath = path.join(bookDir, 'source.txt')
+    await fs.writeFile(storedPath, movedText, 'utf8')
+    const originalDir = path.join(dataDir, 'books', bookId)
+    await fs.mkdir(originalDir, { recursive: true })
+    const prefixPath = path.join(originalDir, 'source-split.txt')
+    const prefixText = chapters
+      .slice(0, splitIndex)
+      .map((chapter) => `# ${chapter.title}\n\n${getChapter(chapter.id).text}`)
+      .join('\n\n')
+    await fs.writeFile(prefixPath, prefixText, 'utf8')
+    try {
+      return splitBook(bookId, fromChapterId, title, storedPath, newBookId, prefixPath)
+    } catch (error) {
+      await fs.rm(bookDir, { recursive: true, force: true })
+      throw error
+    }
   })
 
   ipcMain.handle('books:delete', async (_event, bookId: string) => {
@@ -294,6 +531,8 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
         active = null
       }
     }
+    const record = getBookRecord(bookId)
+    if (record) await autoBackup(`删除《${record.title}》前`)
     deleteBookRow(bookId)
     await fs.rm(path.join(dataDir, 'books', bookId), { recursive: true, force: true })
   })
@@ -337,17 +576,6 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
   ipcMain.handle('library:tags', (_event, bookId?: string | null) =>
     listLibraryTags(typeof bookId === 'string' ? bookId : null),
   )
-
-  ipcMain.handle('review:stats', () => getReviewStats())
-
-  ipcMain.handle('review:queue', (_event, limit?: number) =>
-    getReviewQueue(typeof limit === 'number' ? limit : 30),
-  )
-
-  ipcMain.handle('review:rate', async (_event, noteId: string, rating: ReviewRating) => {
-    if (typeof noteId !== 'string') throw new Error('笔记无效。')
-    reviewNote(noteId, rating)
-  })
 
   ipcMain.handle(
     'tutor:ask',
@@ -427,16 +655,23 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     return mergeNotes(keepId, mergeId)
   })
 
-  ipcMain.handle('lab:experiments', () => listExperiments())
-
-  ipcMain.handle('lab:experiment-create', async (_event, goal: string) => {
-    if (typeof goal !== 'string') throw new Error('实验目标无效。')
-    return generateExperiment({ config: getActiveSettings(), demo: isDemoMode(), goal })
-  })
-
-  ipcMain.handle('lab:experiment-status', (_event, id: string, status: string) => {
-    if (typeof id !== 'string') throw new Error('实验无效。')
-    updateExperimentStatus(id, status as 'planned' | 'active' | 'done')
+  ipcMain.handle('lab:relation-graph', async (_event, bookId: string) => {
+    if (typeof bookId !== 'string') throw new Error('书籍无效。')
+    const graph = await generateRelationGraph({
+      config: getActiveSettings(),
+      demo: isDemoMode(),
+      bookId,
+    })
+    saveLabArtifact({
+      tool: 'relation-graph',
+      scope: `book:${bookId}`,
+      title: graph.title,
+      content: JSON.stringify(graph),
+      kind: 'graph',
+      bookId,
+      meta: JSON.stringify({ bookId, genre: graph.genre }),
+    })
+    return graph
   })
 
   ipcMain.handle('lab:pdf-page', async (_event, bookId: string, page: number) => {
@@ -709,6 +944,35 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     return getNote(noteId)
   })
 
+  ipcMain.handle('backup:create', () => createBackup(dataDir, 'manual'))
+
+  ipcMain.handle('backup:list', () => listBackups(dataDir))
+
+  ipcMain.handle('backup:delete', (_event, id: string) => {
+    if (typeof id !== 'string') throw new Error('备份编号无效。')
+    deleteBackup(dataDir, id)
+  })
+
+  ipcMain.handle('backup:open-dir', async () => {
+    const dir = backupsDir(dataDir)
+    await fs.mkdir(dir, { recursive: true })
+    await shell.openPath(dir)
+  })
+
+  ipcMain.handle('backup:restore', async (_event, id: string) => {
+    if (typeof id !== 'string') throw new Error('备份编号无效。')
+    active?.controller.abort()
+    active = null
+    composeActive?.abort()
+    composeActive = null
+    activeFormat?.abort()
+    activeFormat = null
+    await autoBackup('恢复备份前')
+    restoreBackup(dataDir, id)
+    const window = getWindow()
+    setTimeout(() => window?.webContents.reload(), 250)
+  })
+
   ipcMain.handle('settings:get', () => getSettingsView())
 
   ipcMain.handle('settings:save', (_event, patch: SettingsPatch) => saveSettings(patch))
@@ -778,6 +1042,8 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
             length: options?.length === 'full' ? 'full' : 'tight',
             voice: options?.voice === 'sharp' ? 'sharp' : options?.voice === 'personal' ? 'personal' : 'calm',
           },
+          genre: book.genre,
+          mode: settings.generationMode,
           config: settings,
           demo: settings.provider === 'demo',
           signal: controller.signal,
@@ -851,6 +1117,24 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
         'image/png': new Blob([new Uint8Array(png)], { type: 'image/png' }),
       }),
     ])
+  })
+
+  ipcMain.handle('app:save-binary', async (_event, defaultName: string, base64: string): Promise<SaveFileResult> => {
+    if (typeof base64 !== 'string' || !base64.trim()) throw new Error('导出内容无效。')
+    const buffer = Buffer.from(base64, 'base64')
+    if (buffer.length === 0) throw new Error('导出内容为空。')
+    const win = getWindow()
+    const suggested = path.basename(typeof defaultName === 'string' && defaultName.trim() ? defaultName : 'reading-notes.zip')
+    const options = {
+      title: '导出发布包',
+      defaultPath: suggested.toLowerCase().endsWith('.zip') ? suggested : `${suggested}.zip`,
+      filters: [{ name: 'ZIP', extensions: ['zip'] }],
+    }
+    const result = win ? await dialog.showSaveDialog(win, options) : await dialog.showSaveDialog(options)
+    if (result.canceled || !result.filePath) return { saved: false, path: null }
+    const filePath = path.extname(result.filePath).toLowerCase() === '.zip' ? result.filePath : `${result.filePath}.zip`
+    await fs.writeFile(filePath, buffer)
+    return { saved: true, path: filePath }
   })
 
   ipcMain.handle('app:save-html', async (_event, defaultName: string, content: string): Promise<SaveFileResult> => {

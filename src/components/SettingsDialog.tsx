@@ -1,7 +1,17 @@
 import { useEffect, useState, type JSX } from 'react'
 
 import { PROVIDER_PRESETS } from '../../shared/types.js'
-import type { AppInfo, ProviderId, ReaderStyle, SettingsView, TestResult } from '../../shared/types.js'
+import type {
+  AppInfo,
+  BackupInfo,
+  GenerationMode,
+  ProviderId,
+  ReaderStyle,
+  SettingsView,
+  TestResult,
+} from '../../shared/types.js'
+import { confirmDialog } from './ConfirmDialog.js'
+import { Select } from './Select.js'
 
 interface SettingsDialogProps {
   open: boolean
@@ -20,6 +30,31 @@ const THEME_OPTIONS: Array<[ReaderStyle['theme'], string]> = [
   ['warm', '暖色'],
 ]
 
+const MODE_OPTIONS: Array<[GenerationMode, string]> = [
+  ['fast', '快速'],
+  ['standard', '标准'],
+  ['deep', '精读'],
+]
+
+const MODE_HINTS: Record<GenerationMode, string> = {
+  fast: '跳过断言回查和卡片延伸，最快、最省 token；适合先看结构。',
+  standard: '读薄、回查、卡片延伸都保留，速度和质量的默认平衡。',
+  deep: '额外做一轮全局回查，并保留全部延伸；适合重要章节。',
+}
+
+function formatBytes(value: number): string {
+  if (value >= 1024 * 1024 * 1024) return `${(value / (1024 * 1024 * 1024)).toFixed(2)} GB`
+  if (value >= 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MB`
+  if (value >= 1024) return `${Math.round(value / 1024)} KB`
+  return `${value} B`
+}
+
+function formatBackupTime(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+}
+
 export function SettingsDialog({
   open,
   settings,
@@ -33,9 +68,14 @@ export function SettingsDialog({
   const [baseUrl, setBaseUrl] = useState(settings.baseUrl)
   const [model, setModel] = useState(settings.model)
   const [apiKey, setApiKey] = useState('')
+  const [generationMode, setGenerationMode] = useState<GenerationMode>(settings.generationMode)
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
   const [result, setResult] = useState<TestResult | null>(null)
+  const [backups, setBackups] = useState<BackupInfo[]>([])
+  const [backupBusy, setBackupBusy] = useState<string | null>(null)
+  const [backupError, setBackupError] = useState<string | null>(null)
+  const [backupNotice, setBackupNotice] = useState<string | null>(null)
 
   useEffect(() => {
     if (!open) return
@@ -43,7 +83,17 @@ export function SettingsDialog({
     setBaseUrl(settings.baseUrl)
     setModel(settings.model)
     setApiKey('')
+    setGenerationMode(settings.generationMode)
     setResult(null)
+    setBackupError(null)
+    setBackupNotice(null)
+    setBackupBusy(null)
+    void window.api
+      .listBackups()
+      .then(setBackups)
+      .catch((error: unknown) => {
+        setBackupError(error instanceof Error ? error.message : String(error))
+      })
   }, [open, settings])
 
   if (!open) return null
@@ -65,6 +115,7 @@ export function SettingsDialog({
         provider,
         baseUrl,
         model,
+        generationMode,
         ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
       })
       onSaved(saved)
@@ -74,6 +125,58 @@ export function SettingsDialog({
       return null
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function makeBackup(): Promise<void> {
+    if (backupBusy) return
+    setBackupBusy('create')
+    setBackupError(null)
+    setBackupNotice(null)
+    try {
+      const info = await window.api.createBackup()
+      setBackups(await window.api.listBackups())
+      setBackupNotice(`已创建备份 · ${formatBytes(info.bytes)}`)
+    } catch (error) {
+      setBackupError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setBackupBusy(null)
+    }
+  }
+
+  async function restoreBackup(item: BackupInfo): Promise<void> {
+    const confirmed = await confirmDialog({
+      title: '恢复这个备份',
+      message: `将用 ${formatBackupTime(item.createdAt)} 的备份替换当前书籍、章节、笔记和设置，应用会重新加载。当前状态会先自动备份。继续？`,
+      confirmLabel: '恢复并重载',
+      danger: true,
+    })
+    if (!confirmed) return
+    setBackupBusy(item.id)
+    setBackupError(null)
+    setBackupNotice('正在恢复备份…')
+    try {
+      await window.api.restoreBackup(item.id)
+    } catch (error) {
+      setBackupBusy(null)
+      setBackupError(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  async function removeBackup(item: BackupInfo): Promise<void> {
+    const confirmed = await confirmDialog({
+      title: '删除备份',
+      message: `删除 ${formatBackupTime(item.createdAt)} 的备份？这不会影响当前书籍。`,
+      confirmLabel: '删除',
+      danger: true,
+    })
+    if (!confirmed) return
+    setBackupError(null)
+    try {
+      await window.api.deleteBackup(item.id)
+      setBackups(await window.api.listBackups())
+    } catch (error) {
+      setBackupError(error instanceof Error ? error.message : String(error))
     }
   }
 
@@ -116,17 +219,33 @@ export function SettingsDialog({
           <p className="field-hint">主题应用到整个应用：顶栏、侧栏、书架、笔记和正文。</p>
         </div>
 
+        <div className="form-row">
+          <label>生成档位</label>
+          <div className="segmented theme-segmented">
+            {MODE_OPTIONS.map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                className={generationMode === value ? 'active' : ''}
+                onClick={() => setGenerationMode(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <p className="field-hint">{MODE_HINTS[generationMode]}</p>
+        </div>
+
         <div className="settings-divider" />
 
         <div className="form-row">
           <label>模型服务</label>
-          <select value={provider} onChange={(event) => changeProvider(event.target.value as ProviderId)}>
-            {PROVIDER_PRESETS.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.label}
-              </option>
-            ))}
-          </select>
+          <Select
+            value={provider}
+            onChange={(value) => changeProvider(value as ProviderId)}
+            ariaLabel="模型服务"
+            options={PROVIDER_PRESETS.map((item) => ({ value: item.id, label: item.label }))}
+          />
           {preset?.hint ? <p className="field-hint">{preset.hint}</p> : null}
         </div>
 
@@ -170,6 +289,60 @@ export function SettingsDialog({
             </p>
           </div>
         )}
+
+        <div className="settings-divider" />
+
+        <div className="form-row">
+          <label>数据备份</label>
+          <div className="backup-actions">
+            <button type="button" className="ghost-button small" onClick={() => void makeBackup()} disabled={backupBusy !== null}>
+              {backupBusy === 'create' ? '备份中…' : '立即备份'}
+            </button>
+            <button type="button" className="text-button muted" onClick={() => void window.api.openBackupsDir()}>
+              打开备份目录
+            </button>
+          </div>
+          <p className="field-hint">
+            备份包含数据库、书籍文件和设置。合并、拆分、重新解析或删除书籍前会自动备份；恢复后会重新加载应用。
+          </p>
+          {backupError ? <div className="inline-error">{backupError}</div> : null}
+          {backupNotice ? <div className="inline-notice">{backupNotice}</div> : null}
+          <div className="backup-list">
+            {backups.length === 0 ? (
+              <p className="backup-empty">还没有备份。第一次合并、拆分或删除书籍时也会自动生成。</p>
+            ) : (
+              backups.slice(0, 10).map((item) => (
+                <div key={item.id} className="backup-row">
+                  <div className="backup-row-main">
+                    <strong>{formatBackupTime(item.createdAt)}</strong>
+                    <span>
+                      {item.kind === 'auto' ? '自动备份' : '手动备份'}
+                      {item.label ? ` · ${item.label}` : ''} · {formatBytes(item.bytes)}
+                    </span>
+                  </div>
+                  <div className="backup-row-actions">
+                    <button
+                      type="button"
+                      className="text-button"
+                      onClick={() => void restoreBackup(item)}
+                      disabled={backupBusy !== null}
+                    >
+                      恢复
+                    </button>
+                    <button
+                      type="button"
+                      className="text-button danger"
+                      onClick={() => void removeBackup(item)}
+                      disabled={backupBusy !== null}
+                    >
+                      删除
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
 
         {result ? <div className={`test-result ${result.ok ? 'ok' : 'fail'}`}>{result.message}</div> : null}
 

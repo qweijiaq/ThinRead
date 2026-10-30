@@ -4,15 +4,22 @@ import type {
   BookComposeOptions,
   BookComposeProgress,
   BookComposeResult,
+  BookFormatDoneEvent,
+  BookFormatProgress,
   BookGenerationDoneEvent,
   BookGenerationProgress,
+  BookGenre,
   BookSummary,
   ChapterMeta,
   LabArtifact,
   Note,
 } from '../../shared/types.js'
 import { onContentCurrent } from '../lib/content-events.js'
+import { confirmDialog } from './ConfirmDialog.js'
+import { PublishDialog } from './PublishDialog.js'
+import { Select } from './Select.js'
 import { todayStamp } from '../lib/export.js'
+import { BOOK_GENRE_OPTIONS, bookGenreLabel } from '../lib/genres.js'
 import { Markdown } from './Markdown.js'
 
 interface BookComposeProps {
@@ -21,6 +28,7 @@ interface BookComposeProps {
   onBack(): void
   onOpenChapter(chapterId: string): void
   onShareBook(): void
+  onSplitBook(): void
 }
 
 interface GenerationView {
@@ -88,6 +96,7 @@ export function BookCompose({
   onBack,
   onOpenChapter,
   onShareBook,
+  onSplitBook,
 }: BookComposeProps): JSX.Element {
   const visible = useMemo(() => chapters.filter((chapter) => !chapter.hidden), [chapters])
   const [notes, setNotes] = useState<Note[]>([])
@@ -96,7 +105,11 @@ export function BookCompose({
   const [composeTick, setComposeTick] = useState(0)
   const [generation, setGeneration] = useState<GenerationView>(EMPTY_GENERATION)
   const [generationResult, setGenerationResult] = useState<BookGenerationDoneEvent | null>(null)
+  const [formatting, setFormatting] = useState(false)
+  const [formatProgress, setFormatProgress] = useState<BookFormatProgress | null>(null)
+  const [formatResult, setFormatResult] = useState<BookFormatDoneEvent | null>(null)
   const [composeOptions, setComposeOptions] = useState<BookComposeOptions>({ length: 'tight', voice: 'calm' })
+  const [genre, setGenre] = useState<BookGenre>(book.genre ?? 'auto')
   const [composing, setComposing] = useState(false)
   const [composeProgress, setComposeProgress] = useState<BookComposeProgress | null>(null)
   const [result, setResult] = useState<BookComposeResult | null>(null)
@@ -108,12 +121,18 @@ export function BookCompose({
   const [busyAction, setBusyAction] = useState<'copy' | 'markdown' | 'html' | 'save' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [chaptersCollapsed, setChaptersCollapsed] = useState(false)
+  const [publishOpen, setPublishOpen] = useState(false)
   const autoComposeRef = useRef(false)
   const composeOptionsRef = useRef(composeOptions)
 
   useEffect(() => {
     composeOptionsRef.current = composeOptions
   }, [composeOptions])
+
+  useEffect(() => {
+    setGenre(book.genre ?? 'auto')
+  }, [book.genre, book.id])
 
   const condensedByChapter = useMemo(() => {
     const map = new Map<string, Note>()
@@ -237,6 +256,54 @@ export function BookCompose({
       offCompose()
     }
   }, [book.id])
+
+  async function formatBook(): Promise<void> {
+    const confirmed = await confirmDialog({
+      title: '整本 AI 排版',
+      message: '会逐章用 AI 整理正文、清理广告和乱码，并覆盖已有 AI 排版结果；原文仍可随时还原。继续？',
+      confirmLabel: '开始排版',
+      danger: false,
+    })
+    if (!confirmed) return
+    setError(null)
+    setFormatResult(null)
+    setFormatting(true)
+    setFormatProgress({
+      bookId: book.id,
+      chapterId: '',
+      title: '',
+      index: 0,
+      total: 0,
+      status: 'start',
+      done: 0,
+      message: '正在准备排版',
+    })
+    try {
+      await window.api.formatBook(book.id)
+    } catch (err) {
+      setFormatting(false)
+      setFormatProgress(null)
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  async function cancelFormat(): Promise<void> {
+    await window.api.cancelFormat()
+    setFormatting(false)
+    setFormatProgress(null)
+  }
+
+  async function changeGenre(next: BookGenre): Promise<void> {
+    const previous = genre
+    setGenre(next)
+    try {
+      await window.api.setBookGenre(book.id, next)
+      setNotice(`书籍类型已改为「${bookGenreLabel(next)}」，之后生成的笔记、成稿和关系图会使用它。`)
+    } catch (err) {
+      setGenre(previous)
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
 
   async function generateBook(onlyMissing: boolean): Promise<void> {
     setError(null)
@@ -366,12 +433,20 @@ export function BookCompose({
     setBusyAction('html')
     setError(null)
     try {
-      const { buildBookBlogHtml, bookHtmlFilename } = await import('../lib/blog-export.js')
+      const { bookDescription, buildBookBlogHtml, bookHtmlFilename } = await import('../lib/blog-export.js')
+      const { renderPublishCover } = await import('../lib/publish-cover.js')
+      const date = todayStamp()
       const html = buildBookBlogHtml({
         bookTitle: book.title,
         author: book.author,
         markdown: article,
-        date: todayStamp(),
+        date,
+        coverSrc: renderPublishCover({
+          title: result?.title || book.title,
+          author: book.author,
+          date,
+          description: bookDescription(article, 140),
+        }),
       })
       const saved = await window.api.saveHtml(bookHtmlFilename(book.title), html)
       if (saved.saved) setNotice(`分享页已导出到 ${saved.path}`)
@@ -404,11 +479,22 @@ export function BookCompose({
           </button>
           <h1>{book.title}</h1>
           <p>
-            {visible.length} 节 · 已生成 {generatedChapters} 节 · {totalCards} 张卡片
+            {bookGenreLabel(genre)} · {visible.length} 节 · 已生成 {generatedChapters} 节 · {totalCards} 张卡片
             {sourceChars > 0 ? ` · 读薄稿 ${sourceChars.toLocaleString()} 字` : ''}
           </p>
         </div>
         <div className="compose-head-actions">
+          <button
+            type="button"
+            className="ghost-button small"
+            onClick={() => setChaptersCollapsed((value) => !value)}
+            aria-pressed={chaptersCollapsed}
+          >
+            {chaptersCollapsed ? '展开章节' : '收起章节'}
+          </button>
+          <button type="button" className="ghost-button small" onClick={onSplitBook}>
+            拆分本书
+          </button>
           <button type="button" className="ghost-button small" onClick={onShareBook}>
             分享这本书
           </button>
@@ -418,7 +504,7 @@ export function BookCompose({
       {error ? <div className="inline-error">{error}</div> : null}
       {notice ? <div className="inline-notice">{notice}</div> : null}
 
-      <div className="compose-grid">
+      <div className={`compose-grid${chaptersCollapsed ? ' is-chapters-collapsed' : ''}`}>
         <section className="compose-chapters">
           <div className="compose-section-head">
             <div>
@@ -441,13 +527,26 @@ export function BookCompose({
               type="button"
               className="ghost-button"
               onClick={() => {
-                if (window.confirm('重新生成整本书会替换所有未人工修改的 AI 笔记，确定继续？')) {
-                  void generateBook(false)
-                }
+                void confirmDialog({
+                  title: '重新生成整本书',
+                  message: '重新生成整本书会替换所有未人工修改的 AI 笔记，确定继续？',
+                  confirmLabel: '重新生成',
+                  danger: true,
+                }).then((confirmed) => {
+                  if (confirmed) void generateBook(false)
+                })
               }}
               disabled={generation.running || visible.length === 0}
             >
               整本重新生成
+            </button>
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={() => void formatBook()}
+              disabled={formatting || generation.running || visible.length === 0}
+            >
+              {formatting ? '整本排版中…' : '整本 AI 排版'}
             </button>
           </div>
 
@@ -483,6 +582,54 @@ export function BookCompose({
                   <summary>查看失败章节</summary>
                   <ul>
                     {generationResult.failed.map((item) => (
+                      <li key={item.chapterId}>
+                        <strong>{item.title}</strong>
+                        <span>{item.message}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              ) : null}
+            </div>
+          ) : null}
+
+          {formatting || formatProgress || formatResult ? (
+            <div className="compose-progress-card">
+              <div className="compose-progress-head">
+                <span>
+                  整本 AI 排版
+                  {formatProgress && formatProgress.total > 0 ? ` · ${formatProgress.done}/${formatProgress.total}` : ''}
+                </span>
+                {formatting ? (
+                  <button type="button" className="text-button muted" onClick={() => void cancelFormat()}>
+                    取消
+                  </button>
+                ) : null}
+              </div>
+              {formatProgress && formatProgress.total > 0 ? (
+                <div className="progress-track">
+                  <div
+                    className="progress-fill"
+                    style={{ width: `${Math.round((formatProgress.done / formatProgress.total) * 100)}%` }}
+                  />
+                </div>
+              ) : null}
+              <p className="compose-progress-line">
+                {formatProgress?.title
+                  ? `${formatProgress.title}${formatProgress.message ? ` · ${formatProgress.message}` : ''}`
+                  : formatProgress?.message || '正在排版章节'}
+              </p>
+              {formatResult && !formatResult.cancelled ? (
+                <p className="compose-progress-line">
+                  完成 {formatResult.formatted} 节，跳过 {formatResult.skipped} 节
+                  {formatResult.failed.length > 0 ? `，失败 ${formatResult.failed.length} 节` : ''}
+                </p>
+              ) : null}
+              {formatResult?.failed.length ? (
+                <details className="compose-failures">
+                  <summary>查看排版失败章节</summary>
+                  <ul>
+                    {formatResult.failed.map((item) => (
                       <li key={item.chapterId}>
                         <strong>{item.title}</strong>
                         <span>{item.message}</span>
@@ -533,48 +680,57 @@ export function BookCompose({
               <p>把所有读薄稿合成一篇完整文章，统一语气、补过渡、去掉 AI 味。</p>
             </div>
             {history.length > 1 ? (
-              <select
+              <Select
                 className="compose-history"
                 value={selectedVersion}
-                onChange={(event) => void selectVersion(event.target.value)}
-                aria-label="成稿历史"
-              >
-                {history.map((artifact) => (
-                  <option key={artifact.id} value={artifact.id}>
-                    {versionLabel(artifact)}
-                  </option>
-                ))}
-              </select>
+                onChange={(value) => void selectVersion(value)}
+                ariaLabel="成稿历史"
+                options={history.map((artifact) => ({ value: artifact.id, label: versionLabel(artifact) }))}
+              />
             ) : null}
           </div>
 
           <div className="compose-options">
             <label>
+              书籍类型
+              <Select
+                value={genre}
+                onChange={(value) => void changeGenre(value as BookGenre)}
+                disabled={composing}
+                ariaLabel="书籍类型"
+                options={BOOK_GENRE_OPTIONS}
+              />
+            </label>
+            <label>
               篇幅
-              <select
+              <Select
                 value={composeOptions.length}
-                onChange={(event) =>
-                  setComposeOptions((current) => ({ ...current, length: event.target.value as BookComposeOptions['length'] }))
+                onChange={(value) =>
+                  setComposeOptions((current) => ({ ...current, length: value as BookComposeOptions['length'] }))
                 }
                 disabled={composing}
-              >
-                <option value="tight">精炼版</option>
-                <option value="full">完整版</option>
-              </select>
+                ariaLabel="篇幅"
+                options={[
+                  { value: 'tight', label: '精炼版' },
+                  { value: 'full', label: '完整版' },
+                ]}
+              />
             </label>
             <label>
               语气
-              <select
+              <Select
                 value={composeOptions.voice}
-                onChange={(event) =>
-                  setComposeOptions((current) => ({ ...current, voice: event.target.value as BookComposeOptions['voice'] }))
+                onChange={(value) =>
+                  setComposeOptions((current) => ({ ...current, voice: value as BookComposeOptions['voice'] }))
                 }
                 disabled={composing}
-              >
-                <option value="calm">克制准确</option>
-                <option value="personal">读者视角</option>
-                <option value="sharp">有判断</option>
-              </select>
+                ariaLabel="语气"
+                options={[
+                  { value: 'calm', label: '克制准确' },
+                  { value: 'personal', label: '读者视角' },
+                  { value: 'sharp', label: '有判断' },
+                ]}
+              />
             </label>
             <button
               type="button"
@@ -597,6 +753,15 @@ export function BookCompose({
 
           {missing > 0 ? (
             <p className="compose-warning">还有 {missing} 节没有读薄稿；现在合并只会使用已生成的 {generatedChapters} 节。</p>
+          ) : null}
+          {sourceChars > 0 ? (
+            <p className="compose-target-hint">
+              当前读薄稿 {sourceChars.toLocaleString()} 字，
+              {composeOptions.length === 'tight'
+                ? `精炼版目标约 ${Math.round(sourceChars * 0.55).toLocaleString()} 字`
+                : `完整版目标约 ${Math.round(sourceChars * 0.82).toLocaleString()} 字`}
+              。
+            </p>
           ) : null}
 
           {composing ? (
@@ -684,6 +849,9 @@ export function BookCompose({
                 <button type="button" className="ghost-button small" onClick={() => void exportHtml()} disabled={busyAction === 'html'}>
                   {busyAction === 'html' ? '导出中…' : '导出博客分享页'}
                 </button>
+                <button type="button" className="ghost-button small" onClick={() => setPublishOpen(true)}>
+                  发布包
+                </button>
                 <button type="button" className="ghost-button small" onClick={onShareBook}>
                   分享卡
                 </button>
@@ -700,6 +868,14 @@ export function BookCompose({
           )}
         </section>
       </div>
+
+      <PublishDialog
+        open={publishOpen}
+        book={book}
+        title={result?.title ?? book.title}
+        markdown={article}
+        onClose={() => setPublishOpen(false)}
+      />
     </main>
   )
 }

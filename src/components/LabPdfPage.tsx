@@ -1,13 +1,14 @@
 import { useEffect, useState, type JSX } from 'react'
 import type { BookSummary, LabReport } from '../../shared/types.js'
 import { Markdown } from './Markdown.js'
+import { Select } from './Select.js'
 
 interface LabPdfPageProps {
   books: BookSummary[]
 }
 
 export function LabPdfPage({ books }: LabPdfPageProps): JSX.Element {
-  const pdfs = books.filter((book) => book.format === 'pdf')
+  const pdfs = books.filter((book) => book.format === 'pdf' || book.format === 'pdf-ocr')
   const [bookId, setBookId] = useState(pdfs[0]?.id ?? '')
   const [page, setPage] = useState('1')
   const [result, setResult] = useState<LabReport | null>(null)
@@ -96,13 +97,12 @@ export function LabPdfPage({ books }: LabPdfPageProps): JSX.Element {
       <div className="lab-pdf-form">
         <label>
           选择 PDF
-          <select value={bookId} onChange={(event) => setBookId(event.target.value)}>
-            {pdfs.map((book) => (
-              <option key={book.id} value={book.id}>
-                {book.title}
-              </option>
-            ))}
-          </select>
+          <Select
+            value={bookId}
+            onChange={setBookId}
+            ariaLabel="选择 PDF"
+            options={pdfs.map((book) => ({ value: book.id, label: book.title }))}
+          />
         </label>
         <label>
           页码

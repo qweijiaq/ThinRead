@@ -1,6 +1,7 @@
 import { useEffect, useState, type JSX } from 'react'
 import type { LabAnswerCheck, LabArtifact, LabQuiz as LabQuizData } from '../../shared/types.js'
 import { onContentCurrent } from '../lib/content-events.js'
+import { Select } from './Select.js'
 
 interface LabQuizProps {
   chapterId: string
@@ -148,12 +149,12 @@ export function LabQuiz({ chapterId, bookTitle, chapterTitle }: LabQuizProps): J
         </button>
       </div>
       {history.length > 1 ? (
-        <label className="lab-history">
-          历史题目
-          <select
+        <div className="lab-history">
+          <span>历史题目</span>
+          <Select
             value={selectedHistoryId}
-            onChange={(event) => {
-              const artifact = history.find((item) => item.id === event.target.value)
+            onChange={(value) => {
+              const artifact = history.find((item) => item.id === value)
               if (!artifact) return
               try {
                 const parsed = JSON.parse(artifact.content) as {
@@ -174,8 +175,8 @@ export function LabQuiz({ chapterId, bookTitle, chapterTitle }: LabQuizProps): J
                 setError('这组旧题目无法读取。')
               }
             }}
-          >
-            {history.map((artifact) => {
+            ariaLabel="历史题目"
+            options={history.map((artifact) => {
               let label = artifact.createdAt.slice(5, 16).replace('T', ' ')
               try {
                 const parsed = JSON.parse(artifact.content) as { quiz?: LabQuizData }
@@ -184,14 +185,10 @@ export function LabQuiz({ chapterId, bookTitle, chapterTitle }: LabQuizProps): J
               } catch {
                 // 使用时间。
               }
-              return (
-                <option key={artifact.id} value={artifact.id}>
-                  {label}
-                </option>
-              )
+              return { value: artifact.id, label }
             })}
-          </select>
-        </label>
+          />
+        </div>
       ) : null}
       {error ? <div className="inline-error">{error}</div> : null}
       {!quiz && !busy ? (

@@ -9,6 +9,7 @@ export const CONTENT_KIND_LABELS: Record<ContentKind, string> = {
   compose: '整本成稿',
   suggestion: '整理建议',
   pdf: 'PDF 页',
+  graph: '关系图',
   other: '其他',
 }
 
@@ -58,6 +59,37 @@ export function contentToMarkdown(item: ContentItem): string {
             return `${title ? `### ${title}\n\n` : ''}${note.content as string}`
           })
           .join('\n\n')
+      }
+    } catch {
+      // 旧格式直接显示原文。
+    }
+  }
+  if (item.kind === 'graph') {
+    try {
+      const parsed = JSON.parse(item.content) as {
+        title?: string
+        genre?: string
+        summary?: string
+        plot?: string
+        nodes?: Array<{ label?: string; kind?: string; role?: string; importance?: number; identity?: string; rank?: string; affiliation?: string; aliases?: string[]; realWorld?: boolean; encyclopedia?: string; description?: string }>
+        edges?: Array<{ source?: string; target?: string; label?: string; description?: string }>
+      }
+      if (Array.isArray(parsed.nodes)) {
+        const lines = [
+          parsed.title ? `# ${parsed.title}` : '',
+          parsed.genre ? `体裁：${parsed.genre}` : '',
+          parsed.summary ?? '',
+          parsed.plot ?? '',
+          '## 节点',
+          ...parsed.nodes.map((node) => {
+            const facts = [node.identity, node.rank, node.affiliation].filter(Boolean).join(' / ')
+            const wiki = node.encyclopedia ? `\n  百科：${node.encyclopedia}` : ''
+            return `- ${node.label ?? '未命名'}（${node.kind ?? 'other'}${node.role ? ` · ${node.role}` : ''}${node.importance ? ` · 重要度 ${node.importance}` : ''}${facts ? ` · ${facts}` : ''}）：${node.description ?? ''}${wiki}`
+          }),
+          '## 关系',
+          ...(parsed.edges ?? []).map((edge) => `- ${edge.source ?? ''} — ${edge.label ?? '关系'} — ${edge.target ?? ''}${edge.description ? `：${edge.description}` : ''}`),
+        ].filter(Boolean)
+        return lines.join('\n')
       }
     } catch {
       // 旧格式直接显示原文。

@@ -4,7 +4,7 @@ import path from 'node:path'
 import { safeStorage } from 'electron'
 
 import { PROVIDER_PRESETS } from '../shared/types.js'
-import type { ProviderId, SettingsPatch, SettingsView } from '../shared/types.js'
+import type { GenerationMode, ProviderId, SettingsPatch, SettingsView } from '../shared/types.js'
 
 interface StoredKey {
   enc?: string
@@ -17,6 +17,7 @@ interface StoredSettings {
   provider: ProviderId
   baseUrl: string
   model: string
+  generationMode: GenerationMode
   keys: Partial<Record<ProviderId, StoredKey>>
 }
 
@@ -28,6 +29,7 @@ const DEFAULT_SETTINGS: StoredSettings = {
   provider: 'demo',
   baseUrl: '',
   model: 'demo',
+  generationMode: 'standard',
   keys: {},
 }
 
@@ -35,6 +37,10 @@ export function initSettings(dataDir: string): void {
   fs.mkdirSync(dataDir, { recursive: true })
   filePath = path.join(dataDir, 'settings.json')
   cached = readFile()
+}
+
+function normalizeMode(value: unknown): GenerationMode {
+  return value === 'fast' || value === 'deep' ? value : 'standard'
 }
 
 function readFile(): StoredSettings {
@@ -45,6 +51,7 @@ function readFile(): StoredSettings {
       provider: (raw.provider ?? DEFAULT_SETTINGS.provider) as ProviderId,
       baseUrl: raw.baseUrl ?? '',
       model: raw.model ?? DEFAULT_SETTINGS.model,
+      generationMode: normalizeMode(raw.generationMode),
       keys: raw.keys ?? {},
     }
   } catch {
@@ -61,13 +68,20 @@ function persist(): void {
   fs.writeFileSync(filePath, JSON.stringify(settings(), null, 2), { mode: 0o600 })
 }
 
-export function getActiveSettings(): { provider: ProviderId; baseUrl: string; model: string; apiKey: string | null } {
+export function getActiveSettings(): {
+  provider: ProviderId
+  baseUrl: string
+  model: string
+  apiKey: string | null
+  generationMode: GenerationMode
+} {
   const current = settings()
   return {
     provider: current.provider,
     baseUrl: current.baseUrl,
     model: current.model,
     apiKey: readKey(current.provider),
+    generationMode: current.generationMode,
   }
 }
 
@@ -103,6 +117,7 @@ export function getSettingsView(): SettingsView {
     apiKeyConfigured: demo || readKey(current.provider) !== null,
     apiKeyHint: demo ? '演示模式' : (stored?.hint ?? ''),
     demo,
+    generationMode: current.generationMode,
   }
 }
 
@@ -122,6 +137,7 @@ export function saveSettings(patch: SettingsPatch): SettingsView {
   current.provider = patch.provider
   current.baseUrl = patch.baseUrl.trim()
   current.model = patch.model.trim()
+  if (patch.generationMode) current.generationMode = normalizeMode(patch.generationMode)
   if (patch.apiKey && patch.apiKey.trim()) {
     current.keys[patch.provider] = encodeKey(patch.apiKey.trim())
   }

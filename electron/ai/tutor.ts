@@ -119,11 +119,13 @@ function contextBlock(context: TutorContext): string {
     .slice(0, 20)
     .map((card) => `- ${card.title}：${card.content}${card.role ? `（作用：${card.role}）` : ''}`)
     .join('\n')
+  // 有读薄稿时原文只作为引文核对和上下文补充，不必每轮重送整章。
+  const rawLimit = context.condensed ? 5_000 : 14_000
   return [
     `书名《${context.bookTitle}》，当前章节「${context.chapterTitle}」。`,
     context.condensed ? `读薄稿：\n${context.condensed.slice(0, 6000)}` : '',
     cards ? `核心卡片：\n${cards}` : '',
-    `章节原文（节选）：\n${context.chapterText.slice(0, 14_000)}`,
+    `章节原文（节选）：\n${context.chapterText.slice(0, rawLimit)}`,
   ]
     .filter(Boolean)
     .join('\n\n')

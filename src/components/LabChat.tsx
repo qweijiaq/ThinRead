@@ -9,7 +9,6 @@ interface LabChatProps {
   tool: LabToolId
   bookIds: string[]
   chapterId: string
-  voice?: boolean
 }
 
 interface Turn {
@@ -22,7 +21,6 @@ const SUGGESTIONS: Partial<Record<LabToolId, string[]>> = {
   'author-roundtable': ['作者会怎么反驳「靠意志力就能改变」？', '两位作者最大的分歧是什么？'],
   'devils-advocate': ['请挑战这一章最核心的主张。', '如果作者错了，最可能错在哪里？'],
   'book-club': ['请三位读者聊聊这一章最值得实践的一点。', '怀疑者会质疑什么？'],
-  'voice-chat': ['用一分钟总结这一章。', '我读过的书里，关于专注有哪些观点？'],
 }
 
 function plain(value: string): string {
@@ -33,17 +31,15 @@ function plain(value: string): string {
     .trim()
 }
 
-export function LabChat({ tool, bookIds, chapterId, voice = false }: LabChatProps): JSX.Element {
+export function LabChat({ tool, bookIds, chapterId }: LabChatProps): JSX.Element {
   const [turns, setTurns] = useState<Turn[]>([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [listening, setListening] = useState(false)
   const [speaking, setSpeaking] = useState<number | null>(null)
   const [artifactId, setArtifactId] = useState<string | null>(null)
   const [refreshTick, setRefreshTick] = useState(0)
   const scrollRef = useRef<HTMLDivElement | null>(null)
-  const recognitionRef = useRef<{ stop(): void } | null>(null)
 
   const scope = labChatScope(tool, bookIds, chapterId)
 
@@ -183,46 +179,8 @@ export function LabChat({ tool, bookIds, chapterId, voice = false }: LabChatProp
     setSpeaking(index)
   }
 
-  function startListening(): void {
-    const Recognition =
-      (window as unknown as { SpeechRecognition?: new () => SpeechRecognitionLike }).SpeechRecognition ??
-      (window as unknown as { webkitSpeechRecognition?: new () => SpeechRecognitionLike }).webkitSpeechRecognition
-    if (!Recognition) {
-      setError('当前环境没有可用的语音识别。')
-      return
-    }
-    if (listening) {
-      recognitionRef.current?.stop()
-      return
-    }
-    const recognition = new Recognition()
-    recognition.lang = 'zh-CN'
-    recognition.interimResults = true
-    recognition.continuous = false
-    recognition.onresult = (event) => {
-      let text = ''
-      for (let index = event.resultIndex; index < event.results.length; index++) {
-        text += event.results[index]?.[0]?.transcript ?? ''
-      }
-      setInput(text)
-    }
-    recognition.onerror = (event) => {
-      setError(`语音识别失败：${event.error ?? '未知错误'}`)
-      setListening(false)
-    }
-    recognition.onend = () => {
-      setListening(false)
-      recognitionRef.current = null
-    }
-    recognitionRef.current = recognition
-    setError(null)
-    setListening(true)
-    recognition.start()
-  }
-
   useEffect(() => {
     return () => {
-      recognitionRef.current?.stop()
       if ('speechSynthesis' in window) window.speechSynthesis.cancel()
     }
   }, [])
@@ -281,17 +239,6 @@ export function LabChat({ tool, bookIds, chapterId, voice = false }: LabChatProp
       </div>
       {error ? <div className="inline-error">{error}</div> : null}
       <div className="lab-chat-input">
-        {voice ? (
-          <button
-            type="button"
-            className={`mic-button${listening ? ' is-listening' : ''}`}
-            onClick={startListening}
-            title={listening ? '停止录音' : '语音输入'}
-            aria-label={listening ? '停止录音' : '语音输入'}
-          >
-            {listening ? '◉' : '🎙'}
-          </button>
-        ) : null}
         <textarea
           value={input}
           onChange={(event) => setInput(event.target.value)}
@@ -302,7 +249,7 @@ export function LabChat({ tool, bookIds, chapterId, voice = false }: LabChatProp
             }
           }}
           rows={2}
-          placeholder={voice ? '按住麦克风说话，或直接输入…' : '继续追问…'}
+          placeholder="继续追问…"
         />
         <button type="button" className="primary-button small" onClick={() => void ask(input)} disabled={!input.trim() || busy}>
           发送
@@ -310,20 +257,4 @@ export function LabChat({ tool, bookIds, chapterId, voice = false }: LabChatProp
       </div>
     </div>
   )
-}
-
-interface SpeechRecognitionLike {
-  lang: string
-  interimResults: boolean
-  continuous: boolean
-  onresult: ((event: SpeechRecognitionEventLike) => void) | null
-  onerror: ((event: { error?: string }) => void) | null
-  onend: (() => void) | null
-  start(): void
-  stop(): void
-}
-
-interface SpeechRecognitionEventLike {
-  resultIndex: number
-  results: ArrayLike<ArrayLike<{ transcript: string }>>
 }

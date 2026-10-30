@@ -1,7 +1,8 @@
 import { useEffect, useState, type JSX } from 'react'
-import type { ChapterContent, GeneratePartial, Note, NoteDraft, NotePatch, NoteReport, RelatedNote } from '../../shared/types.js'
+import type { ChapterContent, GeneratePartial, GenerationMode, Note, NoteDraft, NotePatch, NoteReport, RelatedNote } from '../../shared/types.js'
 import { buildChapterMarkdown, markdownFilename, todayStamp } from '../lib/export.js'
 import { noteBacklinks, relatedNotes, snippet } from '../lib/links.js'
+import { Checkbox } from './Checkbox.js'
 import { NoteCard } from './NoteCard.js'
 
 interface NotesPanelProps {
@@ -15,6 +16,7 @@ interface NotesPanelProps {
   partial: GeneratePartial | null
   error: string | null
   report: NoteReport | null
+  generationMode: GenerationMode
   crossBookNotes: RelatedNote[]
   focusNoteId: string | null
   focusKey: number
@@ -113,6 +115,7 @@ export function NotesPanel({
   partial,
   error,
   report,
+  generationMode,
   crossBookNotes,
   focusNoteId,
   focusKey,
@@ -286,6 +289,7 @@ export function NotesPanel({
             {report.durationMs > 0
               ? ` · 用时 ${report.durationMs < 10000 ? (report.durationMs / 1000).toFixed(1) : Math.round(report.durationMs / 1000)}s`
               : ''}
+            {report.mode === 'fast' ? ' · 快速' : report.mode === 'deep' ? ' · 精读' : report.mode === 'standard' ? ' · 标准' : ''}
           </div>
           {report.omittedItems && report.omittedItems.length > 0 ? (
             <details className="omitted-details">
@@ -307,6 +311,9 @@ export function NotesPanel({
         <div className="notes-empty">
           <p className="notes-empty-title">这一章还没有读薄稿</p>
           <p>AI 会先把这一章重写成可发博客的读薄稿（只保留断言、并列改列表，压缩幅度由内容密度决定），再从稿子里用「不知道它是否影响全文理解」的标准提炼 5–25 张核心卡片，最后做最多 3 条延伸。</p>
+          <p className="field-hint">
+            当前档位：{generationMode === 'fast' ? '快速（跳过回查和延伸）' : generationMode === 'deep' ? '精读（额外细节回查）' : '标准'}，可在右上角设置里调整。
+          </p>
           <div className="notes-empty-actions">
             <button type="button" className="primary-button" onClick={onGenerate}>
               ✦ 读薄并提炼
@@ -324,10 +331,12 @@ export function NotesPanel({
             <span>读薄稿</span>
             <div className="condensed-tools">
               {report && report.ratio > 0 ? <span className="muted">约 1/{report.ratio.toFixed(1)}</span> : null}
-              <label className="export-check">
-                <input type="checkbox" checked={includeCards} onChange={(event) => setIncludeCards(event.target.checked)} />
-                附卡片
-              </label>
+              <Checkbox
+                className="export-check"
+                checked={includeCards}
+                onChange={setIncludeCards}
+                label="附卡片"
+              />
               <button type="button" className="text-button" onClick={() => onShare(condensedNote)}>
                 分享
               </button>

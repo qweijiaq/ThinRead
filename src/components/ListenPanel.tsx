@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 
+import { Select } from './Select.js'
+
 interface ListenPanelProps {
   title: string
   text: string
@@ -151,12 +153,18 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
             >
               下一句
             </button>
-            <select className="listen-speed" value={speed} onChange={(event) => setSpeed(Number(event.target.value))} aria-label="语速">
-              <option value={0.8}>0.8×</option>
-              <option value={1}>1×</option>
-              <option value={1.2}>1.2×</option>
-              <option value={1.5}>1.5×</option>
-            </select>
+            <Select
+              className="listen-speed"
+              value={String(speed)}
+              onChange={(value) => setSpeed(Number(value))}
+              ariaLabel="语速"
+              options={[
+                { value: '0.8', label: '0.8×' },
+                { value: '1', label: '1×' },
+                { value: '1.2', label: '1.2×' },
+                { value: '1.5', label: '1.5×' },
+              ]}
+            />
             <button type="button" className="icon-button" onClick={onClose} aria-label="关闭">
               ×
             </button>

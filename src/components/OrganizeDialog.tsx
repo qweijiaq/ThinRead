@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState, type JSX } from 'react'
 
+import { Checkbox } from './Checkbox.js'
+import { confirmDialog } from './ConfirmDialog.js'
 import type {
   ChapterFlag,
   ChapterKind,
@@ -105,7 +107,13 @@ export function OrganizeDialog({
 
   async function deleteSelected(): Promise<void> {
     if (selected.size === 0) return
-    if (!window.confirm(`删除选中的 ${selected.size} 节？这些章节的笔记也会一并删除，无法恢复。`)) return
+    const confirmed = await confirmDialog({
+      title: '删除章节',
+      message: `删除选中的 ${selected.size} 节？这些章节的笔记也会一并删除，无法恢复。`,
+      confirmLabel: '删除',
+      danger: true,
+    })
+    if (!confirmed) return
     setApplying(true)
     try {
       await onDelete([...selected])
@@ -148,20 +156,24 @@ export function OrganizeDialog({
         {error ? <div className="inline-error">{error}</div> : null}
 
         <div className="organize-list">
-          <label className="organize-row organize-row-head">
-            <input type="checkbox" checked={allSelected} onChange={toggleAll} />
+          <div className="organize-row organize-row-head" onClick={toggleAll}>
+            <Checkbox checked={allSelected} onChange={toggleAll} ariaLabel="全选章节" />
             <span className="organize-title">全部章节</span>
             <span className="organize-chars">{chapters.length} 节</span>
-          </label>
+          </div>
           {ordered.map((chapter, index) => {
             const suggestion = suggestionById.get(chapter.id)
             const kind = suggestion?.kind ?? chapter.kind
             return (
-              <label key={chapter.id} className={`organize-row${chapter.hidden ? ' is-hidden' : ''}`}>
-                <input
-                  type="checkbox"
+              <div
+                key={chapter.id}
+                className={`organize-row${chapter.hidden ? ' is-hidden' : ''}`}
+                onClick={() => toggle(chapter.id)}
+              >
+                <Checkbox
                   checked={selected.has(chapter.id)}
                   onChange={() => toggle(chapter.id)}
+                  ariaLabel={`选择 ${chapter.title}`}
                 />
                 <span className="organize-index">{String(index + 1).padStart(2, '0')}</span>
                 <span className="organize-main">
@@ -183,7 +195,7 @@ export function OrganizeDialog({
                 <span className={`organize-status${chapter.hidden ? ' hidden' : ''}`}>
                   {chapter.hidden ? '已隐藏' : '可见'}
                 </span>
-              </label>
+              </div>
             )
           })}
           {ordered.length === 0 ? <p className="organize-empty">这本书没有可整理的章节。</p> : null}

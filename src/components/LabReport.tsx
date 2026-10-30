@@ -3,6 +3,7 @@ import type { LabReport as LabReportData, LabRequest, LabToolId } from '../../sh
 import { listLabArtifacts, loadLabArtifact, parseArtifactMeta, saveLabArtifact } from '../lib/lab-artifacts.js'
 import { labReportScope } from '../lib/lab-scope.js'
 import { Markdown } from './Markdown.js'
+import { Select } from './Select.js'
 
 interface LabReportProps {
   tool: LabToolId
@@ -27,7 +28,6 @@ const CHAPTER_TOOLS = new Set<LabToolId>([
   'book-club',
 ])
 const BOOK_TOOLS = new Set<LabToolId>(['cross-book-synthesis', 'reading-path'])
-const SINGLE_BOOK_TOOLS = new Set<LabToolId>(['entity-network'])
 
 export function LabReport({ tool, bookIds, bookId, chapterId, question, sourceLabel, onSave, onListen }: LabReportProps): JSX.Element {
   const [result, setResult] = useState<LabReportData | null>(null)
@@ -71,12 +71,10 @@ export function LabReport({ tool, bookIds, bookId, chapterId, question, sourceLa
     const request = requestOverride ?? {
       tool,
       bookIds:
-        !needsChapter && (BOOK_TOOLS.has(tool) || SINGLE_BOOK_TOOLS.has(tool))
-          ? SINGLE_BOOK_TOOLS.has(tool)
-            ? bookId ? [bookId] : undefined
-            : bookIds.length > 0
-              ? bookIds
-              : undefined
+        !needsChapter && BOOK_TOOLS.has(tool)
+          ? bookIds.length > 0
+            ? bookIds
+            : undefined
           : undefined,
       chapterId: needsChapter ? chapterId || undefined : undefined,
       question: question.trim() || undefined,
@@ -151,30 +149,28 @@ export function LabReport({ tool, bookIds, bookId, chapterId, question, sourceLa
       {result ? (
         <div className="lab-result">
           {history.length > 1 ? (
-            <label className="lab-history">
-              历史
-              <select
+            <div className="lab-history">
+              <span>历史</span>
+              <Select
                 value={selectedId}
-                onChange={(event) => {
-                  const artifact = history.find((item) => item.id === event.target.value)
+                onChange={(value) => {
+                  const artifact = history.find((item) => item.id === value)
                   if (!artifact) return
                   setResult({ title: artifact.title, markdown: artifact.content })
                   setSelectedId(artifact.id)
                   const meta = parseArtifactMeta(artifact)
                   setStoredRequest(meta.request ?? null)
                 }}
-                aria-label="历史生成结果"
-              >
-                {history.map((artifact) => {
+                ariaLabel="历史生成结果"
+                options={history.map((artifact) => {
                   const meta = parseArtifactMeta(artifact)
-                  return (
-                    <option key={artifact.id} value={artifact.id}>
-                      {(meta.label || artifact.scope).slice(0, 24)} · {artifact.createdAt.slice(5, 16).replace('T', ' ')}
-                    </option>
-                  )
+                  return {
+                    value: artifact.id,
+                    label: `${(meta.label || artifact.scope).slice(0, 24)} · ${artifact.createdAt.slice(5, 16).replace('T', ' ')}`,
+                  }
                 })}
-              </select>
-            </label>
+              />
+            </div>
           ) : null}
           <div className="lab-result-head">
             <h3>{result.title}</h3>

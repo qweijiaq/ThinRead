@@ -2,21 +2,29 @@ import * as cheerio from 'cheerio'
 import { generateText } from 'ai'
 
 import type {
+  BookGenre,
   DivergenceType,
   GeneratePartial,
+  GenerationMode,
   NoteDivergence,
   NoteReport,
 } from '../../shared/types.js'
 import type { GeneratedNote } from '../db.js'
 import { deriveTitle } from '../db.js'
+import { genreRule } from './genre.js'
 import { createLanguageModel } from './provider.js'
 import type { ModelConfig } from './provider.js'
 
 const MAX_CHAPTER_CHARS = 60_000
-const MAX_SECTION_CHARS = 3_500
+const MAX_SECTION_CHARS = 6_000
 const MAX_OMITTED = 30
-const CONCURRENCY = 3
+const CONCURRENCY = 4
 const MAX_DIVERGENCES = 3
+function requestTimeout(parent: AbortSignal, ms: number): AbortSignal {
+  const anySignal = (AbortSignal as unknown as { any?: (signals: AbortSignal[]) => AbortSignal }).any
+  return anySignal ? anySignal([parent, AbortSignal.timeout(ms)]) : parent
+}
+
 
 interface Section {
   index: number
@@ -70,6 +78,8 @@ export interface GenerateArgs {
   chapterHtml: string
   config: ModelConfig
   demo: boolean
+  genre?: BookGenre
+  mode?: GenerationMode
   lookupRelatedNotes?: (concepts: string[]) => RelatedContext[]
 }
 
@@ -89,6 +99,7 @@ export async function generateChapterNotes(
   }
 
   const startedAt = Date.now()
+  const mode = args.mode ?? 'standard'
   const model = createLanguageModel(args.config)
   const sections = buildSections(args.chapterHtml, args.chapterText)
   if (sections.length === 0) throw new Error('这一章没有可读的正文。')
@@ -123,13 +134,24 @@ export async function generateChapterNotes(
   const merged = mergeCondensed(args, sections, chunks, condensedParts)
   if (!merged.main.trim()) throw new Error('读薄稿为空，请重试或换一个模型。')
 
-  // 阶段一回查与阶段二提炼并行：审计和卡片都只依赖读薄稿
+  // 阶段一回查与阶段二提炼并行：审计和卡片都只依赖读薄稿。
+  // 快速模式跳过回查，标准模式回查一次，精读模式再补一轮细节回查。
   onPartial({ progress: { phase: 'cards', done: 0, total: 1, cards: 0 } })
-  const range = cardRange(countChars(merged.main))
+  const range = cardRange(countChars(merged.main), mode)
   const [audit, extractedCards] = await Promise.all([
-    auditFidelity(model, args, merged.main, signal),
+    mode === 'fast' ? Promise.resolve([] as AuditMissing[]) : auditFidelity(model, args, merged.main, signal),
     extractCards(model, args, merged.main, range, signal),
   ])
+  if (mode === 'deep') {
+    const extra = await auditDetails(model, args, merged.main, signal)
+    const seen = new Set(audit.map((item) => normalizeForMatch(item.point)))
+    for (const item of extra) {
+      const key = normalizeForMatch(item.point)
+      if (!key || seen.has(key)) continue
+      seen.add(key)
+      audit.push(item)
+    }
+  }
   let cards = extractedCards
   if (cards.length > range.max) {
     cards = await refilterCards(model, args, cards, range.max, signal)
@@ -140,9 +162,10 @@ export async function generateChapterNotes(
   const auditBlock = buildAuditBlock(audit)
   const condensedDoc = buildCondensedDoc(merged.main, auditBlock)
 
-  // 阶段三：只对卡片做有限延伸
+  // 阶段三：只对卡片做有限延伸；快速模式不生成延伸，省掉一次请求。
   onPartial({ progress: { phase: 'expand', done: 0, total: cards.length, cards: cards.length } })
-  const divergences = await expandCards(model, args, cards, signal)
+  const divergences =
+    mode === 'fast' ? new Map<number, NoteDivergence[]>() : await expandCards(model, args, cards, signal)
   divergences.forEach((items, index) => {
     const card = cards[index]
     if (card) card.divergences = items
@@ -170,6 +193,7 @@ export async function generateChapterNotes(
     omitted: merged.omitted.length,
     omittedItems: merged.omitted.slice(0, MAX_OMITTED),
     durationMs: Date.now() - startedAt,
+    mode,
     model: args.config.model,
     createdAt: new Date().toISOString(),
   }
@@ -276,9 +300,11 @@ function condensePrompt(args: GenerateArgs, chunk: Chunk): string {
     .split(/\n{2,}/)
     .map((paragraph, index) => `[§${index + 1}] ${paragraph.trim()}`)
     .join('\n\n')
+  const hint = genreRule(args.genre)
 
   return [
     `你在把一本书读薄，目标是写成一篇可以直接发博客的读薄稿。书名《${args.bookTitle}》，本章「${args.chapterTitle}」，小节「${chunk.title || '正文'}」。`,
+    ...(hint ? [hint] : []),
     '',
     '请完成：',
     '1. 只保留作者的断言（观点、定义、机制、方法、数据结论、边界条件）；删掉铺垫、过渡、寒暄、重复强调、解释性从句和例子铺垫。',
@@ -324,7 +350,7 @@ async function condenseChunk(
           : `${prompt}\n\n上一次的读薄稿仍然太厚，或者没有按 JSON 返回。请改成博客可直接发布的版本：只保留断言，删掉所有铺垫、解释性从句和重复，把并列项改成列表，目标不超过原文的 1/3（约 ${target} 字）。不要加入原文没有的观点，不要保留段落编号。`,
       temperature: 0.3,
       maxRetries: 1,
-      abortSignal: signal,
+      abortSignal: requestTimeout(signal, 180_000),
     })
     const parsed = normalizeCondense(response.text, chunk.title)
     if (!parsed.compressed) continue
@@ -436,7 +462,8 @@ async function auditFidelity(
   signal: AbortSignal,
 ): Promise<AuditMissing[]> {
   if (signal.aborted) throw new Error('生成已取消')
-  const original = args.chapterText.slice(0, 40_000)
+  // 回查只用于发现明显遗漏；截取前 24k 字能覆盖大多数章节，避免整章重复上送。
+  const original = args.chapterText.slice(0, 24_000)
   const prompt = [
     '下面是一本书的一章原文，以及一份要求“保留作者全部断言”的读薄稿。',
     '请逐条断言回查：读薄稿有没有漏掉作者的主张、论证链、关键例子或边界条件？被有意压缩的重复内容和铺垫不算缺失，表达差异也不算。',
@@ -455,9 +482,48 @@ async function auditFidelity(
       prompt,
       temperature: 0.2,
       maxRetries: 1,
-      abortSignal: signal,
+      abortSignal: requestTimeout(signal, 180_000),
     })
     return normalizeAudit(parseJsonFromText(response.text)).slice(0, 12)
+  } catch (error) {
+    if (signal.aborted) throw error
+    return []
+  }
+}
+
+async function auditDetails(
+  model: ReturnType<typeof createLanguageModel>,
+  args: GenerateArgs,
+  condensed: string,
+  signal: AbortSignal,
+): Promise<AuditMissing[]> {
+  if (signal.aborted) throw new Error('生成已取消')
+  const hint = genreRule(args.genre)
+  const prompt = [
+    '下面是一本书的一章原文与读薄稿。请只做第二轮细节回查，找标准回查容易漏掉的内容：',
+    '定义之间的细微区别、限定条件、作者举出的反例、人物/事件的因果、以及被压缩后失去的语境。',
+    hint,
+    '不要重复泛泛的主旨，不要把重复内容或纯铺垫算作缺失；没有就返回空数组。',
+    '只输出 JSON 对象：{"missing":[{"section":"...","point":"..."}]}。不要输出 Markdown 代码块。',
+    '',
+    '原文：',
+    args.chapterText.slice(0, 28_000),
+    '',
+    '读薄稿：',
+    condensed,
+  ]
+    .filter(Boolean)
+    .join('\n')
+
+  try {
+    const response = await generateText({
+      model,
+      prompt,
+      temperature: 0.25,
+      maxRetries: 1,
+      abortSignal: requestTimeout(signal, 180_000),
+    })
+    return normalizeAudit(parseJsonFromText(response.text)).slice(0, 8)
   } catch (error) {
     if (signal.aborted) throw error
     return []
@@ -499,10 +565,10 @@ function buildCondensedDoc(main: string, auditBlock: string): string {
 
 // ─── 阶段二：从读薄稿提炼卡片 ─────────────────────────────────────────────
 
-function cardRange(chars: number): { min: number; max: number } {
-  if (chars <= 1000) return { min: 5, max: 8 }
-  if (chars <= 3000) return { min: 8, max: 15 }
-  return { min: 15, max: 25 }
+function cardRange(chars: number, mode: GenerationMode = 'standard'): { min: number; max: number } {
+  if (chars <= 1000) return { min: 5, max: mode === 'fast' ? 7 : 8 }
+  if (chars <= 3000) return { min: 8, max: mode === 'fast' ? 12 : 15 }
+  return { min: 15, max: mode === 'fast' ? 18 : 25 }
 }
 
 async function extractCards(
@@ -512,8 +578,10 @@ async function extractCards(
   range: { min: number; max: number },
   signal: AbortSignal,
 ): Promise<Card[]> {
+  const hint = genreRule(args.genre)
   const prompt = [
     `书名《${args.bookTitle}》，本章「${args.chapterTitle}」。下面是本章的读薄稿：`,
+    ...(hint ? [hint] : []),
     compressed.slice(0, 26_000),
     '',
     '请只从这份读薄稿里提炼知识点卡片，不要回到原文找素材。',
@@ -536,7 +604,7 @@ async function extractCards(
       prompt,
       temperature: 0.2,
       maxRetries: 1,
-      abortSignal: signal,
+      abortSignal: requestTimeout(signal, 180_000),
     })
     return normalizeCards(parseJsonFromText(response.text), args.chapterText).slice(0, range.max)
   } catch (error) {
@@ -574,7 +642,7 @@ async function refilterCards(
       prompt,
       temperature: 0.15,
       maxRetries: 1,
-      abortSignal: signal,
+      abortSignal: requestTimeout(signal, 180_000),
     })
     const filtered = normalizeCards(parseJsonFromText(response.text), args.chapterText).slice(0, max)
     if (filtered.length > 0) return filtered
@@ -691,7 +759,7 @@ async function expandCards(
       prompt,
       temperature: 0.5,
       maxRetries: 1,
-      abortSignal: signal,
+      abortSignal: requestTimeout(signal, 180_000),
     })
     return normalizeDivergences(parseJsonFromText(response.text), items)
   } catch (error) {

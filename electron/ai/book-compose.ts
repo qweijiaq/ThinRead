@@ -4,12 +4,16 @@ import type {
   BookComposeOptions,
   BookComposeProgress,
   BookComposeResult,
+  BookGenre,
+  GenerationMode,
 } from '../../shared/types.js'
+import { genreRule } from './genre.js'
 import type { ModelConfig } from './provider.js'
 import { createLanguageModel } from './provider.js'
 
-const BATCH_CHARS = 7_000
-const FINAL_EDITOR_CHARS = 30_000
+const BATCH_CHARS = 12_000
+const SINGLE_PASS_CHARS = 24_000
+const FINAL_EDITOR_CHARS = 60_000
 const CONCURRENCY = 2
 const REQUEST_TIMEOUT_MS = 180_000
 
@@ -24,6 +28,8 @@ export interface ComposeArgs {
   author: string
   sources: ComposeSource[]
   options: BookComposeOptions
+  genre?: BookGenre
+  mode?: GenerationMode
   config: ModelConfig
   demo: boolean
   signal: AbortSignal
@@ -46,10 +52,16 @@ const VOICE_RULES: Record<BookComposeOptions['voice'], string> = {
   sharp: '允许明确判断和不同意见，指出作者论证的强弱和边界，但要尊重原意。',
 }
 
-function lengthRule(length: BookComposeOptions['length']): string {
+function outputTarget(sourceChars: number, length: BookComposeOptions['length']): number {
+  const ratio = length === 'tight' ? 0.55 : 0.82
+  return Math.max(1_500, Math.round(sourceChars * ratio))
+}
+
+function lengthRule(length: BookComposeOptions['length'], sourceChars: number): string {
+  const target = outputTarget(sourceChars, length)
   return length === 'tight'
-    ? '篇幅收紧：在不丢关键论点和例子的前提下，压到草稿的 70% 左右，删掉解释性的废话。'
-    : '篇幅完整：保留草稿里的主要论证、例子和限定条件，只合并重复，不为了短而删除信息。'
+    ? `篇幅收紧：目标全文约 ${target.toLocaleString()} 字（约为输入读薄稿的 55%），最多不超过 ${Math.round(target * 1.1).toLocaleString()} 字。在不丢关键论点的前提下，删掉重复、解释性铺垫和过多例子。`
+    : `篇幅完整：目标全文约 ${target.toLocaleString()} 字（约为输入读薄稿的 82%），保留主要论证、必要例子和限定条件，只合并重复。`
 }
 
 export async function composeBook(args: ComposeArgs): Promise<BookComposeResult> {
@@ -74,43 +86,56 @@ export async function composeBook(args: ComposeArgs): Promise<BookComposeResult>
   }
 
   const model = createLanguageModel(args.config)
-  const batches = splitBatches(sources)
-  const sections: string[] = new Array(batches.length).fill('')
-  let nextBatch = 0
-  let rewritten = 0
-  const worker = async (): Promise<void> => {
-    while (true) {
-      const index = nextBatch++
-      if (index >= batches.length) return
-      if (args.signal.aborted) throw new Error('合并已取消')
-      const batch = batches[index]!
-      try {
-        sections[index] = await rewriteBatch(model, args, batch)
-      } catch (error) {
-        if (args.signal.aborted) throw error
-        // 单批失败时退回到原始读薄稿，保证整本还能成稿。
-        sections[index] = fallbackSection(batch)
+  let draft = ''
+  const fastTrack = args.mode === 'fast' && sourceChars <= FINAL_EDITOR_CHARS
+  if (sourceChars <= SINGLE_PASS_CHARS || fastTrack) {
+    // 小书或快速档不拆批：直接让终审在一次请求里完成合并和压缩，省掉多轮调用。
+    draft = sourceDraft(sources)
+    args.onProgress({
+      stage: 'rewrite',
+      done: 1,
+      total: 1,
+      message: fastTrack ? '快速档跳过中间改写，直接终审' : '读薄稿规模适合单次终审，跳过分组改写',
+    })
+  } else {
+    const batches = splitBatches(sources)
+    const sections: string[] = new Array(batches.length).fill('')
+    let nextBatch = 0
+    let rewritten = 0
+    const worker = async (): Promise<void> => {
+      while (true) {
+        const index = nextBatch++
+        if (index >= batches.length) return
+        if (args.signal.aborted) throw new Error('合并已取消')
+        const batch = batches[index]!
+        try {
+          sections[index] = await rewriteBatch(model, args, batch)
+        } catch (error) {
+          if (args.signal.aborted) throw error
+          // 单批失败时退回到原始读薄稿，保证整本还能成稿。
+          sections[index] = fallbackSection(batch)
+        }
+        rewritten++
+        args.onProgress({
+          stage: 'rewrite',
+          done: rewritten,
+          total: batches.length,
+          message: `正在整理第 ${rewritten}/${batches.length} 组章节`,
+        })
       }
-      rewritten++
-      args.onProgress({
-        stage: 'rewrite',
-        done: rewritten,
-        total: batches.length,
-        message: `正在整理第 ${rewritten}/${batches.length} 组章节`,
-      })
     }
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, batches.length) }, worker))
+    draft = sections.filter(Boolean).join('\n\n').trim()
   }
-  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, batches.length) }, worker))
-
-  let draft = sections.filter(Boolean).join('\n\n').trim()
   if (!draft) throw new Error('没有可合并的正文，请重试或换一个模型。')
 
   args.onProgress({ stage: 'polish', done: 0, total: 1, message: '正在统一语气、补过渡、去 AI 味' })
   let title = ''
   let markdown = ''
+  const finalTarget = outputTarget(sourceChars, args.options.length)
   try {
     if (draft.length <= FINAL_EDITOR_CHARS) {
-      const final = await finalEdit(model, args, draft)
+      const final = await finalEdit(model, args, draft, finalTarget)
       title = final.title
       markdown = final.markdown
     } else {
@@ -140,6 +165,12 @@ export async function composeBook(args: ComposeArgs): Promise<BookComposeResult>
     createdAt: new Date().toISOString(),
     options: args.options,
   }
+}
+
+function sourceDraft(sources: ComposeSource[]): string {
+  return sources
+    .map((source) => `## ${source.title}\n\n${source.content.trim()}`)
+    .join('\n\n')
 }
 
 function splitBatches(sources: ComposeSource[]): ComposeSource[][] {
@@ -173,45 +204,62 @@ async function rewriteBatch(
   args: ComposeArgs,
   batch: ComposeSource[],
 ): Promise<string> {
-  const prompt = [
+  const batchChars = batch.reduce((sum, source) => sum + source.content.length, 0)
+  const target = Math.max(1_000, Math.round(batchChars * (args.options.length === 'tight' ? 0.68 : 0.9)))
+  const maxTarget = Math.round(target * 1.15)
+  const genreHint = genreRule(args.genre)
+  const basePrompt = [
     `书名：《${args.bookTitle}》${args.author ? `，作者：${args.author}` : ''}`,
-    `这一组包含 ${batch.length} 章。把下面的读薄稿整理成整本书正文中的一段。`,
+    ...(genreHint ? [genreHint] : []),
+    `这一组包含 ${batch.length} 章，读薄稿约 ${batchChars.toLocaleString()} 字。把下面的读薄稿整理成整本书正文中的一段。`,
     '',
     sourceBlock(batch),
     '',
     '要求：',
-    '1. 保留全部关键论点、定义、例子、条件和反例；合并重复的句子。',
-    '2. 用 ## 或 ### 做小标题，小标题要具体，不要写“本章”“第一部分”。',
-    '3. 补上章节之间的过渡，但不要写“接下来我们来看”。',
-    '4. 不要输出书名大标题，也不要写导语；只输出这一段正文。',
-    '5. 不要提“这一章”“作者认为”“书中指出”这类元话，除非确实需要区分作者立场。',
+    `1. 输出控制在约 ${target.toLocaleString()} 字，最多不超过 ${maxTarget.toLocaleString()} 字；合并重复，删掉解释性铺垫和过多例子。`,
+    '2. 保留关键论点、定义、必要例子、条件和反例，不要把每句话都保留下来。',
+    '3. 用 ## 或 ### 做小标题，小标题要具体，不要写“本章”“第一部分”。',
+    '4. 补上章节之间的过渡，但不要写“接下来我们来看”。',
+    '5. 不要输出书名大标题，也不要写导语；只输出这一段正文。',
+    '6. 不要提“这一章”“作者认为”“书中指出”这类元话，除非确实需要区分作者立场。',
     DE_AI_RULES,
   ].join('\n')
 
   const controller = linkedController(args.signal, REQUEST_TIMEOUT_MS)
   try {
-    const response = await generateText({
-      model,
-      system: '你是中文非虚构图书的资深编辑，擅长把笔记整理成自然、有判断、能直接发布的博客长文。',
-      prompt,
-      temperature: 0.45,
-      maxRetries: 1,
-      abortSignal: controller.signal,
-    })
-    return cleanSection(response.text)
+    let prompt = basePrompt
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const response = await generateText({
+        model,
+        system: '你是中文非虚构图书的资深编辑，擅长把笔记整理成自然、有判断、能直接发布的博客长文。',
+        prompt,
+        temperature: 0.45,
+        maxRetries: 1,
+        abortSignal: controller.signal,
+      })
+      const section = cleanSection(response.text)
+      if (section.length <= maxTarget || attempt === 1) return section
+      prompt = `${basePrompt}\n\n上一次输出了 ${section.length.toLocaleString()} 字，仍然太长。请再压一轮：保留全部关键判断和必要例子，删除重复、铺垫、解释性从句和次要案例，把正文控制在 ${target.toLocaleString()} 字以内。`
+    }
+    return ''
   } finally {
     controller.dispose()
   }
 }
 
+
 async function finalEdit(
   model: ReturnType<typeof createLanguageModel>,
   args: ComposeArgs,
   draft: string,
+  targetChars: number,
 ): Promise<{ title: string; markdown: string }> {
+  const sourceChars = args.sources.reduce((sum, source) => sum + source.content.length, 0)
+  const genreHint = genreRule(args.genre)
   const prompt = [
     `书名：《${args.bookTitle}》${args.author ? `，作者：${args.author}` : ''}`,
-    `成稿偏好：${lengthRule(args.options.length)}`,
+    ...(genreHint ? [genreHint] : []),
+    `成稿偏好：${lengthRule(args.options.length, sourceChars)}`,
     `语气：${VOICE_RULES[args.options.voice]}`,
     '',
     '下面是已经按章节整理过的草稿。请做最后一轮编辑，把它变成一篇完整的、可以直接发博客的读书长文。',
@@ -222,7 +270,7 @@ async function finalEdit(
     '- 第一行是一级标题：具体、有判断，可以带书名，但不要写成“《书名》读书笔记”这种流水账。',
     '- 第二行是一句引用式副标题（> 开头），不超过 40 字。',
     '- 然后 2–4 段导语，直接进入这本书要解决的问题，不要写“本文将”。',
-    '- 正文按主题重组，保留草稿里的小标题和全部关键论点；可以合并、改名、调整顺序。',
+    `- 正文按主题重组，可以合并、改名、调整顺序；保留关键论点，但删掉重复、解释性铺垫和过多例子，目标全文约 ${targetChars.toLocaleString()} 字，最多不超过 ${Math.round(targetChars * 1.1).toLocaleString()} 字。`,
     '- 结尾 2–3 段，落到一个具体判断或仍未解决的问题，不要空泛升华。',
     '- 只输出 Markdown，不要代码块，不要解释你的编辑过程。',
     DE_AI_RULES,
@@ -255,10 +303,12 @@ async function frameLongBook(
   const outline = args.sources
     .map((source) => `- ${source.title}：${source.content.replace(/\s+/g, ' ').slice(0, 160)}`)
     .join('\n')
+  const genreHint = genreRule(args.genre)
   const prompt = [
     `书名：《${args.bookTitle}》${args.author ? `，作者：${args.author}` : ''}`,
+    ...(genreHint ? [genreHint] : []),
     '这本书的读薄稿很长，正文已经分章整理好。现在只需要写标题、副标题、导语和结尾。',
-    `成稿偏好：${lengthRule(args.options.length)}`,
+    `成稿偏好：${lengthRule(args.options.length, args.sources.reduce((sum, source) => sum + source.content.length, 0))}`,
     `语气：${VOICE_RULES[args.options.voice]}`,
     '',
     '章节提纲：',

@@ -8,6 +8,8 @@ import type {
   ContentStatus,
 } from '../../shared/types.js'
 import { notifyContentCurrent } from '../lib/content-events.js'
+import { confirmDialog } from './ConfirmDialog.js'
+import { Select } from './Select.js'
 import { CONTENT_KIND_LABELS, contentSnippet, contentToMarkdown } from '../lib/content-view.js'
 import { Markdown } from './Markdown.js'
 
@@ -39,6 +41,7 @@ const KIND_OPTIONS: Array<{ value: ContentKind | ''; label: string }> = [
   { value: 'compose', label: '整本成稿' },
   { value: 'suggestion', label: '整理建议' },
   { value: 'pdf', label: 'PDF 页' },
+  { value: 'graph', label: '人物关系图' },
 ]
 
 const STATUS_LABEL: Record<ContentStatus, string> = {
@@ -76,6 +79,7 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
   const [notice, setNotice] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [refreshTick, setRefreshTick] = useState(0)
+  const [listCollapsed, setListCollapsed] = useState(false)
 
   const selected = useMemo(
     () => items.find((item) => item.id === selectedId) ?? items[0] ?? null,
@@ -165,14 +169,26 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
   }
 
   async function remove(item: ContentItem): Promise<void> {
-    if (!window.confirm(`删除「${item.title}」？它会进入回收站，之后还可以恢复。`)) return
+    const confirmed = await confirmDialog({
+      title: '删除生成内容',
+      message: `删除「${item.title}」？它会进入回收站，之后还可以恢复。`,
+      confirmLabel: '删除',
+      danger: true,
+    })
+    if (!confirmed) return
     await changeStatus(item, 'deleted')
   }
 
   async function apply(item: ContentItem, action: ContentApplyAction): Promise<void> {
     if (action === 'source') {
       const label = item.kind === 'format' ? '应用这次排版会覆盖当前章节的排版' : '恢复这组笔记会替换本章未人工修改的 AI 笔记'
-      if (!window.confirm(`${label}，确定继续？`)) return
+      const confirmed = await confirmDialog({
+        title: '应用生成内容',
+        message: `${label}，确定继续？`,
+        confirmLabel: '应用',
+        danger: item.kind === 'format',
+      })
+      if (!confirmed) return
     }
     setBusy(`apply:${action}:${item.id}`)
     setError(null)
@@ -233,32 +249,27 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
           onChange={(event) => setQuery(event.target.value)}
           placeholder="搜索标题或正文…"
         />
-        <select className="notes-select" value={kind} onChange={(event) => setKind(event.target.value as ContentKind | '')}>
-          {KIND_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-        <select className="notes-select" value={bookId} onChange={(event) => setBookId(event.target.value)}>
-          <option value="">全部书</option>
-          {books.map((book) => (
-            <option key={book.id} value={book.id}>
-              {book.title}
-            </option>
-          ))}
-        </select>
-        <select
-          className="notes-select"
+        <Select
+          className="filter-select"
+          value={kind}
+          onChange={(value) => setKind(value as ContentKind | '')}
+          ariaLabel="内容类型"
+          options={KIND_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+        />
+        <Select
+          className="filter-select"
+          value={bookId}
+          onChange={setBookId}
+          ariaLabel="按书筛选"
+          options={[{ value: '', label: '全部书' }, ...books.map((book) => ({ value: book.id, label: book.title }))]}
+        />
+        <Select
+          className="filter-select"
           value={status}
-          onChange={(event) => setStatus(event.target.value as StatusFilter)}
-        >
-          {STATUS_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
+          onChange={(value) => setStatus(value as StatusFilter)}
+          ariaLabel="内容状态"
+          options={STATUS_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+        />
         <button
           type="button"
           className={`ghost-button small${favoriteOnly ? ' is-active' : ''}`}
@@ -266,13 +277,21 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
         >
           ★ 收藏
         </button>
+        <button
+          type="button"
+          className="ghost-button small"
+          onClick={() => setListCollapsed((value) => !value)}
+          aria-pressed={listCollapsed}
+        >
+          {listCollapsed ? '展开列表' : '收起列表'}
+        </button>
         <span className="content-count">{loading ? '加载中…' : `${items.length} 条`}</span>
       </div>
 
       {error ? <div className="inline-error">{error}</div> : null}
       {notice ? <div className="inline-notice">{notice}</div> : null}
 
-      <div className="content-layout">
+      <div className={`content-layout${listCollapsed ? ' is-list-collapsed' : ''}`}>
         <div className="content-list">
           {!loading && items.length === 0 ? (
             <p className="content-empty">还没有符合条件的生成内容。去阅读、出题或工作台生成一次吧。</p>

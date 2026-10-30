@@ -1,12 +1,14 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
 import type {
+  BackupInfo,
   BookComposeOptions,
   BookComposeProgress,
   BookComposeResult,
   BookGenerationDoneEvent,
   BookGenerationOptions,
   BookGenerationProgress,
+  BookGenre,
   BookSummary,
   ChapterContent,
   ChapterFlag,
@@ -14,6 +16,9 @@ import type {
   ChatAnswer,
   ChatMode,
   ChatTurn,
+  BookFormatDoneEvent,
+  BookFormatOptions,
+  BookFormatProgress,
   ClassifyResult,
   ContentApplyAction,
   ContentApplyResult,
@@ -25,32 +30,33 @@ import type {
   GenerationDoneEvent,
   GenerationErrorEvent,
   GenerationPartialEvent,
+  HighlightImportResult,
   KnowledgeMapData,
   LabAnswerCheck,
   LabArtifact,
   LabChatAnswer,
   LabDuplicatePair,
-  LabExperiment,
   LabMergeGroup,
   LabQuiz,
   LabReport,
   LabRequest,
+  RelationGraph,
   LibraryFilter,
   LibraryNote,
   Note,
   NoteDraft,
   NotePatch,
+  OcrProgress,
   ReaderStyle,
   RelatedNote,
   ReadingApi,
-  ReviewRating,
-  ReviewStats,
   SaveFileResult,
   SearchResult,
   SettingsPatch,
   SettingsView,
   TagCount,
   TestResult,
+  TextImportInput,
 } from '../shared/types.js'
 
 function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
@@ -62,6 +68,10 @@ function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
 const api: ReadingApi = {
   listBooks: () => ipcRenderer.invoke('books:list') as Promise<BookSummary[]>,
   importBook: () => ipcRenderer.invoke('books:import') as Promise<BookSummary | null>,
+  importText: (input: TextImportInput) => ipcRenderer.invoke('books:import-text', input) as Promise<BookSummary>,
+  importUrl: (url: string) => ipcRenderer.invoke('books:import-url', url) as Promise<BookSummary>,
+  importScannedPdf: () => ipcRenderer.invoke('books:import-ocr') as Promise<BookSummary | null>,
+  importHighlights: () => ipcRenderer.invoke('books:import-highlights') as Promise<HighlightImportResult | null>,
   openBook: (bookId) =>
     ipcRenderer.invoke('books:open', bookId) as Promise<{
       book: BookSummary
@@ -70,14 +80,23 @@ const api: ReadingApi = {
     }>,
   renameBook: (bookId: string, title: string) =>
     ipcRenderer.invoke('books:rename', bookId, title) as Promise<BookSummary>,
+  setBookGenre: (bookId: string, genre: BookGenre) =>
+    ipcRenderer.invoke('books:genre', bookId, genre) as Promise<BookSummary>,
   renameChapter: (chapterId: string, title: string) =>
     ipcRenderer.invoke('chapters:rename', chapterId, title) as Promise<void>,
   renamePart: (bookId: string, partIndex: number, title: string) =>
     ipcRenderer.invoke('parts:rename', bookId, partIndex, title) as Promise<void>,
   reparseBook: (bookId) => ipcRenderer.invoke('books:reparse', bookId) as Promise<BookSummary>,
+  mergeBooks: (bookIds: string[], title: string, author: string) =>
+    ipcRenderer.invoke('books:merge', bookIds, title, author) as Promise<BookSummary>,
+  splitBook: (bookId: string, fromChapterId: string, title: string) =>
+    ipcRenderer.invoke('books:split', bookId, fromChapterId, title) as Promise<BookSummary>,
   deleteBook: (bookId) => ipcRenderer.invoke('books:delete', bookId) as Promise<void>,
   formatChapter: (chapterId, instruction) =>
     ipcRenderer.invoke('chapters:format', chapterId, instruction) as Promise<FormatResult>,
+  formatBook: (bookId: string, options?: BookFormatOptions) =>
+    ipcRenderer.invoke('chapters:format-book', bookId, options) as Promise<void>,
+  cancelFormat: () => ipcRenderer.invoke('chapters:format-cancel') as Promise<void>,
   resetChapterFormat: (chapterId) => ipcRenderer.invoke('chapters:resetFormat', chapterId) as Promise<void>,
   saveStyle: (bookId, style) => ipcRenderer.invoke('books:saveStyle', bookId, style) as Promise<ReaderStyle>,
   getChapter: (chapterId) => ipcRenderer.invoke('chapters:get', chapterId) as Promise<ChapterContent>,
@@ -104,20 +123,23 @@ const api: ReadingApi = {
   testConnection: () => ipcRenderer.invoke('settings:test') as Promise<TestResult>,
   getAppInfo: () => ipcRenderer.invoke('app:info') as Promise<{ version: string; dataDir: string; demo: boolean }>,
   openDataDir: () => ipcRenderer.invoke('app:open-data') as Promise<void>,
+  createBackup: () => ipcRenderer.invoke('backup:create') as Promise<BackupInfo>,
+  listBackups: () => ipcRenderer.invoke('backup:list') as Promise<BackupInfo[]>,
+  restoreBackup: (id: string) => ipcRenderer.invoke('backup:restore', id) as Promise<void>,
+  deleteBackup: (id: string) => ipcRenderer.invoke('backup:delete', id) as Promise<void>,
+  openBackupsDir: () => ipcRenderer.invoke('backup:open-dir') as Promise<void>,
   copyText: (text: string) => ipcRenderer.invoke('app:copy-text', text) as Promise<void>,
   saveMarkdown: (defaultName: string, content: string) =>
     ipcRenderer.invoke('app:save-markdown', defaultName, content) as Promise<SaveFileResult>,
   saveHtml: (defaultName: string, content: string) =>
     ipcRenderer.invoke('app:save-html', defaultName, content) as Promise<SaveFileResult>,
+  saveBinary: (defaultName: string, base64: string) =>
+    ipcRenderer.invoke('app:save-binary', defaultName, base64) as Promise<SaveFileResult>,
   copyImage: (dataUrl: string) => ipcRenderer.invoke('app:copy-image', dataUrl) as Promise<void>,
   search: (query: string) => ipcRenderer.invoke('library:search', query) as Promise<SearchResult[]>,
   listLibraryNotes: (filter?: LibraryFilter) =>
     ipcRenderer.invoke('library:notes', filter) as Promise<LibraryNote[]>,
   listLibraryTags: (bookId) => ipcRenderer.invoke('library:tags', bookId) as Promise<TagCount[]>,
-  getReviewStats: () => ipcRenderer.invoke('review:stats') as Promise<ReviewStats>,
-  getReviewQueue: (limit) => ipcRenderer.invoke('review:queue', limit) as Promise<LibraryNote[]>,
-  reviewNote: (noteId: string, rating: ReviewRating) =>
-    ipcRenderer.invoke('review:rate', noteId, rating) as Promise<void>,
   askChapter: (chapterId: string, question: string, history: ChatTurn[], mode: ChatMode) =>
     ipcRenderer.invoke('tutor:ask', chapterId, question, history, mode) as Promise<ChatAnswer>,
   evaluateExplanation: (chapterId: string, explanation: string) =>
@@ -137,15 +159,12 @@ const api: ReadingApi = {
   findDuplicateNotes: () => ipcRenderer.invoke('lab:duplicates') as Promise<LabDuplicatePair[]>,
   mergeNotes: (keepId: string, mergeId: string) =>
     ipcRenderer.invoke('lab:merge-notes', keepId, mergeId) as Promise<Note>,
-  listExperiments: () => ipcRenderer.invoke('lab:experiments') as Promise<LabExperiment[]>,
-  createExperiment: (goal: string) =>
-    ipcRenderer.invoke('lab:experiment-create', goal) as Promise<LabExperiment>,
-  updateExperimentStatus: (id: string, status: LabExperiment['status']) =>
-    ipcRenderer.invoke('lab:experiment-status', id, status) as Promise<void>,
   saveImage: (dataUrl: string, defaultName: string) =>
     ipcRenderer.invoke('app:save-image', dataUrl, defaultName) as Promise<SaveFileResult>,
   analyzePdfPage: (bookId: string, page: number) =>
     ipcRenderer.invoke('lab:pdf-page', bookId, page) as Promise<LabReport>,
+  generateRelationGraph: (bookId: string) =>
+    ipcRenderer.invoke('lab:relation-graph', bookId) as Promise<RelationGraph>,
   getLabArtifact: (tool: string, scope?: string) =>
     ipcRenderer.invoke('lab:artifact-get', tool, scope) as Promise<LabArtifact | null>,
   listLabArtifacts: (tool: string, limit?: number) =>
@@ -168,6 +187,10 @@ const api: ReadingApi = {
   onGenerationError: (cb) => subscribe<GenerationErrorEvent>('generation:error', cb),
   onBookGenerationProgress: (cb) => subscribe<BookGenerationProgress>('book:generation:progress', cb),
   onBookGenerationDone: (cb) => subscribe<BookGenerationDoneEvent>('book:generation:done', cb),
+  onOcrProgress: (cb) => subscribe<OcrProgress>('ocr:progress', cb),
+  onBookFormatProgress: (cb) => subscribe<BookFormatProgress>('book:format:progress', cb),
+  onBookFormatDone: (cb) => subscribe<BookFormatDoneEvent>('book:format:done', cb),
+  onChapterFormatted: (cb) => subscribe<FormatResult>('chapter:formatted', cb),
   onBookComposeProgress: (cb) => subscribe<BookComposeProgress>('book:compose:progress', cb),
   onSemanticReady: (cb) => subscribe<void>('semantic:ready', () => cb()),
 }

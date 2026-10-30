@@ -1,5 +1,7 @@
 import type { JSX } from 'react'
 import type { BookSummary } from '../../shared/types.js'
+import { bookGenreLabel } from '../lib/genres.js'
+import { confirmDialog } from './ConfirmDialog.js'
 
 interface LibraryProps {
   books: BookSummary[]
@@ -9,9 +11,18 @@ interface LibraryProps {
   onDelete(bookId: string): void
   onRename(book: BookSummary): void
   onCompose(bookId: string): void
+  onMerge(): void
 }
 
-export function Library({ books, importing, onOpen, onImport, onDelete, onRename, onCompose }: LibraryProps): JSX.Element {
+function formatWords(value: number): string {
+  if (value >= 10000) {
+    const wan = value / 10000
+    return `${wan >= 100 ? Math.round(wan) : wan.toFixed(1)} 万字`
+  }
+  return `${value.toLocaleString()} 字`
+}
+
+export function Library({ books, importing, onOpen, onImport, onDelete, onRename, onCompose, onMerge }: LibraryProps): JSX.Element {
   if (books.length === 0) {
     return (
       <main className="welcome">
@@ -22,7 +33,7 @@ export function Library({ books, importing, onOpen, onImport, onDelete, onRename
           书和笔记都在本地。
         </p>
         <button type="button" className="primary-button large" onClick={onImport} disabled={importing}>
-          {importing ? '正在解析…' : '导入一本 EPUB / PDF'}
+          {importing ? '正在解析…' : '导入一本书'}
         </button>
         <div className="welcome-grid">
           <div>
@@ -47,11 +58,21 @@ export function Library({ books, importing, onOpen, onImport, onDelete, onRename
       <div className="library-head">
         <div>
           <h1>书架</h1>
-          <p>{books.length} 本书 · {books.reduce((sum, book) => sum + book.noteCount, 0)} 条笔记</p>
+          <p>
+            {books.length} 本书 · {formatWords(books.reduce((sum, book) => sum + book.totalChars, 0))} ·{' '}
+            {books.reduce((sum, book) => sum + book.noteCount, 0)} 条笔记
+          </p>
         </div>
-        <button type="button" className="primary-button" onClick={onImport} disabled={importing}>
-          {importing ? '正在解析…' : '导入新书'}
-        </button>
+        <div className="library-head-actions">
+          {books.length >= 2 ? (
+            <button type="button" className="ghost-button" onClick={onMerge}>
+              合并书籍
+            </button>
+          ) : null}
+          <button type="button" className="primary-button" onClick={onImport} disabled={importing}>
+            {importing ? '正在解析…' : '导入新书'}
+          </button>
+        </div>
       </div>
       <div className="book-grid">
         {books.map((book) => (
@@ -76,16 +97,22 @@ export function Library({ books, importing, onOpen, onImport, onDelete, onRename
               <h3>{book.title}</h3>
               <p className="book-author">{book.author || '未知作者'}</p>
               <div className="book-meta">
+                <span>{formatWords(book.totalChars)}</span>
                 <span>{book.chapterCount} 节</span>
                 {book.hiddenChapterCount > 0 ? <span>已隐藏 {book.hiddenChapterCount}</span> : null}
                 <span>{book.noteCount} 条笔记</span>
                 <span>{book.format.toUpperCase()}</span>
+                <span>{bookGenreLabel(book.genre)}</span>
               </div>
               <div className="progress-track">
                 <div className="progress-fill" style={{ width: `${Math.round(book.progress * 100)}%` }} />
               </div>
               <div className="book-actions">
-                <span>{book.progress > 0 ? `已读 ${Math.round(book.progress * 100)}%` : '尚未开始'}</span>
+                <span>
+                  {book.progress > 0
+                    ? `已读 ${Math.round(book.progress * 100)}% · ${formatWords(book.readChars)}`
+                    : '尚未开始'}
+                </span>
                 <span className="book-action-buttons">
                   <button
                     type="button"
@@ -112,7 +139,14 @@ export function Library({ books, importing, onOpen, onImport, onDelete, onRename
                     className="text-button danger"
                     onClick={(event) => {
                       event.stopPropagation()
-                      if (window.confirm(`从书架移除《${book.title}》？笔记也会一并删除。`)) onDelete(book.id)
+                      void confirmDialog({
+                        title: '移除书籍',
+                        message: `从书架移除《${book.title}》？笔记也会一并删除。`,
+                        confirmLabel: '移除',
+                        danger: true,
+                      }).then((confirmed) => {
+                        if (confirmed) onDelete(book.id)
+                      })
                     }}
                   >
                     移除

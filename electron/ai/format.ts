@@ -9,7 +9,10 @@ import { createLanguageModel } from './provider.js'
 import type { ModelConfig } from './provider.js'
 
 const MAX_PROMPT_CHARS = 60_000
-const MAX_CONTEXT_CHARS = 20_000
+const MAX_CONTEXT_CHARS = 4_000
+const SEGMENT_CHARS = 14_000
+const SEGMENT_CONCURRENCY = 2
+const FORMAT_TIMEOUT_MS = 180_000
 
 const styleSchema = z.object({
   fontFamily: z.enum(['serif', 'sans']).optional(),
@@ -42,6 +45,7 @@ export interface FormatArgs {
   instruction?: string
   style: ReaderStyle
   config: ModelConfig
+  signal?: AbortSignal
 }
 
 export interface FormatOutput {
@@ -64,23 +68,66 @@ export async function formatChapter(args: FormatArgs): Promise<FormatOutput> {
   if (prepared.html.length > MAX_PROMPT_CHARS) {
     throw new Error('这一章太长，暂时无法整体排版。可以先在「整理」里拆分章节，或换一章再试。')
   }
-
+  const segments = splitFormatHtml(prepared.html, SEGMENT_CHARS)
   const model = createLanguageModel(args.config)
-  const prompt = buildPrompt(args, prepared.html)
+  const outputs = await runPool(segments.length, SEGMENT_CONCURRENCY, async (index) => {
+    const segment = segments[index]!
+    try {
+      return await formatSegment(model, args, segment, htmlToText(segment), prepared.images, segments.length === 1)
+    } catch (error) {
+      // 单段超时或结构不合法时保留原文，其他段仍可完成。
+      if (segments.length === 1) throw error
+      console.warn('[format] 段落排版失败，保留原文', error instanceof Error ? error.message : error)
+      return null
+    }
+  })
+
+  const successful = outputs.filter((item): item is FormatOutput => Boolean(item))
+  if (successful.length === 0) throw new Error('AI 排版没有返回可用结果，请稍后重试。')
+  const html = outputs.map((item, index) => item?.html ?? segments[index]).join('\n')
+  const removed = successful.flatMap((item) => item.removed)
+  verifyIntegrity(args.originalText, html, removed)
+  const style = successful.find((item) => item.style)?.style ?? args.style
+  const failed = outputs.filter((item) => item === null).length
+  const baseNote = successful.map((item) => item.note).filter(Boolean).join(' ').slice(0, 600) || '已整理这一章。'
+  const note = failed > 0 ? `${baseNote} 有 ${failed} 段没有完成，已保留原文。` : baseNote
+
+  return {
+    html,
+    removed,
+    style: normalizeReaderStyle({ ...args.style, ...style }),
+    note,
+  }
+}
+
+function formatSignal(parent?: AbortSignal): AbortSignal {
+  const timeout = AbortSignal.timeout(FORMAT_TIMEOUT_MS)
+  const anySignal = (AbortSignal as unknown as { any?: (signals: AbortSignal[]) => AbortSignal }).any
+  return parent && anySignal ? anySignal([parent, timeout]) : timeout
+}
+
+async function formatSegment(
+  model: ReturnType<typeof createLanguageModel>,
+  args: FormatArgs,
+  preparedHtml: string,
+  originalText: string,
+  images: Map<string, string>,
+  includeContext: boolean,
+): Promise<FormatOutput> {
+  const prompt = buildPrompt(args, preparedHtml, includeContext)
   const response = await generateObject({
     model,
     schema: formatSchema,
     prompt,
     temperature: 0.15,
-    abortSignal: AbortSignal.timeout(90_000),
+    maxRetries: 1,
+    abortSignal: formatSignal(args.signal),
   })
-
   const sanitized = sanitizeChapterHtml(response.object.html)
   if (!sanitized.trim()) throw new Error('AI 返回了空内容，已保留原文。')
-  const withImages = restoreDataImages(sanitized, prepared.images)
+  const withImages = restoreDataImages(sanitized, images)
   const removed = verifyRemovals(response.object.removed, args.originalText)
-  verifyIntegrity(args.originalText, withImages, removed)
-
+  verifyIntegrity(originalText, withImages, removed)
   return {
     html: withImages,
     removed,
@@ -89,7 +136,53 @@ export async function formatChapter(args: FormatArgs): Promise<FormatOutput> {
   }
 }
 
-function buildPrompt(args: FormatArgs, preparedHtml: string): string {
+function splitFormatHtml(html: string, maxChars: number, depth = 0): string[] {
+  const $ = cheerio.load(`<div id="__format_root">${html}</div>`)
+  const root = $('#__format_root')
+  const children = root.contents().toArray()
+  if (children.length === 0) return [html]
+  if (children.length === 1 && depth < 3) {
+    const only = children[0]!
+    const inner = $(only).html()
+    if (inner && htmlToText(inner).length > maxChars) {
+      return splitFormatHtml(inner, maxChars, depth + 1)
+    }
+  }
+  const chunks: string[] = []
+  let current: string[] = []
+  let size = 0
+  const flush = (): void => {
+    if (current.length === 0) return
+    chunks.push(current.join(''))
+    current = []
+    size = 0
+  }
+  for (const child of children) {
+    const node = $.html(child)
+    const length = htmlToText(node).length || node.length
+    if (current.length > 0 && size + length > maxChars) flush()
+    current.push(node)
+    size += length
+  }
+  flush()
+  return chunks.length > 0 ? chunks : [html]
+}
+
+async function runPool<T>(total: number, concurrency: number, worker: (index: number) => Promise<T>): Promise<T[]> {
+  const results = new Array<T>(total)
+  let next = 0
+  const run = async (): Promise<void> => {
+    while (true) {
+      const index = next++
+      if (index >= total) return
+      results[index] = await worker(index)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, total) }, run))
+  return results
+}
+
+function buildPrompt(args: FormatArgs, preparedHtml: string, includeContext: boolean): string {
   const parts: string[] = [
     `你在为读书笔记应用整理一本书的正文排版。本章「${args.chapterTitle}」。`,
     `当前阅读样式（可调整）：${JSON.stringify(args.style)}`,
@@ -98,7 +191,7 @@ function buildPrompt(args: FormatArgs, preparedHtml: string): string {
     preparedHtml,
   ]
 
-  if (args.currentHtml) {
+  if (includeContext && args.currentHtml) {
     const $ = cheerio.load(args.currentHtml)
     $('img').remove()
     const context = ($('body').html() ?? '').slice(0, MAX_CONTEXT_CHARS)
@@ -107,7 +200,7 @@ function buildPrompt(args: FormatArgs, preparedHtml: string): string {
     }
   }
 
-  if (args.currentRemoved.length > 0) {
+  if (includeContext && args.currentRemoved.length > 0) {
     parts.push('', `当前已经移除的内容：${JSON.stringify(args.currentRemoved.map((item) => item.text))}`)
   }
 

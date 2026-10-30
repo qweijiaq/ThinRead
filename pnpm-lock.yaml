@@ -17,6 +17,9 @@ importers:
       '@huggingface/transformers':
         specifier: ^4.3.2
         version: 4.3.2(@types/node@22.20.5)
+      '@lingo-reader/mobi-parser':
+        specifier: 0.4.6
+        version: 0.4.6
       '@napi-rs/canvas':
         specifier: ^1.0.13
         version: 1.0.13
@@ -453,6 +456,12 @@ packages:
     engines: {node: '>=20.9.0'}
     cpu: [x64]
     os: [win32]
+
+  '@lingo-reader/mobi-parser@0.4.6':
+    resolution: {integrity: sha512-/TDhO4IuKI04Ci5Bg8294GBhg5tnYzRM+RDlZQFE4HW2hvQHYb03dObZsOIE5gg7huwRovxpso/sWTWoZVHD7A==}
+
+  '@lingo-reader/shared@0.4.6':
+    resolution: {integrity: sha512-h3PhmidyYabbO5k74H9bUkMJS9Zy2YqCTod8ssZ+/oQ48+/hhS3KSqOkwQks2hrDY7nHqjniNysvzJzukedEkA==}
 
   '@napi-rs/canvas-android-arm64@0.1.100':
     resolution: {integrity: sha512-hjhCKhntPv9+t4ckHymdx0phYNcVW+GKQR6Lzw2zE+pOVjOplSmtx9nNNknTjbEDLcuLZqA1y8ufKg1XfgftzQ==}
@@ -988,6 +997,10 @@ packages:
   estree-util-is-identifier-name@3.0.0:
     resolution: {integrity: sha512-hFtqIDZTIUZ9BXLb8y4pYGyk6+wekIivNVTcmvk8NoOh+VeRn5y6cEHzbURrWbfp1fIqdVipilzj+lfaadNZmg==}
 
+  events@3.3.0:
+    resolution: {integrity: sha512-mQw+2fkQbALzQ7V0MY0IqdnXNOeTtP4r0lN9z7AAawCXgqea7bDii20AYrIBrFd/Hx0M2Ocz6S111CaFkUcb0Q==}
+    engines: {node: '>=0.8.x'}
+
   eventsource-parser@3.1.1:
     resolution: {integrity: sha512-EKN1vKAMcZ8MlYMpaNuxN6R9yakzH6uajHcHVTqWJzvu5pWw9DyhbP35HH8MVBQ+dZjAfDxk+A8NiR9KWaXiyQ==}
     engines: {node: '>=18.0.0'}
@@ -1347,6 +1360,9 @@ packages:
   parse5@7.3.0:
     resolution: {integrity: sha512-IInvU7fabl34qmi9gY8XOVxhYyMyuH2xUNpb2q8/Y+7552KlejkRvqvD19nMoUW/uQGGbqNpA6Tufu5FL5BZgw==}
 
+  path-browserify@1.0.1:
+    resolution: {integrity: sha512-b7uo2UCUOYZcnF/3ID0lulOJi/bafxa1xPe7ZPsammBSpjSWQkjNxlt635YGS2MiR9GjvuXCtz2emr3jbsz98g==}
+
   pdfjs-dist@5.7.284:
     resolution: {integrity: sha512-h4EdYQczmGhbOlqc3PPZwxevn7ApdWPbovAuWXOB/DjIyigSnwfy2oze7c6mRcSr9XgLp3eN3EeL4DyySTPMFw==}
     engines: {node: '>=22.13.0 || >=24'}
@@ -1414,6 +1430,10 @@ packages:
   sanitize-html@2.18.1:
     resolution: {integrity: sha512-2X5lC8fYla8YaT8g73Nj+HcLWXan5dLyCWLgVvaOmfw7JI78IRsyNtIDytTHdn7hBQbIkCah7Zbmd5jabzeDig==}
     engines: {node: '>=22.12.0'}
+
+  sax@1.6.1:
+    resolution: {integrity: sha512-42tBVwLWnaQvW5zc4HbZrTuWccECCZfBi92FDuwtqxasH+JbPB3/FOKb1m222K42R4WxuxzzMsTswfzgtSu64Q==}
+    engines: {node: '>=11.0.0'}
 
   scheduler@0.28.0:
     resolution: {integrity: sha512-juorfCmIkIw8tT+p5BXSm6PJjQF/ycEYmKyzURCIt/RaZIhL+PulbQ9Yu2z1HdOJDdqDTlxA1+xKBmHXJsczAw==}
@@ -1821,6 +1841,17 @@ snapshots:
 
   '@img/sharp-win32-x64@0.35.5':
     optional: true
+
+  '@lingo-reader/mobi-parser@0.4.6':
+    dependencies:
+      '@lingo-reader/shared': 0.4.6
+      fflate: 0.8.3
+
+  '@lingo-reader/shared@0.4.6':
+    dependencies:
+      events: 3.3.0
+      path-browserify: 1.0.1
+      sax: 1.6.1
 
   '@napi-rs/canvas-android-arm64@0.1.100':
     optional: true
@@ -2244,6 +2275,8 @@ snapshots:
   escape-string-regexp@5.0.0: {}
 
   estree-util-is-identifier-name@3.0.0: {}
+
+  events@3.3.0: {}
 
   eventsource-parser@3.1.1: {}
 
@@ -2814,6 +2847,8 @@ snapshots:
     dependencies:
       entities: 6.0.1
 
+  path-browserify@1.0.1: {}
+
   pdfjs-dist@5.7.284:
     optionalDependencies:
       '@napi-rs/canvas': 0.1.100
@@ -2938,6 +2973,8 @@ snapshots:
       launder: 1.7.2
       parse-srcset: 1.0.2
       postcss: 8.5.32
+
+  sax@1.6.1: {}
 
   scheduler@0.28.0: {}
 

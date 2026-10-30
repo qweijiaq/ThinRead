@@ -1,6 +1,7 @@
 import { useEffect, useState, type JSX } from 'react'
 
 import type { ChapterMeta } from '../../shared/types.js'
+import { confirmDialog } from './ConfirmDialog.js'
 
 interface ChapterListProps {
   chapters: ChapterMeta[]
@@ -115,9 +116,14 @@ export function ChapterList({
           title="删除本章"
           aria-label={`删除 ${chapter.title}`}
           onClick={() => {
-            if (window.confirm(`删除「${chapter.title}」？这一章的笔记也会一并删除，且无法恢复。`)) {
-              onDelete(chapter)
-            }
+            void confirmDialog({
+              title: '删除章节',
+              message: `删除「${chapter.title}」？这一章的笔记也会一并删除，且无法恢复。`,
+              confirmLabel: '删除',
+              danger: true,
+            }).then((confirmed) => {
+              if (confirmed) onDelete(chapter)
+            })
           }}
         >
           ×

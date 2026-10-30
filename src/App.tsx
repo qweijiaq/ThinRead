@@ -10,8 +10,10 @@ import type {
   ChapterSuggestion,
   ClassifyResult,
   GeneratePartial,
+  HighlightImportResult,
   LibraryNote,
   KnowledgeMapNode,
+  LabToolId,
   Note,
   NoteDraft,
   NotePatch,
@@ -21,11 +23,14 @@ import type {
   SettingsView,
 } from '../shared/types.js'
 import { BookCompose } from './components/BookCompose.js'
+import { ConfirmHost, confirmDialog } from './components/ConfirmDialog.js'
 import { ChapterList } from './components/ChapterList.js'
 import { ContentView } from './components/ContentView.js'
 import { ChatPanel } from './components/ChatPanel.js'
 import { FeynmanPanel } from './components/FeynmanPanel.js'
 import { FormatPanel } from './components/FormatPanel.js'
+import { ImportDialog } from './components/ImportDialog.js'
+import { MergeBooksDialog } from './components/MergeBooksDialog.js'
 import type { FormatMessage } from './components/FormatPanel.js'
 import { KnowledgeMap } from './components/KnowledgeMap.js'
 import { LabView } from './components/LabView.js'
@@ -40,6 +45,9 @@ import { RenameDialog } from './components/RenameDialog.js'
 import { SearchDialog } from './components/SearchDialog.js'
 import { ShareDialog } from './components/ShareDialog.js'
 import { SettingsDialog } from './components/SettingsDialog.js'
+import { SplitBookDialog } from './components/SplitBookDialog.js'
+import { TaskCenter } from './components/TaskCenter.js'
+import type { BackgroundTask } from './components/TaskCenter.js'
 import { TopBar } from './components/TopBar.js'
 import { noteDisplayTitle, titleRepeatsContent } from './lib/note-display.js'
 import type { ShareBook, ShareNote, ShareTemplate } from './lib/share-card.js'
@@ -77,9 +85,13 @@ export function App(): JSX.Element {
   const [notes, setNotes] = useState<Note[]>([])
   const [allNotes, setAllNotes] = useState<Note[]>([])
   const [settings, setSettings] = useState<SettingsView | null>(null)
+  const [backgroundTasks, setBackgroundTasks] = useState<BackgroundTask[]>([])
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null)
   const [loadingChapter, setLoadingChapter] = useState(false)
   const [importing, setImporting] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
+  const [mergeOpen, setMergeOpen] = useState(false)
+  const [splitOpen, setSplitOpen] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [partial, setPartial] = useState<GeneratePartial | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -88,6 +100,7 @@ export function App(): JSX.Element {
   const [searchOpen, setSearchOpen] = useState(false)
   const [mainView, setMainView] = useState<'reader' | 'notes' | 'map' | 'lab' | 'compose' | 'content'>('reader')
   const [labMounted, setLabMounted] = useState(false)
+  const [labFocus, setLabFocus] = useState<{ tool: LabToolId; bookId?: string; key: number } | null>(null)
   const [contentFocusId, setContentFocusId] = useState<string | null>(null)
   const [shareTarget, setShareTarget] = useState<{
     note?: ShareNote
@@ -156,6 +169,65 @@ export function App(): JSX.Element {
     const timer = window.setTimeout(() => setToast(null), 5200)
     return () => window.clearTimeout(timer)
   }, [toast])
+
+  useEffect(() => {
+    function upsert(task: BackgroundTask): void {
+      setBackgroundTasks((current) => {
+        const exists = current.some((item) => item.id === task.id)
+        return exists ? current.map((item) => (item.id === task.id ? task : item)) : [task, ...current].slice(0, 6)
+      })
+    }
+    function patch(id: string, update: Partial<BackgroundTask>): void {
+      setBackgroundTasks((current) => current.map((task) => (task.id === id ? { ...task, ...update } : task)))
+    }
+    const offNotesProgress = window.api.onBookGenerationProgress((event) => {
+      const id = `notes:${event.bookId}`
+      upsert({
+        id,
+        kind: 'notes',
+        title: '整本生成',
+        detail: event.title ? `${event.title}${event.message ? ` · ${event.message}` : ''}` : '正在准备',
+        done: event.done,
+        total: event.total,
+        status: 'running',
+      })
+    })
+    const offNotesDone = window.api.onBookGenerationDone((event) => {
+      patch(`notes:${event.bookId}`, {
+        status: event.cancelled ? 'cancelled' : event.failed.length > 0 ? 'error' : 'done',
+        done: event.generated + event.skipped + event.failed.length,
+        detail: event.cancelled
+          ? '已取消'
+          : `新生成 ${event.generated} 节${event.skipped > 0 ? ` · 跳过 ${event.skipped} 节` : ''}${event.failed.length > 0 ? ` · 失败 ${event.failed.length} 节` : ''}`,
+      })
+    })
+    const offFormatProgress = window.api.onBookFormatProgress((event) => {
+      upsert({
+        id: `format:${event.bookId}`,
+        kind: 'format',
+        title: '整本 AI 排版',
+        detail: event.title ? `${event.title}${event.message ? ` · ${event.message}` : ''}` : '正在准备',
+        done: event.done,
+        total: event.total,
+        status: 'running',
+      })
+    })
+    const offFormatDone = window.api.onBookFormatDone((event) => {
+      patch(`format:${event.bookId}`, {
+        status: event.cancelled ? 'cancelled' : event.failed.length > 0 ? 'error' : 'done',
+        done: event.formatted + event.skipped + event.failed.length,
+        detail: event.cancelled
+          ? '已取消'
+          : `完成 ${event.formatted} 节${event.skipped > 0 ? ` · 跳过 ${event.skipped} 节` : ''}${event.failed.length > 0 ? ` · 失败 ${event.failed.length} 节` : ''}`,
+      })
+    })
+    return () => {
+      offNotesProgress()
+      offNotesDone()
+      offFormatProgress()
+      offFormatDone()
+    }
+  }, [])
 
   const refreshNotes = useCallback(async (bookId: string, chapterId: string | null) => {
     const [chapterNotes, all] = await Promise.all([
@@ -272,9 +344,13 @@ export function App(): JSX.Element {
 
   const reparseBook = useCallback(async () => {
     if (!book) return
-    const confirmed = window.confirm(
-      '重新解析会用新的章节切分替换目录。已有笔记会先按原文引用、再按章节标题重新归属；匹配不上的笔记会保留，但不再显示在章节里。继续？',
-    )
+    const confirmed = await confirmDialog({
+      title: '重新解析目录',
+      message:
+        '重新解析会用新的章节切分替换目录。已有笔记会先按原文引用、再按章节标题重新归属；匹配不上的笔记会保留，但不再显示在章节里。继续？',
+      confirmLabel: '继续解析',
+      danger: true,
+    })
     if (!confirmed) return
     try {
       const updated = await window.api.reparseBook(book.id)
@@ -286,11 +362,17 @@ export function App(): JSX.Element {
     }
   }, [book, openBook])
 
-  const importBook = useCallback(async () => {
+  const importFile = useCallback(async (): Promise<BookSummary | null> => {
     setImporting(true)
     try {
-      const imported = await window.api.importBook()
-      if (!imported) return
+      return await window.api.importBook()
+    } finally {
+      setImporting(false)
+    }
+  }, [])
+
+  const handleImported = useCallback(
+    async (imported: BookSummary) => {
       setBooks((current) => [imported, ...current.filter((item) => item.id !== imported.id)])
       const hiddenNote =
         imported.hiddenChapterCount > 0 ? `，自动隐藏了 ${imported.hiddenChapterCount} 个疑似目录/版权页` : ''
@@ -298,13 +380,52 @@ export function App(): JSX.Element {
         kind: 'info',
         text: `已导入《${imported.title}》，共 ${imported.chapterCount} 节${hiddenNote}`,
       })
+      setImportOpen(false)
       await openBook(imported.id)
-    } catch (err) {
-      setToast({ kind: 'error', text: messageOf(err) })
-    } finally {
-      setImporting(false)
-    }
-  }, [openBook])
+    },
+    [openBook],
+  )
+
+  const handleHighlightsImported = useCallback(
+    async (result: HighlightImportResult) => {
+      setBooks(await window.api.listBooks())
+      setToast({
+        kind: 'info',
+        text: `已导入 ${result.books.length} 本书的 ${result.highlights} 条划线。`,
+      })
+      setImportOpen(false)
+      if (result.books.length === 1 && result.books[0]) await openBook(result.books[0].id)
+    },
+    [openBook],
+  )
+
+  const handleMerged = useCallback(
+    async (merged: BookSummary) => {
+      try {
+        setBooks(await window.api.listBooks())
+        setMergeOpen(false)
+        setToast({ kind: 'info', text: `已合并为《${merged.title}》。` })
+        await openBook(merged.id)
+      } catch (err) {
+        setToast({ kind: 'error', text: messageOf(err) })
+      }
+    },
+    [openBook],
+  )
+
+  const handleSplit = useCallback(
+    async (newBook: BookSummary) => {
+      try {
+        setBooks(await window.api.listBooks())
+        setSplitOpen(false)
+        setToast({ kind: 'info', text: `已拆出《${newBook.title}》。` })
+        if (book) await refreshBook(book.id)
+      } catch (err) {
+        setToast({ kind: 'error', text: messageOf(err) })
+      }
+    },
+    [book, refreshBook],
+  )
 
   const deleteBook = useCallback(
     async (bookId: string) => {
@@ -359,6 +480,15 @@ export function App(): JSX.Element {
       setPartial(null)
       setError(event.message)
     })
+    const offFormatted = window.api.onChapterFormatted((event) => {
+      if (event.chapterId !== chapter?.id) return
+      setChapter((current) =>
+        current && current.id === event.chapterId
+          ? { ...current, formattedHtml: event.html, removed: event.removed }
+          : current,
+      )
+      setReaderStyle((current) => ({ ...current, ...event.style }))
+    })
     const offBookDone = window.api.onBookGenerationDone((event) => {
       if (event.bookId !== book?.id) return
       setToast({
@@ -382,6 +512,7 @@ export function App(): JSX.Element {
       offDone()
       offError()
       offBookDone()
+      offFormatted()
     }
   }, [chapter?.id, book?.id])
 
@@ -900,6 +1031,13 @@ export function App(): JSX.Element {
 
   function openLab(): void {
     setLabMounted(true)
+    setLabFocus(null)
+    setMainView('lab')
+  }
+
+  function openRelationGraph(bookId?: string): void {
+    setLabMounted(true)
+    setLabFocus({ tool: 'relation-graph', bookId, key: Date.now() })
     setMainView('lab')
   }
 
@@ -991,7 +1129,7 @@ export function App(): JSX.Element {
         settings={settings}
         importing={importing}
         onLibrary={leaveReader}
-        onImport={() => void importBook()}
+        onImport={() => setImportOpen(true)}
         onSettings={() => setSettingsOpen(true)}
         onReparse={() => void reparseBook()}
         onSearch={() => setSearchOpen(true)}
@@ -1009,6 +1147,15 @@ export function App(): JSX.Element {
         }}
         contentActive={mainView === 'content'}
         onRenameBook={book ? () => startRenameBook(book) : undefined}
+      />
+
+      <TaskCenter
+        tasks={backgroundTasks}
+        onCancel={(task) => {
+          if (task.kind === 'notes') void window.api.cancelGeneration()
+          else void window.api.cancelFormat()
+        }}
+        onDismiss={(id) => setBackgroundTasks((current) => current.filter((task) => task.id !== id))}
       />
 
       {toast ? (
@@ -1033,6 +1180,7 @@ export function App(): JSX.Element {
           onBack={() => setMainView('reader')}
           onOpenNote={(node) => void openMapNote(node)}
           onOpenBook={(bookId) => void openMapBook(bookId)}
+          onOpenRelation={openRelationGraph}
         />
       ) : mainView === 'content' ? (
         <ContentView
@@ -1071,6 +1219,7 @@ export function App(): JSX.Element {
             if (meta) void openChapter(book.id, meta, chapters)
           }}
           onShareBook={() => void shareCurrentBook()}
+          onSplitBook={() => setSplitOpen(true)}
         />
       ) : book ? (
         <div className="workspace">
@@ -1147,6 +1296,7 @@ export function App(): JSX.Element {
                 partial={partial}
                 error={error}
                 report={chapter?.noteReport ?? null}
+                generationMode={settings?.generationMode ?? 'standard'}
                 crossBookNotes={crossBookNotes}
                 onOpenRelated={(note) => void openRelatedNote(note)}
                 focusNoteId={focusNote?.id ?? null}
@@ -1202,10 +1352,11 @@ export function App(): JSX.Element {
           books={books}
           importing={importing}
           onOpen={(bookId) => void openBook(bookId)}
-          onImport={() => void importBook()}
+          onImport={() => setImportOpen(true)}
           onDelete={(bookId) => void deleteBook(bookId)}
           onRename={startRenameBook}
           onCompose={(bookId) => void openCompose(bookId)}
+          onMerge={() => setMergeOpen(true)}
         />
       )}
 
@@ -1213,6 +1364,9 @@ export function App(): JSX.Element {
         <div className={`lab-shell${mainView === 'lab' ? ' is-active' : ''}`}>
           <LabView
             books={books}
+            initialTool={labFocus?.tool}
+            initialBookId={labFocus?.bookId}
+            focusKey={labFocus?.key}
             onBack={() => setMainView('reader')}
             onSaveReport={saveLabReport}
             onListen={(title, text) => setListen({ title, text })}
@@ -1291,6 +1445,31 @@ export function App(): JSX.Element {
         onApply={applyChapterFlags}
         onDelete={deleteChapterList}
       />
+
+      <MergeBooksDialog
+        open={mergeOpen}
+        books={books}
+        onClose={() => setMergeOpen(false)}
+        onMerged={(merged) => void handleMerged(merged)}
+      />
+
+      <SplitBookDialog
+        open={splitOpen}
+        book={book}
+        chapters={chapters}
+        onClose={() => setSplitOpen(false)}
+        onSplit={(newBook) => void handleSplit(newBook)}
+      />
+
+      <ImportDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onFileImport={importFile}
+        onImported={(imported) => void handleImported(imported)}
+        onHighlightsImported={(result) => void handleHighlightsImported(result)}
+      />
+
+      <ConfirmHost />
     </div>
   )
 }

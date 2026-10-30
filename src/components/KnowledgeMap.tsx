@@ -17,11 +17,14 @@ import type {
   LibraryNote,
 } from '../../shared/types.js'
 import { noteDisplayTitle } from '../lib/note-display.js'
+import { Checkbox } from './Checkbox.js'
+import { Select } from './Select.js'
 
 interface KnowledgeMapProps {
   onBack(): void
   onOpenNote(node: KnowledgeMapNode): void
   onOpenBook(bookId: string): void
+  onOpenRelation(bookId?: string): void
 }
 
 interface SimNode extends KnowledgeMapNode, SimulationNodeDatum {
@@ -54,7 +57,7 @@ function jitter(id: string, seed: number, axis: number): number {
   return ((hashString(`${id}:${seed}:${axis}`) % 2001) / 1000) - 1
 }
 
-export function KnowledgeMap({ onBack, onOpenNote, onOpenBook }: KnowledgeMapProps): JSX.Element {
+export function KnowledgeMap({ onBack, onOpenNote, onOpenBook, onOpenRelation }: KnowledgeMapProps): JSX.Element {
   const [data, setData] = useState<KnowledgeMapData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -408,6 +411,19 @@ export function KnowledgeMap({ onBack, onOpenNote, onOpenBook }: KnowledgeMapPro
           <button
             type="button"
             className="ghost-button"
+            onClick={() =>
+              onOpenRelation(
+                selectedNode?.type === 'book'
+                  ? selectedNode.bookId
+                  : bookFilter || bookOptions[0]?.bookId,
+              )
+            }
+          >
+            人物关系图
+          </button>
+          <button
+            type="button"
+            className="ghost-button"
             onClick={() => {
               setLayoutKey((value) => value + 1)
               setTransform({ x: 0, y: 0, k: 1 })
@@ -426,23 +442,17 @@ export function KnowledgeMap({ onBack, onOpenNote, onOpenBook }: KnowledgeMapPro
           placeholder="搜索概念或书名…"
           aria-label="搜索概念或书名"
         />
-        <select
-          className="map-select"
+        <Select
+          className="filter-select"
           value={bookFilter}
-          onChange={(event) => setBookFilter(event.target.value)}
-          aria-label="按书筛选"
-        >
-          <option value="">全部书</option>
-          {bookOptions.map((book) => (
-            <option key={book.id} value={book.bookId}>
-              {book.label}
-            </option>
-          ))}
-        </select>
-        <label className="map-toggle">
-          <input type="checkbox" checked={crossOnly} onChange={(event) => setCrossOnly(event.target.checked)} />
-          只看跨书概念
-        </label>
+          onChange={setBookFilter}
+          ariaLabel="按书筛选"
+          options={[
+            { value: '', label: '全部书' },
+            ...bookOptions.map((book) => ({ value: book.bookId, label: book.label })),
+          ]}
+        />
+        <Checkbox className="map-toggle" checked={crossOnly} onChange={setCrossOnly} label="只看跨书概念" />
         <div className="map-zoom">
           <button type="button" onClick={() => zoomBy(1.2)} aria-label="放大">
             ＋

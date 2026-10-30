@@ -2,6 +2,7 @@ import { useEffect, useState, type JSX } from 'react'
 import type { BookSummary, LibraryNote, NoteKind, TagCount } from '../../shared/types.js'
 import { snippet } from '../lib/links.js'
 import { noteDisplayTitle, titleRepeatsContent } from '../lib/note-display.js'
+import { Select } from './Select.js'
 
 interface NotesLibraryProps {
   books: BookSummary[]
@@ -156,34 +157,23 @@ export function NotesLibrary({ books, onBack, onOpen, onShare, onShareDeck }: No
           placeholder="筛选标题或内容…"
           aria-label="筛选笔记"
         />
-        <select
-          className="notes-select"
+        <Select
+          className="filter-select"
           value={bookId}
-          onChange={(event) => {
-            setBookId(event.target.value)
+          onChange={(value) => {
+            setBookId(value)
             setTag(null)
           }}
-          aria-label="按书筛选"
-        >
-          <option value="">全部书</option>
-          {books.map((book) => (
-            <option key={book.id} value={book.id}>
-              {book.title}
-            </option>
-          ))}
-        </select>
-        <select
-          className="notes-select"
+          ariaLabel="按书筛选"
+          options={[{ value: '', label: '全部书' }, ...books.map((book) => ({ value: book.id, label: book.title }))]}
+        />
+        <Select
+          className="filter-select"
           value={kind}
-          onChange={(event) => setKind(event.target.value as NoteKind | '')}
-          aria-label="按类型筛选"
-        >
-          {KIND_OPTIONS.map((option) => (
-            <option key={option.value || 'all'} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
+          onChange={(value) => setKind(value as NoteKind | '')}
+          ariaLabel="按类型筛选"
+          options={KIND_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+        />
       </div>
 
       {tags.length > 0 ? (

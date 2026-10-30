@@ -3,7 +3,7 @@ import type { LabToolId } from '../../shared/types.js'
 export function labReportScope(
   tool: LabToolId,
   bookIds: string[],
-  bookId: string,
+  _bookId: string,
   chapterId: string,
   _question: string,
 ): string {
@@ -11,7 +11,6 @@ export function labReportScope(
   if (tool === 'adaptive-quiz' || tool === 'argument-map' || tool === 'chapter-annotations' || tool === 'fact-check' || tool === 'podcast') {
     return `chapter:${chapterId}`
   }
-  if (tool === 'entity-network') return `book:${bookId}`
   if (tool === 'cross-book-synthesis' || tool === 'reading-path') {
     return `books:${[...bookIds].sort().join(',')}`
   }

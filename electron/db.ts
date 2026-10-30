@@ -5,6 +5,7 @@ import { DatabaseSync } from 'node:sqlite'
 
 import type {
   BookFormat,
+  BookGenre,
   BookSummary,
   ChapterContent,
   ChapterFlag,
@@ -24,9 +25,6 @@ import type {
   LibraryFilter,
   LibraryNote,
   LabArtifact,
-  LabExperiment,
-  ReviewRating,
-  ReviewStats,
   TagCount,
   ContentApplyAction,
   ContentApplyResult,
@@ -73,6 +71,7 @@ interface BookRow {
   title: string
   author: string
   format: string
+  genre: string
   file_path: string
   created_at: string
   last_opened_at: string | null
@@ -81,6 +80,8 @@ interface BookRow {
   hidden_chapter_count: number
   read_count: number | null
   note_count: number
+  total_chars: number
+  read_chars: number | null
   current_chapter_idx: number | null
 }
 
@@ -197,29 +198,6 @@ export function initDatabase(dataDir: string): void {
       updated_at TEXT NOT NULL
     );
 
-    CREATE TABLE IF NOT EXISTS note_reviews (
-      note_id TEXT PRIMARY KEY REFERENCES notes(id) ON DELETE CASCADE,
-      due_at TEXT NOT NULL,
-      interval_days REAL NOT NULL DEFAULT 0,
-      ease REAL NOT NULL DEFAULT 2.5,
-      reps INTEGER NOT NULL DEFAULT 0,
-      lapses INTEGER NOT NULL DEFAULT 0,
-      last_rating TEXT,
-      last_reviewed_at TEXT
-    );
-    CREATE INDEX IF NOT EXISTS idx_note_reviews_due ON note_reviews(due_at);
-
-    CREATE TABLE IF NOT EXISTS lab_experiments (
-      id TEXT PRIMARY KEY,
-      title TEXT NOT NULL,
-      goal TEXT NOT NULL,
-      steps TEXT NOT NULL,
-      duration TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'planned',
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-
     CREATE TABLE IF NOT EXISTS lab_artifacts (
       tool TEXT NOT NULL,
       scope TEXT NOT NULL DEFAULT 'latest',
@@ -306,7 +284,7 @@ function migrateLabArtifactMetadata(conn: DatabaseSync): void {
     tool: string
     kind: string | null
   }>
-  const validKinds = new Set(['report', 'chat', 'quiz', 'notes', 'format', 'compose', 'suggestion', 'pdf', 'other'])
+  const validKinds = new Set(['report', 'chat', 'quiz', 'notes', 'format', 'compose', 'suggestion', 'pdf', 'graph', 'other'])
   const updateKind = conn.prepare('UPDATE lab_artifact_versions SET kind = ? WHERE id = ?')
   for (const row of kindRows) {
     if (!validKinds.has(row.kind ?? '')) updateKind.run(contentKindForTool(row.tool), row.id)
@@ -387,6 +365,7 @@ function migrateBooks(conn: DatabaseSync): void {
     (conn.prepare('PRAGMA table_info(books)').all() as unknown as Array<{ name: string }>).map((row) => row.name),
   )
   if (!columns.has('style_json')) conn.exec('ALTER TABLE books ADD COLUMN style_json TEXT')
+  if (!columns.has('genre')) conn.exec("ALTER TABLE books ADD COLUMN genre TEXT NOT NULL DEFAULT 'auto'")
 }
 
 /** 旧版本的数据库没有章节标记字段，启动时补列。 */
@@ -420,6 +399,15 @@ function database(): DatabaseSync {
 export function closeDatabase(): void {
   db?.close()
   db = null
+}
+
+/** 用 SQLite 自己的 VACUUM INTO 做一致性快照，避免直接复制 WAL 中的半写状态。 */
+export function backupDatabaseTo(filePath: string): void {
+  const target = path.resolve(filePath)
+  fs.mkdirSync(path.dirname(target), { recursive: true })
+  if (fs.existsSync(target)) fs.rmSync(target, { force: true })
+  const escaped = target.replace(/'/g, "''")
+  database().exec(`VACUUM INTO '${escaped}'`)
 }
 
 export function insertBook(book: NewBook, chapters: NewChapter[], bookId: string = crypto.randomUUID()): BookSummary {
@@ -463,12 +451,107 @@ export function insertBook(book: NewBook, chapters: NewChapter[], bookId: string
   return summary
 }
 
+/** 把多本书的章节和笔记并入第一本书；源书随后删除。 */
+export function updateBookSource(bookId: string, filePath: string, format: BookFormat): void {
+  database().prepare('UPDATE books SET file_path = ?, format = ? WHERE id = ?').run(filePath, format, bookId)
+}
+
+export function mergeBooks(
+  bookIds: string[],
+  title: string,
+  author: string,
+  mergedFilePath?: string,
+): BookSummary {
+  const ids = [...new Set(bookIds.filter(Boolean))]
+  if (ids.length < 2) throw new Error('至少选择两本书才能合并。')
+  const conn = database()
+  const target = getBookSummary(ids[0]!)
+  if (!target) throw new Error('找不到要合并的书。')
+  const now = new Date().toISOString()
+  conn.exec('BEGIN')
+  try {
+    let nextIdx =
+      (conn.prepare('SELECT COALESCE(MAX(idx), -1) AS max_idx FROM chapters WHERE book_id = ?').get(target.id) as { max_idx: number })
+        .max_idx + 1
+    for (const sourceId of ids.slice(1)) {
+      if (!getBookSummary(sourceId)) continue
+      const chapters = conn
+        .prepare('SELECT id FROM chapters WHERE book_id = ? ORDER BY idx')
+        .all(sourceId) as unknown as Array<{ id: string }>
+      for (const chapter of chapters) {
+        conn.prepare('UPDATE chapters SET book_id = ?, idx = ? WHERE id = ?').run(target.id, nextIdx++, chapter.id)
+        conn.prepare('UPDATE notes SET book_id = ? WHERE chapter_id = ?').run(target.id, chapter.id)
+      }
+      conn.prepare('UPDATE notes SET book_id = ? WHERE book_id = ?').run(target.id, sourceId)
+      conn.prepare('DELETE FROM books WHERE id = ?').run(sourceId)
+    }
+    conn
+      .prepare('UPDATE books SET title = ?, author = ?, last_opened_at = ? WHERE id = ?')
+      .run(cleanTitle(title || target.title, '书名'), author.trim() || target.author, now, target.id)
+    if (mergedFilePath) conn.prepare("UPDATE books SET file_path = ?, format = 'text' WHERE id = ?").run(mergedFilePath, target.id)
+    conn.exec('COMMIT')
+  } catch (error) {
+    conn.exec('ROLLBACK')
+    throw error
+  }
+  const merged = getBookSummary(target.id)
+  if (!merged) throw new Error('合并失败。')
+  return merged
+}
+
+/** 把从某一章开始的章节移到一本新书；原书保留前面的章节。 */
+export function splitBook(
+  bookId: string,
+  fromChapterId: string,
+  title: string,
+  filePath: string,
+  newBookId: string = crypto.randomUUID(),
+  sourceFilePath?: string,
+): BookSummary {
+  const conn = database()
+  const source = getBookSummary(bookId)
+  if (!source) throw new Error('找不到这本书。')
+  const chapters = getChapters(bookId)
+  const splitIndex = chapters.findIndex((chapter) => chapter.id === fromChapterId)
+  if (splitIndex <= 0 || splitIndex >= chapters.length) {
+    throw new Error('请选择书中间的章节作为拆分点，拆分后两边都要有内容。')
+  }
+  const moved = chapters.slice(splitIndex)
+  const now = new Date().toISOString()
+  conn.exec('BEGIN')
+  try {
+    conn
+      .prepare(
+        'INSERT INTO books (id, title, author, format, file_path, created_at, last_opened_at, current_chapter_id, style_json) VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL)',
+      )
+      .run(newBookId, cleanTitle(title || `${source.title} · 下篇`, '书名'), source.author, 'text', filePath, now)
+    moved.forEach((chapter, index) => {
+      conn.prepare('UPDATE chapters SET book_id = ?, idx = ? WHERE id = ?').run(newBookId, index, chapter.id)
+      conn.prepare('UPDATE notes SET book_id = ? WHERE chapter_id = ?').run(newBookId, chapter.id)
+    })
+    conn
+      .prepare('UPDATE books SET current_chapter_id = NULL, last_opened_at = ? WHERE id = ?')
+      .run(now, bookId)
+    if (sourceFilePath) conn.prepare("UPDATE books SET file_path = ?, format = 'text' WHERE id = ?").run(sourceFilePath, bookId)
+    conn.exec('COMMIT')
+  } catch (error) {
+    conn.exec('ROLLBACK')
+    throw error
+  }
+  const split = getBookSummary(newBookId)
+  if (!split) throw new Error('拆分失败。')
+  return split
+}
+
 const BOOK_SELECT = `SELECT b.*,
   (SELECT COUNT(*) FROM chapters c WHERE c.book_id = b.id AND c.hidden = 0) AS chapter_count,
   (SELECT COUNT(*) FROM chapters c WHERE c.book_id = b.id AND c.hidden = 1) AS hidden_chapter_count,
   (SELECT COUNT(*) FROM chapters c WHERE c.book_id = b.id AND c.hidden = 0
      AND c.idx <= COALESCE((SELECT cc.idx FROM chapters cc WHERE cc.id = b.current_chapter_id), -1)) AS read_count,
   (SELECT COUNT(*) FROM notes n WHERE n.book_id = b.id) AS note_count,
+  (SELECT COALESCE(SUM(c.chars), 0) FROM chapters c WHERE c.book_id = b.id AND c.hidden = 0) AS total_chars,
+  (SELECT COALESCE(SUM(c.chars), 0) FROM chapters c WHERE c.book_id = b.id AND c.hidden = 0
+     AND c.idx <= COALESCE((SELECT cc.idx FROM chapters cc WHERE cc.id = b.current_chapter_id), -1)) AS read_chars,
   (SELECT c.idx FROM chapters c WHERE c.id = b.current_chapter_id) AS current_chapter_idx
  FROM books b`
 
@@ -484,6 +567,26 @@ export function getBookSummary(bookId: string): BookSummary | null {
     | BookRow
     | undefined
   return row ? mapBook(row) : null
+}
+
+export function setBookGenre(bookId: string, genre: BookGenre): BookSummary {
+  const allowed = new Set<BookGenre>([
+    'auto',
+    'nonfiction',
+    'history',
+    'historical-fiction',
+    'fiction',
+    'detective',
+    'biography',
+    'myth',
+    'other',
+  ])
+  if (!allowed.has(genre)) throw new Error('书籍类型无效。')
+  const result = database().prepare('UPDATE books SET genre = ? WHERE id = ?').run(genre, bookId)
+  if (Number(result.changes) === 0) throw new Error('这本书不存在。')
+  const updated = getBookSummary(bookId)
+  if (!updated) throw new Error('这本书不存在。')
+  return updated
 }
 
 export function renameBook(bookId: string, title: string): BookSummary {
@@ -526,9 +629,12 @@ function mapBook(row: BookRow): BookSummary {
     title: row.title,
     author: row.author,
     format: row.format as BookFormat,
+    genre: (row.genre as BookGenre) || 'auto',
     chapterCount,
     hiddenChapterCount: Number(row.hidden_chapter_count ?? 0),
     noteCount: Number(row.note_count ?? 0),
+    totalChars: Number(row.total_chars ?? 0),
+    readChars: Number(row.read_chars ?? 0),
     createdAt: row.created_at,
     lastOpenedAt: row.last_opened_at,
     currentChapterId: row.current_chapter_id,
@@ -1060,24 +1166,19 @@ function makeSnippet(text: string, query: string): string {
   return `${start > 0 ? '…' : ''}${flat.slice(start, end)}${end < flat.length ? '…' : ''}`
 }
 
-const REVIEWABLE_SQL = "n.kind IN ('point', 'claim', 'summary', 'question', 'thought') AND length(trim(n.content)) > 0"
 
 interface LibraryRow extends NoteRow {
   book_title: string
   chapter_title: string | null
-  review_due_at: string | null
-  review_reps: number | null
 }
 
 function libraryRows(): LibraryRow[] {
   return database()
     .prepare(
-      `SELECT n.*, b.title AS book_title, c.title AS chapter_title,
-              r.due_at AS review_due_at, r.reps AS review_reps
+      `SELECT n.*, b.title AS book_title, c.title AS chapter_title
        FROM notes n
        JOIN books b ON b.id = n.book_id
        LEFT JOIN chapters c ON c.id = n.chapter_id
-       LEFT JOIN note_reviews r ON r.note_id = n.id
        ORDER BY n.updated_at DESC, n.rowid DESC`,
     )
     .all() as unknown as LibraryRow[]
@@ -1088,8 +1189,6 @@ function mapLibraryNote(row: LibraryRow): LibraryNote {
     ...mapNote(row),
     bookTitle: row.book_title,
     chapterTitle: row.chapter_title,
-    dueAt: row.review_due_at,
-    reviewReps: Number(row.review_reps ?? 0),
   }
 }
 
@@ -1122,147 +1221,11 @@ export function listLibraryTags(bookId?: string | null): TagCount[] {
     .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag))
 }
 
-export function getReviewStats(): ReviewStats {
-  const conn = database()
-  const row = (sql: string, ...params: string[]): number => {
-    const result = conn.prepare(sql).get(...params) as { count: number } | undefined
-    return Number(result?.count ?? 0)
-  }
-  const now = new Date().toISOString()
-  const total = row(`SELECT COUNT(*) AS count FROM notes n WHERE ${REVIEWABLE_SQL}`)
-  const newCount = row(
-    `SELECT COUNT(*) AS count FROM notes n
-     LEFT JOIN note_reviews r ON r.note_id = n.id
-     WHERE ${REVIEWABLE_SQL} AND r.note_id IS NULL`,
-  )
-  const due = row(
-    `SELECT COUNT(*) AS count FROM notes n
-     LEFT JOIN note_reviews r ON r.note_id = n.id
-     WHERE ${REVIEWABLE_SQL} AND (r.note_id IS NULL OR r.due_at <= ?)`,
-    now,
-  )
-  const reviewedToday = row(
-    `SELECT COUNT(*) AS count FROM note_reviews
-     WHERE date(last_reviewed_at, 'localtime') = date('now', 'localtime')`,
-  )
-  const days = new Set(
-    (
-      database()
-        .prepare(
-          `SELECT DISTINCT date(last_reviewed_at, 'localtime') AS day
-           FROM note_reviews WHERE last_reviewed_at IS NOT NULL`,
-        )
-        .all() as unknown as Array<{ day: string }>
-    ).map((item) => String(item.day)),
-  )
-  const cursor = new Date()
-  cursor.setHours(0, 0, 0, 0)
-  if (!days.has(localDateKey(cursor))) cursor.setDate(cursor.getDate() - 1)
-  let streakDays = 0
-  while (days.has(localDateKey(cursor))) {
-    streakDays += 1
-    cursor.setDate(cursor.getDate() - 1)
-  }
-  return { due, total, newCount, reviewedToday, streakDays }
-}
-
-function localDateKey(date: Date): string {
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${date.getFullYear()}-${month}-${day}`
-}
-
-export function getReviewQueue(limit = 30): LibraryNote[] {
-  const rows = database()
-    .prepare(
-      `SELECT n.*, b.title AS book_title, c.title AS chapter_title,
-              r.due_at AS review_due_at, r.reps AS review_reps
-       FROM notes n
-       JOIN books b ON b.id = n.book_id
-       LEFT JOIN chapters c ON c.id = n.chapter_id
-       LEFT JOIN note_reviews r ON r.note_id = n.id
-       WHERE ${REVIEWABLE_SQL} AND (r.note_id IS NULL OR r.due_at <= ?)
-       ORDER BY CASE WHEN r.note_id IS NULL THEN 1 ELSE 0 END, r.due_at, n.updated_at DESC
-       LIMIT ?`,
-    )
-    .all(new Date().toISOString(), Math.min(Math.max(limit, 1), 100)) as unknown as LibraryRow[]
-  return rows.map(mapLibraryNote)
-}
-
-export function reviewNote(noteId: string, rating: ReviewRating): void {  if (rating !== 'again' && rating !== 'hard' && rating !== 'good' && rating !== 'easy') {
-    throw new Error('复习评分无效。')
-  }
-  const conn = database()
-  const note = conn.prepare('SELECT kind, content FROM notes WHERE id = ?').get(noteId) as
-    | { kind: string; content: string }
-    | undefined
-  if (!note) throw new Error('笔记不存在。')
-  if (!REVIEWABLE_KINDS.has(note.kind as NoteKind) || !note.content.trim()) {
-    throw new Error('这条笔记不需要复习。')
-  }
-  const current = conn.prepare('SELECT * FROM note_reviews WHERE note_id = ?').get(noteId) as
-    | {
-        due_at: string
-        interval_days: number
-        ease: number
-        reps: number
-        lapses: number
-      }
-    | undefined
-  const now = new Date()
-  let interval = Number(current?.interval_days ?? 0)
-  let ease = Number(current?.ease ?? 2.5)
-  let reps = Number(current?.reps ?? 0)
-  let lapses = Number(current?.lapses ?? 0)
-
-  if (rating === 'again') {
-    interval = 0
-    ease = Math.max(1.3, ease - 0.2)
-    lapses += 1
-    reps = 0
-  } else if (rating === 'hard') {
-    interval = interval > 0 ? interval * 1.2 : 1
-    ease = Math.max(1.3, ease - 0.15)
-    reps += 1
-  } else if (rating === 'good') {
-    interval = interval > 0 ? interval * ease : 1
-    reps += 1
-  } else {
-    interval = interval > 0 ? interval * ease * 1.3 : 3
-    ease = Math.min(3, ease + 0.15)
-    reps += 1
-  }
-  interval = Math.min(3650, Math.round(interval * 100) / 100)
-  const dueAt =
-    rating === 'again'
-      ? new Date(now.getTime() + 10 * 60 * 1000)
-      : new Date(now.getTime() + interval * 24 * 60 * 60 * 1000)
-
-  conn
-    .prepare(
-      `INSERT INTO note_reviews (note_id, due_at, interval_days, ease, reps, lapses, last_rating, last_reviewed_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(note_id) DO UPDATE SET
-         due_at = excluded.due_at,
-         interval_days = excluded.interval_days,
-         ease = excluded.ease,
-         reps = excluded.reps,
-         lapses = excluded.lapses,
-         last_rating = excluded.last_rating,
-         last_reviewed_at = excluded.last_reviewed_at`,
-    )
-    .run(noteId, dueAt.toISOString(), interval, Math.round(ease * 100) / 100, reps, lapses, rating, now.toISOString())
-}
-
-const REVIEWABLE_KINDS = new Set<NoteKind>(['point', 'claim', 'summary', 'question', 'thought'])
-
-
 const CHAT_TOOL_IDS = new Set([
   'author-roundtable',
   'library-research',
   'devils-advocate',
   'book-club',
-  'voice-chat',
   'chapter-chat',
   'feynman',
 ])
@@ -1276,7 +1239,6 @@ const REPORT_TOOL_IDS = new Set([
   'margin-note',
   'view-timeline',
   'knowledge-gaps',
-  'entity-network',
   'fact-check',
   'podcast',
 ])
@@ -1288,6 +1250,7 @@ export function contentKindForTool(tool: string): ContentKind {
   if (tool === 'adaptive-quiz') return 'quiz'
   if (tool === 'lab-dedupe' || tool === 'lab-merge') return 'suggestion'
   if (tool === 'lab-pdf-page') return 'pdf'
+  if (tool === 'relation-graph') return 'graph'
   if (CHAT_TOOL_IDS.has(tool)) return 'chat'
   if (REPORT_TOOL_IDS.has(tool)) return 'report'
   return 'other'
@@ -1638,6 +1601,38 @@ export function contentAsMarkdown(item: ContentItem): string {
       // 旧格式。
     }
   }
+  if (item.kind === 'graph') {
+    try {
+      const parsed = JSON.parse(item.content) as {
+        title?: string
+        genre?: string
+        summary?: string
+        plot?: string
+        nodes?: Array<{ label?: string; kind?: string; role?: string; importance?: number; identity?: string; rank?: string; affiliation?: string; aliases?: string[]; realWorld?: boolean; encyclopedia?: string; description?: string }>
+        edges?: Array<{ source?: string; target?: string; label?: string; description?: string }>
+      }
+      if (Array.isArray(parsed.nodes)) {
+        return [
+          parsed.title ? `# ${parsed.title}` : '',
+          parsed.genre ? `体裁：${parsed.genre}` : '',
+          parsed.summary ?? '',
+          parsed.plot ?? '',
+          '## 节点',
+          ...parsed.nodes.map((node) => {
+            const facts = [node.identity, node.rank, node.affiliation].filter(Boolean).join(' / ')
+            const wiki = node.encyclopedia ? `\n  百科：${node.encyclopedia}` : ''
+            return `- ${node.label ?? '未命名'}（${node.kind ?? 'other'}${node.role ? ` · ${node.role}` : ''}${node.importance ? ` · 重要度 ${node.importance}` : ''}${facts ? ` · ${facts}` : ''}）：${node.description ?? ''}${wiki}`
+          }),
+          '## 关系',
+          ...(parsed.edges ?? []).map((edge) => `- ${edge.source ?? ''} — ${edge.label ?? '关系'} — ${edge.target ?? ''}${edge.description ? `：${edge.description}` : ''}`),
+        ]
+          .filter(Boolean)
+          .join('\n')
+      }
+    } catch {
+      // 旧格式直接显示原文。
+    }
+  }
   if (item.kind === 'compose') {
     try {
       const parsed = JSON.parse(item.content) as { markdown?: string }
@@ -1738,60 +1733,6 @@ export function applyContent(id: string, action: ContentApplyAction): ContentApp
   }
 
   return { appliedTo: 'none', message: '没有执行任何操作。' }
-}
-
-export function listExperiments(): LabExperiment[] {  const rows = database()
-    .prepare('SELECT * FROM lab_experiments ORDER BY created_at DESC, rowid DESC')
-    .all() as unknown as Array<{
-    id: string
-    title: string
-    goal: string
-    steps: string
-    duration: string
-    status: string
-    created_at: string
-  }>
-  return rows.map((row) => ({
-    id: row.id,
-    title: row.title,
-    goal: row.goal,
-    steps: row.steps,
-    duration: row.duration,
-    status: row.status === 'active' || row.status === 'done' ? row.status : 'planned',
-    createdAt: row.created_at,
-  }))
-}
-
-export function createExperiment(input: {
-  title: string
-  goal: string
-  steps: string
-  duration: string
-}): LabExperiment {
-  const id = crypto.randomUUID()
-  const now = new Date().toISOString()
-  database()
-    .prepare(
-      `INSERT INTO lab_experiments (id, title, goal, steps, duration, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, 'planned', ?, ?)`,
-    )
-    .run(id, input.title, input.goal, input.steps, input.duration, now, now)
-  return {
-    id,
-    title: input.title,
-    goal: input.goal,
-    steps: input.steps,
-    duration: input.duration,
-    status: 'planned',
-    createdAt: now,
-  }
-}
-
-export function updateExperimentStatus(id: string, status: LabExperiment['status']): void {
-  if (status !== 'planned' && status !== 'active' && status !== 'done') throw new Error('实验状态无效。')
-  database()
-    .prepare('UPDATE lab_experiments SET status = ?, updated_at = ? WHERE id = ?')
-    .run(status, new Date().toISOString(), id)
 }
 
 export function mergeNoteTags(tags: string[], canonical: string): number {

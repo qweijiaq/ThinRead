@@ -1,4 +1,18 @@
-export type BookFormat = 'epub' | 'pdf'
+export type BookFormat = 'epub' | 'pdf' | 'pdf-ocr' | 'mobi' | 'url' | 'text'
+
+/** 书籍体裁只作为生成提示，不限制任何功能。 */
+export type BookGenre =
+  | 'auto'
+  | 'nonfiction'
+  | 'history'
+  | 'historical-fiction'
+  | 'fiction'
+  | 'detective'
+  | 'biography'
+  | 'myth'
+  | 'other'
+
+export type GenerationMode = 'fast' | 'standard' | 'deep'
 
 export type NoteKind = 'condensed' | 'summary' | 'claim' | 'point' | 'question' | 'thought' | 'highlight'
 
@@ -20,9 +34,14 @@ export interface BookSummary {
   title: string
   author: string
   format: BookFormat
+  genre: BookGenre
   chapterCount: number
   hiddenChapterCount: number
   noteCount: number
+  /** 可见章节的总字数。 */
+  totalChars: number
+  /** 已读章节的累计字数。 */
+  readChars: number
   createdAt: string
   lastOpenedAt: string | null
   currentChapterId: string | null
@@ -126,6 +145,8 @@ export interface NoteReport {
   omittedItems?: Array<{ text: string; reason: string }>
   /** 本次生成耗时（毫秒）。 */
   durationMs: number
+  /** 使用的生成档位；旧报告没有这一项。 */
+  mode?: GenerationMode
   model: string
   createdAt: string
 }
@@ -145,9 +166,6 @@ export interface RelatedNote {
 export interface LibraryNote extends Note {
   bookTitle: string
   chapterTitle: string | null
-  /** 下次复习时间；从未复习过为 null。 */
-  dueAt: string | null
-  reviewReps: number
 }
 
 export interface LibraryFilter {
@@ -161,16 +179,6 @@ export interface LibraryFilter {
 export interface TagCount {
   tag: string
   count: number
-}
-
-export type ReviewRating = 'again' | 'hard' | 'good' | 'easy'
-
-export interface ReviewStats {
-  due: number
-  total: number
-  newCount: number
-  reviewedToday: number
-  streakDays: number
 }
 
 export type ChatMode = 'answer' | 'socratic'
@@ -245,17 +253,14 @@ export type LabToolId =
   | 'reading-path'
   | 'view-timeline'
   | 'knowledge-gaps'
-  | 'action-experiment'
   | 'podcast'
   | 'chapter-annotations'
-  | 'voice-chat'
-  | 'entity-network'
   | 'card-dedupe'
-  | 'share-card'
   | 'book-club'
   | 'fact-check'
   | 'annual-report'
   | 'pdf-page'
+  | 'relation-graph'
 
 export interface LabRequest {
   tool: LabToolId
@@ -268,6 +273,60 @@ export interface LabRequest {
 export interface LabReport {
   title: string
   markdown: string
+}
+
+export type RelationNodeKind = 'person' | 'organization' | 'place' | 'event' | 'concept'
+
+export type RelationRole =
+  | 'detective'
+  | 'killer'
+  | 'victim'
+  | 'witness'
+  | 'suspect'
+  | 'protagonist'
+  | 'supporting'
+  | 'other'
+
+export interface RelationNode {
+  id: string
+  label: string
+  kind: RelationNodeKind
+  /** 叙事角色；只有人物才有 detective/killer/...，地点/事件使用 other。 */
+  role: RelationRole
+  importance: number
+  /** 身份、职业或社会角色，例如「内阁首辅」「船长」。 */
+  identity: string
+  /** 官阶、职位、称号或神职。 */
+  rank: string
+  /** 阵营、国家、家族、组织或神话谱系。 */
+  affiliation: string
+  aliases: string[]
+  /** 是否为真实人物/地点或神话人物。 */
+  realWorld: boolean
+  /** 模型提供的百科背景；不是书内原文，需要核对。 */
+  encyclopedia: string
+  description: string
+}
+
+export interface RelationEdge {
+  source: string
+  target: string
+  /** source → target 的关系。 */
+  label: string
+  /** target → source 的关系，例如「被杀害」。 */
+  reverseLabel: string
+  kind: 'family' | 'ally' | 'rival' | 'suspect' | 'motive' | 'clue' | 'event' | 'other'
+  description: string
+}
+
+export interface RelationGraph {
+  title: string
+  genre: string
+  summary: string
+  /** 更详细的情节摘要，侦探/历史书可以包含关键事件和揭示。 */
+  plot: string
+  nodes: RelationNode[]
+  edges: RelationEdge[]
 }
 
 export interface LabChatAnswer {
@@ -314,16 +373,6 @@ export interface LabAnswerCheck {
   missing: string[]
 }
 
-export interface LabExperiment {
-  id: string
-  title: string
-  goal: string
-  steps: string
-  duration: string
-  status: 'planned' | 'active' | 'done'
-  createdAt: string
-}
-
 export interface LabArtifact {
   id: string
   tool: string
@@ -334,7 +383,7 @@ export interface LabArtifact {
   createdAt: string
 }
 
-export type ContentKind = 'report' | 'chat' | 'quiz' | 'notes' | 'format' | 'compose' | 'suggestion' | 'pdf' | 'other'
+export type ContentKind = 'report' | 'chat' | 'quiz' | 'notes' | 'format' | 'compose' | 'suggestion' | 'pdf' | 'graph' | 'other'
 
 export type ContentStatus = 'draft' | 'adopted' | 'archived' | 'deleted'
 
@@ -512,6 +561,7 @@ export interface SettingsView {
   apiKeyConfigured: boolean
   apiKeyHint: string
   demo: boolean
+  generationMode: GenerationMode
 }
 
 export interface SettingsPatch {
@@ -519,6 +569,7 @@ export interface SettingsPatch {
   baseUrl: string
   model: string
   apiKey?: string
+  generationMode?: GenerationMode
 }
 
 export interface TestResult {
@@ -526,9 +577,36 @@ export interface TestResult {
   message: string
 }
 
+export interface TextImportInput {
+  title?: string
+  author?: string
+  text: string
+}
+
+export interface OcrProgress {
+  current: number
+  total: number
+  page: number
+}
+
+export interface HighlightImportResult {
+  books: BookSummary[]
+  highlights: number
+}
+
 export interface SaveFileResult {
   saved: boolean
   path: string | null
+}
+
+export type BackupKind = 'auto' | 'manual'
+
+export interface BackupInfo {
+  id: string
+  kind: BackupKind
+  label: string
+  createdAt: string
+  bytes: number
 }
 
 export type SearchResultType = 'book' | 'chapter' | 'note' | 'content'
@@ -574,6 +652,30 @@ export interface GenerationDoneEvent {
 export interface GenerationErrorEvent {
   chapterId: string
   message: string
+}
+
+export interface BookFormatOptions {
+  /** 只处理还没有 AI 排版结果的章节；默认 false。 */
+  onlyMissing?: boolean
+}
+
+export interface BookFormatProgress {
+  bookId: string
+  chapterId: string
+  title: string
+  index: number
+  total: number
+  status: 'start' | 'done' | 'error' | 'skipped'
+  done: number
+  message?: string
+}
+
+export interface BookFormatDoneEvent {
+  bookId: string
+  formatted: number
+  skipped: number
+  failed: Array<{ chapterId: string; title: string; message: string }>
+  cancelled: boolean
 }
 
 export interface BookGenerationOptions {
@@ -641,13 +743,22 @@ export interface AppInfo {
 export interface ReadingApi {
   listBooks(): Promise<BookSummary[]>
   importBook(): Promise<BookSummary | null>
+  importText(input: TextImportInput): Promise<BookSummary>
+  importUrl(url: string): Promise<BookSummary>
+  importScannedPdf(): Promise<BookSummary | null>
+  importHighlights(): Promise<HighlightImportResult | null>
   openBook(bookId: string): Promise<{ book: BookSummary; chapters: ChapterMeta[]; style: ReaderStyle }>
   renameBook(bookId: string, title: string): Promise<BookSummary>
+  setBookGenre(bookId: string, genre: BookGenre): Promise<BookSummary>
   renameChapter(chapterId: string, title: string): Promise<void>
   renamePart(bookId: string, partIndex: number, title: string): Promise<void>
   reparseBook(bookId: string): Promise<BookSummary>
+  mergeBooks(bookIds: string[], title: string, author: string): Promise<BookSummary>
+  splitBook(bookId: string, fromChapterId: string, title: string): Promise<BookSummary>
   deleteBook(bookId: string): Promise<void>
   formatChapter(chapterId: string, instruction?: string): Promise<FormatResult>
+  formatBook(bookId: string, options?: BookFormatOptions): Promise<void>
+  cancelFormat(): Promise<void>
   resetChapterFormat(chapterId: string): Promise<void>
   saveStyle(bookId: string, style: ReaderStyle): Promise<ReaderStyle>
   getChapter(chapterId: string): Promise<ChapterContent>
@@ -659,9 +770,6 @@ export interface ReadingApi {
   listRelatedNotes(bookId: string, tags: string[], queryText?: string): Promise<RelatedNote[]>
   listLibraryNotes(filter?: LibraryFilter): Promise<LibraryNote[]>
   listLibraryTags(bookId?: string | null): Promise<TagCount[]>
-  getReviewStats(): Promise<ReviewStats>
-  getReviewQueue(limit?: number): Promise<LibraryNote[]>
-  reviewNote(noteId: string, rating: ReviewRating): Promise<void>
   askChapter(chapterId: string, question: string, history: ChatTurn[], mode: ChatMode): Promise<ChatAnswer>
   evaluateExplanation(chapterId: string, explanation: string): Promise<FeynmanResult>
   getKnowledgeMap(): Promise<KnowledgeMapData>
@@ -674,11 +782,9 @@ export interface ReadingApi {
   mergeNoteTags(tags: string[], canonical: string): Promise<number>
   findDuplicateNotes(): Promise<LabDuplicatePair[]>
   mergeNotes(keepId: string, mergeId: string): Promise<Note>
-  listExperiments(): Promise<LabExperiment[]>
-  createExperiment(goal: string): Promise<LabExperiment>
-  updateExperimentStatus(id: string, status: LabExperiment['status']): Promise<void>
   saveImage(dataUrl: string, defaultName: string): Promise<SaveFileResult>
   analyzePdfPage(bookId: string, page: number): Promise<LabReport>
+  generateRelationGraph(bookId: string): Promise<RelationGraph>
   getLabArtifact(tool: string, scope?: string): Promise<LabArtifact | null>
   listLabArtifacts(tool: string, limit?: number): Promise<LabArtifact[]>
   saveLabArtifact(input: {
@@ -710,6 +816,7 @@ export interface ReadingApi {
   composeBook(bookId: string, options: BookComposeOptions): Promise<BookComposeResult>
   cancelBookCompose(): Promise<void>
   saveHtml(defaultName: string, content: string): Promise<SaveFileResult>
+  saveBinary(defaultName: string, base64: string): Promise<SaveFileResult>
   copyImage(dataUrl: string): Promise<void>
   expandNote(noteId: string): Promise<Note>
   getSettings(): Promise<SettingsView>
@@ -717,6 +824,11 @@ export interface ReadingApi {
   testConnection(): Promise<TestResult>
   getAppInfo(): Promise<AppInfo>
   openDataDir(): Promise<void>
+  createBackup(): Promise<BackupInfo>
+  listBackups(): Promise<BackupInfo[]>
+  restoreBackup(id: string): Promise<void>
+  deleteBackup(id: string): Promise<void>
+  openBackupsDir(): Promise<void>
   copyText(text: string): Promise<void>
   saveMarkdown(defaultName: string, content: string): Promise<SaveFileResult>
   search(query: string): Promise<SearchResult[]>
@@ -725,6 +837,10 @@ export interface ReadingApi {
   onGenerationError(cb: (event: GenerationErrorEvent) => void): () => void
   onBookGenerationProgress(cb: (event: BookGenerationProgress) => void): () => void
   onBookGenerationDone(cb: (event: BookGenerationDoneEvent) => void): () => void
+  onOcrProgress(cb: (event: OcrProgress) => void): () => void
+  onBookFormatProgress(cb: (event: BookFormatProgress) => void): () => void
+  onBookFormatDone(cb: (event: BookFormatDoneEvent) => void): () => void
+  onChapterFormatted(cb: (event: FormatResult) => void): () => void
   onBookComposeProgress(cb: (event: BookComposeProgress) => void): () => void
   onSemanticReady(cb: () => void): () => void
 }

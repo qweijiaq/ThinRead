@@ -10,16 +10,18 @@ import type {
   LabAnswerCheck,
   LabChatAnswer,
   LabDuplicatePair,
-  LabExperiment,
   LabMergeGroup,
   LabQuiz,
   LabQuizQuestion,
   LabReport,
   LabRequest,
   Note,
+  RelationEdge,
+  RelationGraph,
+  RelationNode,
+  RelationNodeKind,
 } from '../../shared/types.js'
 import {
-  createExperiment,
   getBookRecord,
   getBookSummary,
   getChapter,
@@ -31,6 +33,7 @@ import {
   listNotes,
 } from '../db.js'
 import { buildKnowledgeMap } from '../knowledge-map.js'
+import { genreRule } from './genre.js'
 import type { ModelConfig } from './provider.js'
 import { createLanguageModel } from './provider.js'
 
@@ -67,8 +70,6 @@ const REPORT_INSTRUCTIONS: Partial<Record<LabRequest['tool'], string>> = {
     '请写一段 5 分钟的双人播客脚本：主持人 A 负责提问，主持人 B 负责用书中观点回答；有开场、3 个重点、一个反例/边界、结尾。保留原文引用。',
   'chapter-annotations':
     '请为这一章写 6–10 条页边注。每条包含：原文短引、这条注在解释什么、与前后文/其他书的联系。按段落顺序排列，避免每句都注。',
-  'entity-network':
-    '请提取这一章/这本书里出现的人物、著作、理论和关键关系，输出一张 Markdown 表：实体、类型、关系、出处；最后指出最值得继续追踪的 2–3 条线索。',
   'fact-check':
     '请核查这一章里的事实性主张和数据：列出主张、书中依据、本地库中的支持或反例、状态（有依据/库内冲突/需要外部核查）。不要假装查过互联网。',
   'annual-report':
@@ -97,10 +98,6 @@ const CHAT_SYSTEMS: Partial<Record<LabRequest['tool'], string>> = {
     '你正在主持一场三人读书会。',
     '每次回答都让三个角色依次发言：初学者（提出朴素疑问）、怀疑者（挑逻辑漏洞）、实践者（追问怎么用）。',
     '每个人都要引用或指向本章的具体内容，最后给用户留一个问题。',
-  ].join('\n'),
-  'voice-chat': [
-    '你是用户私人书库的语音研究助手。',
-    '回答要短、口语化、适合朗读；只根据提供的书和笔记回答，给出书名/章节依据。',
   ].join('\n'),
 }
 
@@ -460,38 +457,6 @@ export function findDuplicateNotes(): LabDuplicatePair[] {
     }))
 }
 
-export async function generateExperiment(args: {
-  config: ModelConfig
-  demo: boolean
-  goal: string
-}): Promise<LabExperiment> {
-  const goal = args.goal.trim()
-  if (!goal) throw new Error('先写一个想实践的目标。')
-  let title = '阅读行动实验'
-  let steps = `1. 把「${goal}」变成一个本周可执行的动作。\n2. 连续观察 3 天并记录。\n3. 周末回看结果。`
-  let duration = '7 天'
-  if (!args.demo) {
-    const model = createLanguageModel(args.config)
-    const response = await generateText({
-      model,
-      system: '你是阅读实践教练，把书里的方法变成小而具体的行为实验。',
-      prompt: [
-        `目标：${goal}`,
-        '请设计一个 3–7 天内能完成的行动实验，必须具体、低门槛、可以观察结果。',
-        '只输出 JSON：{"title":"实验名","steps":"1. ...\\n2. ...","duration":"3 天|7 天"}。不要输出代码块。',
-      ].join('\n\n'),
-      temperature: 0.5,
-      maxRetries: 1,
-      abortSignal: AbortSignal.timeout(60_000),
-    })
-    const parsed = parseJsonObject(response.text)
-    title = typeof parsed?.title === 'string' && parsed.title.trim() ? parsed.title.trim() : title
-    steps = typeof parsed?.steps === 'string' && parsed.steps.trim() ? parsed.steps.trim() : steps
-    duration = typeof parsed?.duration === 'string' && parsed.duration.trim() ? parsed.duration.trim() : duration
-  }
-  return createExperiment({ title, goal, steps, duration })
-}
-
 function buildContext(request: LabRequest): LabContext {
   if (request.chapterId) return buildChapterContext(request.chapterId)
   if (request.bookIds && request.bookIds.length > 0) {
@@ -565,7 +530,8 @@ function buildChapterContext(chapterId: string): LabContext {
     chapterTitle: chapter.title,
     text: [
       `书名《${book?.title ?? ''}》，章节「${chapter.title}」。`,
-      chapter.text.slice(0, 12_000),
+      // 读薄稿和卡片已经覆盖章节要点时，原文只留作引文定位。
+      chapter.text.slice(0, condensed ? 5_000 : 12_000),
       condensed ? `读薄稿：\n${condensed.slice(0, 5_000)}` : '',
       cards ? `核心卡片：\n${cards.slice(0, 6_000)}` : '',
     ]
@@ -607,7 +573,6 @@ function reportTitle(tool: LabRequest['tool']): string {
     'knowledge-gaps': '知识缺口',
     podcast: '双人播客脚本',
     'chapter-annotations': '章节边注',
-    'entity-network': '人物与引用',
     'fact-check': '事实核查',
     'annual-report': '年度阅读报告',
   }
@@ -662,6 +627,168 @@ function cosine(a: number[], b: number[]): number {
 }
 
 
+function relationContext(bookId: string): { bookTitle: string; author: string; text: string } {
+  const book = getBookSummary(bookId)
+  if (!book) throw new Error('找不到这本书')
+  const chapters = getChapters(bookId).filter((chapter) => !chapter.hidden)
+  const notes = listNotes(bookId)
+  const notesText = notesDigest(notes).slice(0, 14_000)
+  const allSnippets = chapters
+    .map((chapter) => {
+      const text = getChapter(chapter.id).text.replace(/\s+/g, ' ').trim().slice(0, 700)
+      return `## ${chapter.title}\n${text}`
+    })
+    .join('\n\n')
+  // 长书不能只看开头：保留开头和结尾的章节摘录，尤其侦探/小说的揭示在后半段。
+  const snippets =
+    allSnippets.length > 18_000
+      ? `${allSnippets.slice(0, 9_000)}\n\n……（中间章节省略）……\n\n${allSnippets.slice(-9_000)}`
+      : allSnippets
+  const text = [
+    `书名《${book.title}》，作者 ${book.author || '未知'}。`,
+    `章节：${chapters.map((chapter) => chapter.title).join('；')}`,
+    notesText ? `读者笔记：\n${notesText}` : '',
+    snippets ? `章节摘录（包含开头和结尾）：\n${snippets}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n\n')
+    .slice(0, 32_000)
+  return { bookTitle: book.title, author: book.author, text }
+}
+
+function normalizeRelationGraph(raw: unknown, bookTitle: string): RelationGraph {
+  const obj = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {}
+  const rawNodes = Array.isArray(obj.nodes) ? obj.nodes : []
+  const rawEdges = Array.isArray(obj.edges) ? obj.edges : []
+  const nodes: RelationNode[] = []
+  const byLabel = new Map<string, string>()
+  const validNodeKinds: RelationNodeKind[] = ['person', 'organization', 'place', 'event', 'concept']
+  const validRoles = new Set(['detective', 'killer', 'victim', 'witness', 'suspect', 'protagonist', 'supporting', 'other'])
+  for (const value of rawNodes.slice(0, 24)) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) continue
+    const item = value as Record<string, unknown>
+    const label = typeof item.label === 'string' ? item.label.trim() : ''
+    if (!label) continue
+    const id = typeof item.id === 'string' && item.id.trim() ? item.id.trim() : `n${nodes.length + 1}`
+    if (nodes.some((node) => node.id === id)) continue
+    const kind = validNodeKinds.includes(item.kind as RelationNodeKind) ? (item.kind as RelationNodeKind) : 'concept'
+    // 地点、事件和概念不承担「凶手/被害人」这类叙事角色；角色只属于人物。
+    const role: RelationNode['role'] =
+      kind === 'person' && validRoles.has(String(item.role)) ? (item.role as RelationNode['role']) : 'other'
+    const importanceValue = Number(item.importance ?? 3)
+    nodes.push({
+      id,
+      label: label.slice(0, 40),
+      kind,
+      role,
+      importance: Number.isFinite(importanceValue) ? Math.min(5, Math.max(1, Math.round(importanceValue))) : 3,
+      identity: typeof item.identity === 'string' ? item.identity.trim().slice(0, 80) : '',
+      rank: typeof item.rank === 'string' ? item.rank.trim().slice(0, 80) : '',
+      affiliation: typeof item.affiliation === 'string' ? item.affiliation.trim().slice(0, 100) : '',
+      aliases: Array.isArray(item.aliases)
+        ? item.aliases.filter((alias): alias is string => typeof alias === 'string').map((alias) => alias.trim()).filter(Boolean).slice(0, 6)
+        : [],
+      realWorld: item.realWorld === true,
+      encyclopedia: typeof item.encyclopedia === 'string' ? item.encyclopedia.trim().slice(0, 600) : '',
+      description: typeof item.description === 'string' ? item.description.trim().slice(0, 300) : '',
+    })
+    byLabel.set(label, id)
+  }
+  const ids = new Set(nodes.map((node) => node.id))
+  const validEdgeKinds = new Set(['family', 'ally', 'rival', 'suspect', 'motive', 'clue', 'event', 'other'])
+  const edges: RelationEdge[] = []
+  for (const value of rawEdges.slice(0, 48)) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) continue
+    const item = value as Record<string, unknown>
+    const rawSource = typeof item.source === 'string' ? item.source.trim() : ''
+    const rawTarget = typeof item.target === 'string' ? item.target.trim() : ''
+    const source = ids.has(rawSource) ? rawSource : byLabel.get(rawSource)
+    const target = ids.has(rawTarget) ? rawTarget : byLabel.get(rawTarget)
+    if (!source || !target || source === target) continue
+    const label = typeof item.label === 'string' ? item.label.trim().slice(0, 30) : '关系'
+    const reverseLabel =
+      typeof item.reverseLabel === 'string' && item.reverseLabel.trim()
+        ? item.reverseLabel.trim().slice(0, 30)
+        : label
+    edges.push({
+      source,
+      target,
+      label,
+      reverseLabel,
+      kind: validEdgeKinds.has(String(item.kind)) ? (item.kind as RelationEdge['kind']) : 'other',
+      description: typeof item.description === 'string' ? item.description.trim().slice(0, 240) : '',
+    })
+  }
+  return {
+    title: typeof obj.title === 'string' && obj.title.trim() ? obj.title.trim() : `${bookTitle} · 人物关系图`,
+    genre: typeof obj.genre === 'string' ? obj.genre.trim().slice(0, 30) : '未判断',
+    summary: typeof obj.summary === 'string' ? obj.summary.trim().slice(0, 600) : '',
+    plot: typeof obj.plot === 'string' ? obj.plot.trim().slice(0, 1600) : '',
+    nodes,
+    edges,
+  }
+}
+
+export async function generateRelationGraph(args: {
+  config: ModelConfig
+  demo: boolean
+  bookId: string
+}): Promise<RelationGraph> {
+  const context = relationContext(args.bookId)
+  if (args.demo) {
+    return {
+      title: `${context.bookTitle} · 人物关系图`,
+      genre: '演示',
+      summary: '演示模式：这里会显示人物、组织和事件之间的关系；正式模型会按书的体裁抽取。',
+      plot: '演示情节：侦探调查一桩事件，关键证人提供了不在场证明，最终证据指向真正的凶手。',
+      nodes: [
+        { id: 'p1', label: '侦探', kind: 'person', role: 'detective', importance: 5, identity: '调查者', rank: '', affiliation: '', aliases: [], realWorld: false, encyclopedia: '', description: '调查事件的人。' },
+        { id: 'p2', label: '凶手', kind: 'person', role: 'killer', importance: 5, identity: '隐藏动机的人', rank: '', affiliation: '', aliases: [], realWorld: false, encyclopedia: '', description: '隐藏动机的核心人物。' },
+        { id: 'p3', label: '被害人', kind: 'person', role: 'victim', importance: 4, identity: '事件受害者', rank: '', affiliation: '', aliases: [], realWorld: false, encyclopedia: '', description: '事件中的受害者。' },
+        { id: 'p4', label: '关键证人', kind: 'person', role: 'witness', importance: 4, identity: '证人', rank: '', affiliation: '', aliases: [], realWorld: false, encyclopedia: '', description: '提供关键线索的人。' },
+        { id: 'o1', label: '关键组织', kind: 'organization', role: 'other', importance: 3, identity: '', rank: '', affiliation: '', aliases: [], realWorld: false, encyclopedia: '', description: '推动事件的组织。' },
+      ],
+      edges: [
+        { source: 'p1', target: 'p2', label: '追查', reverseLabel: '被追查', kind: 'suspect', description: '侦探锁定凶手。' },
+        { source: 'p2', target: 'p3', label: '杀害', reverseLabel: '被杀害', kind: 'motive', description: '事件的核心动机。' },
+        { source: 'p4', target: 'p2', label: '目击/隐瞒', reverseLabel: '被目击', kind: 'clue', description: '证词指向关键时间点。' },
+        { source: 'p1', target: 'p4', label: '询问', reverseLabel: '被询问', kind: 'other', description: '侦探寻找关键证词。' },
+      ],
+    }
+  }
+  const model = createLanguageModel(args.config)
+  const book = getBookSummary(args.bookId)
+  const genreHint = genreRule(book?.genre)
+  const prompt = [
+    context.text,
+    '',
+    ...(genreHint ? [`读者把这本书标为：${genreHint}`] : []),
+    '请先判断这本书的体裁和叙事类型（历史、历史小说、传记、侦探、奇幻/神话、现实主义小说、非虚构等），再抽取人物、组织、地点和关键事件，做成一张关系图。',
+    '这不是只服务侦探小说的模板：同一套字段要能表达历史官阶、家族阵营、神话谱系、小说人物弧光和非虚构作者/理论。',
+    '要求：',
+    '1. 只使用上面给出的章节摘录和读者笔记来写书内关系，不要编造书里没有的亲缘、阵营或事件。',
+    '2. 节点总数控制在 6–24 个。人物用 kind=person；组织、地点、事件、概念分别用 organization/place/event/concept。',
+    '3. 只有人物才标注叙事 role：detective=侦探/调查者，killer=凶手，victim=被害人，witness=关键证人，suspect=嫌疑人，protagonist=主角，supporting=配角，other=其他。地点、事件、概念和普通组织一律 role=other，不要把它们标成配角。',
+    '4. 每个人物都要尽量填写 identity（身份/职业）、rank（官阶/职位/称号/神职，没有就留空）、affiliation（国家/阵营/家族/组织/神话谱系）和 aliases（别名、字号、封号）。历史/历史小说尤其要写清官阶和阵营，不能只写“将军”“官员”这种泛称。',
+    '5. 边表达明确关系：亲缘、盟友、敌对、嫌疑、动机、线索、事件牵连等；每条边写 label（source→target）、reverseLabel（target→source，例如“杀害/被杀害”“追查/被追查”“效忠/统领”）和一句具体依据，尽量写出因为什么事、在哪一章。',
+    '6. 根据体裁补充该类书的重点：历史/传记写官阶、阵营、继承、战争和转折；侦探写动机、时间线、物证、证词、误导和揭示；神话写神职、谱系、领域；现实主义小说写关系变化和人物弧光；非虚构写作者、机构、理论和论证关系。',
+    '7. 真实人物、真实地点或神话人物请把 realWorld 设为 true，并在 encyclopedia 中用 2–4 句提供公认的百科背景（生卒/时代/地点/身份/神话出处）。这是模型常识，不是书中原文；不确定的细节宁可留空，不要编造。虚构人物或地点 realWorld=false，encyclopedia 留空。',
+    '8. plot 用 3–8 句话按时间顺序概括完整情节链，必须标注「含剧透」；summary 只放一句话主题。',
+    '只输出 JSON 对象：{"title":"...","genre":"...","summary":"...","plot":"...","nodes":[{"id":"p1","label":"...","kind":"person|organization|place|event|concept","role":"detective|killer|victim|witness|suspect|protagonist|supporting|other","importance":5,"identity":"...","rank":"...","affiliation":"...","aliases":["..."],"realWorld":true,"encyclopedia":"...","description":"..."}],"edges":[{"source":"p1","target":"p2","label":"...","reverseLabel":"...","kind":"family|ally|rival|suspect|motive|clue|event|other","description":"..."}]}。不要输出 Markdown 代码块。',
+  ].join('\n')
+  const response = await generateText({
+    model,
+    system: '你是文学与历史图书的结构分析师，擅长把复杂人物关系整理成清晰、克制的图谱。',
+    prompt,
+    temperature: 0.3,
+    maxRetries: 1,
+    abortSignal: AbortSignal.timeout(180_000),
+  })
+  const graph = normalizeRelationGraph(parseJsonObject(response.text), context.bookTitle)
+  if (graph.nodes.length < 2) throw new Error('没有抽出足够的人物或事件，请换一个模型或先补充章节笔记。')
+  return graph
+}
+
 export async function analyzePdfPage(args: {
   config: ModelConfig
   demo: boolean
@@ -670,7 +797,7 @@ export async function analyzePdfPage(args: {
 }): Promise<LabReport> {
   const book = getBookRecord(args.bookId)
   if (!book) throw new Error('这本书不存在。')
-  if (book.format !== 'pdf') throw new Error('只有 PDF 支持按页理解。')
+  if (book.format !== 'pdf' && book.format !== 'pdf-ocr') throw new Error('只有 PDF 支持按页理解。')
   if (process.platform !== 'darwin') throw new Error('当前系统暂不支持页面 OCR。')
   const page = Math.floor(args.page)
   if (!Number.isFinite(page) || page < 1) throw new Error('页码无效。')

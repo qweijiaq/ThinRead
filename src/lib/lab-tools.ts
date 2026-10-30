@@ -1,6 +1,6 @@
 import type { LabToolId } from '../../shared/types.js'
 
-export type LabToolKind = 'chat' | 'report' | 'quiz' | 'merge' | 'dedupe' | 'experiments' | 'share' | 'pdf'
+export type LabToolKind = 'chat' | 'report' | 'quiz' | 'merge' | 'dedupe' | 'pdf' | 'relation'
 
 export interface LabTool {
   id: LabToolId
@@ -15,10 +15,14 @@ export interface LabTool {
   questionPlaceholder?: string
 }
 
+/**
+ * 工作台只保留四类任务：研究、深读、学习、整理。
+ * 分享已回到成书页，关系图取代了实体网络，语音和行动实验不再单独占入口。
+ */
 export const LAB_TOOLS: LabTool[] = [
   {
     id: 'library-research',
-    group: '对话',
+    group: '研究',
     title: '全库研究',
     description: '跨所有书和笔记提问，答案带书名与章节依据。',
     kind: 'chat',
@@ -26,7 +30,7 @@ export const LAB_TOOLS: LabTool[] = [
   },
   {
     id: 'author-roundtable',
-    group: '对话',
+    group: '研究',
     title: '作者圆桌',
     description: '让一位或两位作者回答你的质疑，或让两位作者互相回应。',
     kind: 'chat',
@@ -35,7 +39,7 @@ export const LAB_TOOLS: LabTool[] = [
   },
   {
     id: 'devils-advocate',
-    group: '对话',
+    group: '研究',
     title: '魔鬼代言人',
     description: 'AI 站在反方挑战这一章，逼你把理解说清楚。',
     kind: 'chat',
@@ -44,7 +48,7 @@ export const LAB_TOOLS: LabTool[] = [
   },
   {
     id: 'book-club',
-    group: '对话',
+    group: '研究',
     title: '多角色读书会',
     description: '初学者、怀疑者和实践者围绕这一章轮流发言。',
     kind: 'chat',
@@ -52,16 +56,8 @@ export const LAB_TOOLS: LabTool[] = [
     chapter: true,
   },
   {
-    id: 'voice-chat',
-    group: '对话',
-    title: '语音研究',
-    description: '按住麦克风提问，回答可以朗读；适合走路时使用。',
-    kind: 'chat',
-    books: 'none',
-  },
-  {
     id: 'cross-book-synthesis',
-    group: '研究与输出',
+    group: '研究',
     title: '跨书综述',
     description: '选几本书和一个主题，生成带引用的共同点、分歧和盲点。',
     kind: 'report',
@@ -71,16 +67,8 @@ export const LAB_TOOLS: LabTool[] = [
     questionPlaceholder: '例如：这几本书如何理解习惯的形成？',
   },
   {
-    id: 'weekly-review',
-    group: '研究与输出',
-    title: '每周复盘',
-    description: '把最近一周的笔记整理成一份安静的复盘。',
-    kind: 'report',
-    books: 'none',
-  },
-  {
     id: 'reading-path',
-    group: '研究与输出',
+    group: '研究',
     title: '阅读路径',
     description: '给一个目标，从书库里排出一条按顺序阅读的路线。',
     kind: 'report',
@@ -90,8 +78,16 @@ export const LAB_TOOLS: LabTool[] = [
     questionPlaceholder: '例如：30 天理解习惯形成',
   },
   {
+    id: 'weekly-review',
+    group: '研究',
+    title: '每周复盘',
+    description: '把最近一周的笔记整理成一份安静的复盘。',
+    kind: 'report',
+    books: 'none',
+  },
+  {
     id: 'annual-report',
-    group: '研究与输出',
+    group: '研究',
     title: '年度阅读报告',
     description: '回顾读过的书、反复出现的概念和观点变化。',
     kind: 'report',
@@ -147,11 +143,11 @@ export const LAB_TOOLS: LabTool[] = [
     books: 'none',
   },
   {
-    id: 'entity-network',
+    id: 'relation-graph',
     group: '深读',
-    title: '人物与引用',
-    description: '抽取人物、著作、理论及关系，整理成一张线索表。',
-    kind: 'report',
+    title: '人物关系图',
+    description: '把历史、传记或小说里的人物、组织和事件抽成一张关系图。',
+    kind: 'relation',
     books: 'single',
   },
   {
@@ -203,22 +199,6 @@ export const LAB_TOOLS: LabTool[] = [
     title: '卡片去重',
     description: '找出同一本书里高度相似的卡片，合并内容和证据。',
     kind: 'dedupe',
-    books: 'none',
-  },
-  {
-    id: 'action-experiment',
-    group: '行动',
-    title: '行动实验',
-    description: '把书里的方法变成 3–7 天的小实验，并跟踪状态。',
-    kind: 'experiments',
-    books: 'none',
-  },
-  {
-    id: 'share-card',
-    group: '分享',
-    title: '分享卡',
-    description: '选一张笔记，生成一张适合分享的图文卡。',
-    kind: 'share',
     books: 'none',
   },
 ]

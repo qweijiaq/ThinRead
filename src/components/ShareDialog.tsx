@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 
+import { Checkbox } from './Checkbox.js'
+
 import {
   renderShareCard,
   shareFilename,
@@ -345,15 +347,9 @@ export function ShareDialog({ note, book, notes, initialTemplate, onClose }: Sha
             </label>
 
             <div className="share-toggles">
-              <label>
-                <input type="checkbox" checked={hideSource} onChange={(event) => setHideSource(event.target.checked)} />
-                隐藏出处
-              </label>
+              <Checkbox checked={hideSource} onChange={setHideSource} label="隐藏出处" />
               {template === 'book' || template === 'deck' ? null : (
-                <label>
-                  <input type="checkbox" checked={hideTags} onChange={(event) => setHideTags(event.target.checked)} />
-                  隐藏标签
-                </label>
+                <Checkbox checked={hideTags} onChange={setHideTags} label="隐藏标签" />
               )}
               {note && note.tags.length > 0 ? <span className="muted">{tags.slice(0, 4).join(' · ')}</span> : null}
             </div>

@@ -1,3 +1,4 @@
+import * as cheerio from 'cheerio'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 
@@ -8,6 +9,9 @@ export interface BookBlogArgs {
   author: string
   markdown: string
   date: string
+  description?: string
+  /** 发布包内用 cover.png；单独导出时可以直接传 data URL。 */
+  coverSrc?: string
 }
 
 function escapeHtml(text: string): string {
@@ -18,16 +22,82 @@ function escapeHtml(text: string): string {
     .replace(/"/g, '&quot;')
 }
 
+export function bookDescription(markdown: string, length = 150): string {
+  const text = markdown
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/[>*_`~]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return text.slice(0, length)
+}
+
+function withAnchors(body: string): { article: string; toc: Array<{ id: string; text: string; level: number }> } {
+  const $ = cheerio.load(body, null, false)
+  const toc: Array<{ id: string; text: string; level: number }> = []
+  $('h2, h3').each((index, element) => {
+    const node = $(element)
+    const id = `section-${index + 1}`
+    const text = node.text().replace(/\s+/g, ' ').trim()
+    if (!text) return
+    node.attr('id', id)
+    toc.push({ id, text, level: Number(node.prop('tagName')?.slice(1)) || 2 })
+  })
+  return { article: $.html(), toc }
+}
+
 /** 生成一个不依赖外部资源的博客分享页，直接把文件丢到静态托管就能看。 */
 export function buildBookBlogHtml(args: BookBlogArgs): string {
-  const body = renderToStaticMarkup(createElement(Markdown, { text: args.markdown }))
+  const rendered = withAnchors(renderToStaticMarkup(createElement(Markdown, { text: args.markdown })))
+  const body = rendered.article
   const title = escapeHtml(args.bookTitle)
   const author = escapeHtml(args.author || '')
+  const description = escapeHtml(args.description?.trim() || bookDescription(args.markdown))
+  const readingMinutes = Math.max(1, Math.round(args.markdown.replace(/\s+/g, '').length / 420))
+  const coverSrc = args.coverSrc?.trim() ?? ''
+  const coverHtml = coverSrc
+    ? `<figure class="publish-cover"><img src="${escapeHtml(coverSrc)}" alt="${title} 封面" /></figure>`
+    : ''
+  const coverMeta = coverSrc && !coverSrc.startsWith('data:')
+    ? `<meta property="og:image" content="${escapeHtml(coverSrc)}">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">`
+    : ''
+  const toc = rendered.toc.length >= 2
+    ? `<nav class="toc" aria-label="本文目录">
+    <strong>本文目录</strong>
+    <ol>${rendered.toc.map((item) => `<li class="toc-level-${item.level}"><a href="#${item.id}">${escapeHtml(item.text)}</a></li>`).join('')}</ol>
+  </nav>`
+    : ''
+  const articleLd = JSON.stringify({
+    '@context': 'https://schema.org',
+    '@type': 'Article',
+    headline: args.bookTitle,
+    description,
+    author: args.author ? { '@type': 'Person', name: args.author } : undefined,
+    datePublished: args.date,
+    inLanguage: 'zh-CN',
+    publisher: { '@type': 'Organization', name: '页边 ThinRead' },
+    ...(coverSrc && !coverSrc.startsWith('data:') ? { image: coverSrc } : {}),
+  }).replace(/</g, '\u003c')
   return `<!doctype html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="${description}">
+<meta name="author" content="${author}">
+<meta property="og:type" content="article">
+<meta property="og:title" content="${title} · 读书笔记">
+<meta property="og:description" content="${description}">
+<meta property="og:site_name" content="页边 ThinRead">
+${coverMeta}
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="${title} · 读书笔记">
+<meta name="twitter:description" content="${description}">
+<script type="application/ld+json">${articleLd}</script>
 <title>${title} · 读书笔记</title>
 <style>
 :root {
@@ -43,6 +113,7 @@ export function buildBookBlogHtml(args: BookBlogArgs): string {
 html { background: var(--paper); }
 body {
   margin: 0;
+  overflow-x: hidden;
   color: var(--ink);
   background:
     radial-gradient(circle at 20% 0%, rgba(168, 74, 43, 0.05), transparent 32rem),
@@ -124,13 +195,59 @@ article code {
   font-size: 0.86em;
 }
 article pre {
-  overflow-x: auto;
+  overflow-x: visible;
   padding: 18px 20px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
   border-radius: 10px;
   background: #2b2720;
   color: #f6f1e7;
 }
 article pre code { padding: 0; background: none; }
+article table {
+  width: 100%;
+  max-width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  margin: 1.4em 0;
+  font-size: 0.92em;
+}
+article th,
+article td {
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  text-align: left;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.toc {
+  margin: 0 0 28px;
+  padding: 20px 24px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 253, 248, 0.7);
+  font-family: "PingFang SC", "Noto Sans CJK SC", sans-serif;
+}
+.toc strong { display: block; margin-bottom: 10px; font-size: 13px; letter-spacing: 0.04em; }
+.toc ol { margin: 0; padding-left: 1.3em; }
+.toc li { margin: 0.34em 0; font-size: 13px; }
+.toc li.toc-level-3 { margin-left: 1.1em; color: var(--muted); }
+.toc a { color: var(--ink-soft); text-decoration: none; }
+.toc a:hover { color: var(--accent); }
+article h2, article h3 { scroll-margin-top: 24px; }
+.publish-cover {
+  margin: 0 0 34px;
+}
+.publish-cover img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: 0 20px 56px rgba(43, 39, 32, 0.12);
+}
+article img { max-width: 100%; height: auto; }
+article a { overflow-wrap: anywhere; }
 article hr { margin: 2.6em 0; border: 0; border-top: 1px solid var(--line); }
 footer {
   margin-top: 40px;
@@ -154,11 +271,13 @@ footer {
 </head>
 <body>
 <div class="page">
+  ${coverHtml}
   <header class="cover">
     <div class="kicker">页边 · 读书笔记</div>
     <h1>${title}</h1>
-    <div class="meta">${author ? `${author} · ` : ''}${escapeHtml(args.date)}</div>
+    <div class="meta">${author ? `${author} · ` : ''}${escapeHtml(args.date)} · 约 ${readingMinutes} 分钟</div>
   </header>
+  ${toc}
   <article>${body}</article>
   <footer>由页边 ThinRead 整理 · 书和笔记都留在本机</footer>
 </div>

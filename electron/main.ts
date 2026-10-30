@@ -2,13 +2,14 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import { app, BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, screen, shell } from 'electron'
 
 import { generateChapterNotes } from './ai/notes.js'
 import { closeDatabase, createNote, getChapter, getChapters, initDatabase, insertBook, listBooks, replaceAiNotes, setProgress } from './db.js'
 import { registerIpc } from './ipc.js'
 import { importBookFile } from './import.js'
 import { parseEpub } from './parsers/epub.js'
+import { parseMobi } from './parsers/mobi.js'
 import { initSettings } from './settings.js'
 import { runSmokeTest, sampleEpubBuffer } from './smoke.js'
 
@@ -61,6 +62,31 @@ async function seedDemoLibrary(): Promise<void> {
   setProgress(book.id, chapter.id)
 }
 
+function ensureWindowVisible(window: BrowserWindow): void {
+  const bounds = window.getBounds()
+  const displays = screen.getAllDisplays()
+  const fullyVisible = displays.some((display) => {
+    const area = display.workArea
+    return (
+      bounds.x >= area.x &&
+      bounds.y >= area.y &&
+      bounds.x + bounds.width <= area.x + area.width &&
+      bounds.y + bounds.height <= area.y + area.height
+    )
+  })
+  if (fullyVisible) return
+  // macOS 可能在显示器变化后恢复一个部分/完全在屏幕外的旧位置；夹回最近的主屏。
+  const area = screen.getPrimaryDisplay().workArea
+  const width = Math.min(bounds.width, area.width)
+  const height = Math.min(bounds.height, area.height)
+  window.setBounds({
+    x: area.x + Math.round((area.width - width) / 2),
+    y: area.y + Math.round((area.height - height) / 2),
+    width,
+    height,
+  })
+}
+
 function createWindow(): void {
   const appRoot = app.getAppPath()
   const window = new BrowserWindow({
@@ -102,7 +128,32 @@ function createWindow(): void {
   })
 
   window.once('ready-to-show', () => {
+    ensureWindowVisible(window)
     window.show()
+    window.focus()
+    window.moveTop()
+    app.focus({ steal: true })
+    setTimeout(() => ensureWindowVisible(window), 350)
+    let visibilityTimer: NodeJS.Timeout | null = null
+    const scheduleVisibilityCheck = (): void => {
+      if (visibilityTimer) clearTimeout(visibilityTimer)
+      visibilityTimer = setTimeout(() => ensureWindowVisible(window), 260)
+    }
+    window.on('focus', scheduleVisibilityCheck)
+    window.on('show', scheduleVisibilityCheck)
+    window.on('move', scheduleVisibilityCheck)
+    window.on('resize', scheduleVisibilityCheck)
+    // macOS 有时会在 show 之后过一会儿才恢复旧 frame；启动后的几秒内再兜底检查。
+    let checks = 0
+    const startupVisibilityInterval = setInterval(() => {
+      ensureWindowVisible(window)
+      checks++
+      if (checks >= 12) clearInterval(startupVisibilityInterval)
+    }, 500)
+    window.on('closed', () => {
+      clearInterval(startupVisibilityInterval)
+      if (visibilityTimer) clearTimeout(visibilityTimer)
+    })
   })
 
   window.webContents.on('did-finish-load', () => {
@@ -207,7 +258,9 @@ app.whenReady().then(async () => {
         const parsed =
           extension === '.epub'
             ? parseEpub(buffer, sourcePath)
-            : await (await import('./parsers/pdf.js')).parsePdf(buffer, sourcePath)
+            : extension === '.pdf'
+              ? await (await import('./parsers/pdf.js')).parsePdf(buffer, sourcePath)
+              : await parseMobi(buffer, sourcePath)
         console.log(
           `[import] ${JSON.stringify({
             title: parsed.title,

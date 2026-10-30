@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
 
 import type { Note, NoteKind, NotePatch } from '../../shared/types.js'
+import { confirmDialog } from './ConfirmDialog.js'
+import { Select } from './Select.js'
 import { titleRepeatsContent } from '../lib/note-display.js'
 import { Markdown } from './Markdown.js'
 
@@ -147,7 +149,14 @@ export function NoteCard({
                 type="button"
                 className="text-button danger"
                 onClick={() => {
-                  if (window.confirm('删除这条笔记？')) void onDelete(note.id)
+                  void confirmDialog({
+                    title: '删除笔记',
+                    message: '删除这条笔记？这个操作无法恢复。',
+                    confirmLabel: '删除',
+                    danger: true,
+                  }).then((confirmed) => {
+                    if (confirmed) void onDelete(note.id)
+                  })
                 }}
               >
                 删除
@@ -176,14 +185,16 @@ export function NoteCard({
             autoFocus={note.content.trim() === ''}
           />
           {linkCandidates.length > 0 ? (
-            <select className="link-select" value="" onChange={(event) => insertLink(event.target.value)}>
-              <option value="">插入笔记链接…</option>
-              {linkCandidates.map((candidate) => (
-                <option key={candidate.id} value={candidate.title}>
-                  {candidate.title}
-                </option>
-              ))}
-            </select>
+            <Select
+              className="link-select"
+              value=""
+              onChange={(value) => {
+                if (value) insertLink(value)
+              }}
+              placeholder="插入笔记链接…"
+              ariaLabel="插入笔记链接"
+              options={linkCandidates.map((candidate) => ({ value: candidate.title, label: candidate.title }))}
+            />
           ) : null}
         </div>
       ) : (

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
 
 import type { ChapterContent, ReaderStyle, RemovedPart } from '../../shared/types.js'
+import { Checkbox } from './Checkbox.js'
 
 export interface FormatMessage {
   role: 'user' | 'ai'
@@ -216,14 +217,12 @@ export function FormatPanel({
 
         <div className="style-row">
           <span className="style-label">缩进</span>
-          <label className="checkbox-label">
-            <input
-              type="checkbox"
-              checked={style.indent}
-              onChange={(event) => onStyleChange({ indent: event.target.checked })}
-            />
-            首行缩进两字
-          </label>
+          <Checkbox
+            className="checkbox-label"
+            checked={style.indent}
+            onChange={(checked) => onStyleChange({ indent: checked })}
+            label="首行缩进两字"
+          />
         </div>
       </section>
 

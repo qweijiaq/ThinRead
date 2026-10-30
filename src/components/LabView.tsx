@@ -3,34 +3,51 @@ import type { BookSummary, ChapterMeta, LabToolId } from '../../shared/types.js'
 import { LAB_TOOLS, labTool } from '../lib/lab-tools.js'
 import { LabChat } from './LabChat.js'
 import { LabDuplicateCards } from './LabDuplicateCards.js'
-import { LabExperiments } from './LabExperiments.js'
 import { LabMergeConcepts } from './LabMergeConcepts.js'
 import { LabPdfPage } from './LabPdfPage.js'
 import { LabQuiz } from './LabQuiz.js'
+import { LabRelationGraph } from './LabRelationGraph.js'
 import { LabReport } from './LabReport.js'
-import { LabShare } from './LabShare.js'
+import { Select } from './Select.js'
 
 interface LabViewProps {
   books: BookSummary[]
+  initialTool?: LabToolId
+  initialBookId?: string
+  focusKey?: number
   onBack(): void
   onSaveReport(title: string, markdown: string, bookId: string, chapterId: string): Promise<void>
   onListen(title: string, text: string): void
 }
 
-export function LabView({ books, onBack, onSaveReport, onListen }: LabViewProps): JSX.Element {
-  const [toolId, setToolId] = useState<LabToolId>('library-research')
+export function LabView({ books, initialTool, initialBookId, focusKey, onBack, onSaveReport, onListen }: LabViewProps): JSX.Element {
+  const [toolId, setToolId] = useState<LabToolId>(initialTool ?? 'library-research')
   const [bookIds, setBookIds] = useState<string[]>([])
-  const [bookId, setBookId] = useState(books.find((book) => book.chapterCount > 0)?.id ?? books[0]?.id ?? '')
+  const [bookId, setBookId] = useState(
+    initialBookId && books.some((book) => book.id === initialBookId)
+      ? initialBookId
+      : books.find((book) => book.chapterCount > 0)?.id ?? books[0]?.id ?? '',
+  )
   const [chapters, setChapters] = useState<ChapterMeta[]>([])
   const [chapterId, setChapterId] = useState('')
   const [questions, setQuestions] = useState<Record<string, string>>({})
-  const [visited, setVisited] = useState<Set<LabToolId>>(() => new Set(['library-research']))
+  const [visited, setVisited] = useState<Set<LabToolId>>(
+    () => new Set([initialTool ?? 'library-research']),
+  )
   const [chapterError, setChapterError] = useState<string | null>(null)
+  const [railCollapsed, setRailCollapsed] = useState(false)
   const tool = labTool(toolId) ?? LAB_TOOLS[0]!
   const question = questions[toolId] ?? ''
   function setQuestion(value: string): void {
     setQuestions((current) => ({ ...current, [toolId]: value }))
   }
+
+  useEffect(() => {
+    if (!initialTool) return
+    setToolId(initialTool)
+    setVisited((current) => (current.has(initialTool) ? current : new Set(current).add(initialTool)))
+    if (initialBookId && books.some((book) => book.id === initialBookId)) setBookId(initialBookId)
+  }, [initialTool, initialBookId, focusKey])
 
   useEffect(() => {
     if (!bookId) {
@@ -77,15 +94,25 @@ export function LabView({ books, onBack, onSaveReport, onListen }: LabViewProps)
     <main className="lab-view">
       <header className="lab-header">
         <div>
-          <h1>AI 工作台</h1>
-          <p>把读薄稿、卡片和笔记变成对话、研究、练习和输出。</p>
+          <h1>AI 阅读工作台</h1>
+          <p>研究、深读、练习和整理，四类任务共用同一份书与笔记。</p>
         </div>
-        <button type="button" className="ghost-button" onClick={onBack}>
-          返回
-        </button>
+        <div className="lab-header-actions">
+          <button
+            type="button"
+            className="ghost-button small"
+            onClick={() => setRailCollapsed((value) => !value)}
+            aria-pressed={railCollapsed}
+          >
+            {railCollapsed ? '展开工具' : '收起工具'}
+          </button>
+          <button type="button" className="ghost-button" onClick={onBack}>
+            返回
+          </button>
+        </div>
       </header>
 
-      <div className="lab-layout">
+      <div className={`lab-layout${railCollapsed ? ' is-rail-collapsed' : ''}`}>
         <nav className="lab-rail">
           {groups.map((group) => (
             <div key={group} className="lab-rail-group">
@@ -120,7 +147,7 @@ export function LabView({ books, onBack, onSaveReport, onListen }: LabViewProps)
             <span className="lab-tool-group">{tool.group}</span>
           </div>
 
-          {tool.kind === 'chat' || tool.kind === 'report' || tool.kind === 'quiz' ? (
+          {tool.kind === 'chat' || tool.kind === 'report' || tool.kind === 'quiz' || tool.kind === 'relation' ? (
             <div className="lab-sources">
               {tool.books === 'multi' ? (
                 <div className="lab-source-block">
@@ -143,26 +170,24 @@ export function LabView({ books, onBack, onSaveReport, onListen }: LabViewProps)
               {tool.books === 'single' ? (
                 <label className="lab-source-block lab-inline-source">
                   <span className="lab-source-label">书</span>
-                  <select value={bookId} onChange={(event) => setBookId(event.target.value)}>
-                    {books.map((book) => (
-                      <option key={book.id} value={book.id}>
-                        {book.title}
-                      </option>
-                    ))}
-                  </select>
+                  <Select
+                    value={bookId}
+                    onChange={setBookId}
+                    ariaLabel="选择书"
+                    options={books.map((book) => ({ value: book.id, label: book.title }))}
+                  />
                 </label>
               ) : null}
 
               {needsChapter ? (
                 <label className="lab-source-block lab-inline-source">
                   <span className="lab-source-label">章节</span>
-                  <select value={chapterId} onChange={(event) => setChapterId(event.target.value)}>
-                    {chapters.map((chapter) => (
-                      <option key={chapter.id} value={chapter.id}>
-                        {chapter.title}
-                      </option>
-                    ))}
-                  </select>
+                  <Select
+                    value={chapterId}
+                    onChange={setChapterId}
+                    ariaLabel="选择章节"
+                    options={chapters.map((chapter) => ({ value: chapter.id, label: chapter.title }))}
+                  />
                 </label>
               ) : null}
 
@@ -204,7 +229,6 @@ export function LabView({ books, onBack, onSaveReport, onListen }: LabViewProps)
                       tool={item.id}
                       bookIds={bookIds}
                       chapterId={chapterId}
-                      voice={item.id === 'voice-chat'}
                     />
                   ) : item.kind === 'report' ? (
                     <LabReport
@@ -219,6 +243,8 @@ export function LabView({ books, onBack, onSaveReport, onListen }: LabViewProps)
                       }
                       onListen={onListen}
                     />
+                  ) : item.kind === 'relation' ? (
+                    <LabRelationGraph bookId={bookId} bookTitle={selectedBook?.title ?? ''} />
                   ) : item.kind === 'pdf' ? (
                     <LabPdfPage books={books} />
                   ) : item.kind === 'quiz' ? (
@@ -236,10 +262,8 @@ export function LabView({ books, onBack, onSaveReport, onListen }: LabViewProps)
                     <LabMergeConcepts />
                   ) : item.kind === 'dedupe' ? (
                     <LabDuplicateCards />
-                  ) : item.kind === 'experiments' ? (
-                    <LabExperiments />
                   ) : (
-                    <LabShare />
+                    <p className="lab-empty">这个工具已经停用。</p>
                   )}
                 </div>
               )
