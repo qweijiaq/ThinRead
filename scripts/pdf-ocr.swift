@@ -31,11 +31,30 @@ let totalPages = document.pageCount
 let attributes = document.documentAttributes ?? [:]
 let title = (attributes[PDFDocumentAttribute.titleAttribute] as? String) ?? ""
 let author = (attributes[PDFDocumentAttribute.authorAttribute] as? String) ?? ""
+
+func outlineRows(_ node: PDFOutline?, _ depth: Int) -> [[String: Any]] {
+    guard let node else { return [] }
+    var rows: [[String: Any]] = []
+    let label = (node.label ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    if !label.isEmpty {
+        var pageNumber = 0
+        if let page = node.destination?.page {
+            pageNumber = document.index(for: page) + 1
+        }
+        rows.append(["title": label, "page": pageNumber, "depth": depth])
+    }
+    for index in 0..<node.numberOfChildren {
+        rows.append(contentsOf: outlineRows(node.child(at: index), depth + 1))
+    }
+    return rows
+}
+
 let meta: [String: Any] = [
     "pages": totalPages,
     "title": title,
     "author": author,
-    "maxPages": maxPages
+    "maxPages": maxPages,
+    "outline": outlineRows(document.outlineRoot, 0)
 ]
 if let metaData = try? JSONSerialization.data(withJSONObject: ["meta": meta]),
    let metaLine = String(data: metaData, encoding: .utf8) {

@@ -51,6 +51,39 @@ export interface ScannedPdfResult {
   sourceText: string
 }
 
+interface OutlineEntry {
+  title: string
+  page: number
+  depth: number
+}
+
+function buildOutlineChapters(
+  pages: Array<{ page: number; text: string }>,
+  outline: OutlineEntry[],
+  pageCount: number,
+): NewChapter[] {
+  const ignored = /^(封面|书名|版权|目录|扉页|书名页|contents|table\s*of\s*contents|index)$/i
+  const entries = outline
+    .filter((entry) => entry.page > 0 && !ignored.test(entry.title.trim()))
+    .sort((a, b) => a.page - b.page)
+  if (entries.length === 0) return []
+  const chapters: NewChapter[] = []
+  for (let index = 0; index < entries.length; index++) {
+    const entry = entries[index]!
+    const end = index + 1 < entries.length ? entries[index + 1]!.page - 1 : pageCount
+    if (end < entry.page) continue
+    const text = pages
+      .filter((page) => page.page >= entry.page && page.page <= end)
+      .map((page) => `[第 ${page.page} 页]\n${page.text}`)
+      .join('\n\n')
+      .trim()
+    if (text.replace(/\s/g, '').length < MIN_CHAPTER_CHARS) continue
+    const title = entry.title.replace(/\s+/g, ' ').trim()
+    chapters.push({ title, text, html: null })
+  }
+  return chapters
+}
+
 function findOcrScript(): string {
   const candidates = [
     path.join(process.cwd(), 'scripts', 'pdf-ocr.swift'),
@@ -75,6 +108,7 @@ export async function parseScannedPdf(
   let pageCount = 0
   let title = ''
   let author = ''
+  let outline: OutlineEntry[] = []
   const child = spawn('swift', [script, sourcePath, String(MAX_OCR_PAGES)], {
     stdio: ['ignore', 'pipe', 'pipe'],
   })
@@ -94,7 +128,7 @@ export async function parseScannedPdf(
         if (!line.trim()) return
         try {
           const parsed = JSON.parse(line) as {
-            meta?: { pages?: unknown; title?: unknown; author?: unknown }
+            meta?: { pages?: unknown; title?: unknown; author?: unknown; outline?: unknown }
             page?: unknown
             text?: unknown
           }
@@ -102,6 +136,21 @@ export async function parseScannedPdf(
             pageCount = typeof parsed.meta.pages === 'number' ? parsed.meta.pages : 0
             title = typeof parsed.meta.title === 'string' ? parsed.meta.title : ''
             author = typeof parsed.meta.author === 'string' ? parsed.meta.author : ''
+            if (Array.isArray(parsed.meta.outline)) {
+              outline = parsed.meta.outline
+                .map((item): OutlineEntry | null => {
+                  if (!item || typeof item !== 'object') return null
+                  const entry = item as { title?: unknown; page?: unknown; depth?: unknown }
+                  return typeof entry.title === 'string' && typeof entry.page === 'number'
+                    ? {
+                        title: entry.title,
+                        page: entry.page,
+                        depth: typeof entry.depth === 'number' ? entry.depth : 1,
+                      }
+                    : null
+                })
+                .filter((entry): entry is OutlineEntry => Boolean(entry))
+            }
             if (pageCount > MAX_OCR_PAGES) {
               reject(new Error(`扫描版 PDF 有 ${pageCount} 页，超过 ${MAX_OCR_PAGES} 页上限，请先拆分后再导入。`))
             }
@@ -136,20 +185,25 @@ export async function parseScannedPdf(
   if (usable.length === 0) throw new Error('扫描版 PDF 没有识别出可阅读的正文，请换一份清晰度更高的文件。')
   const sourceText = usable.map((page) => `[第 ${page.page} 页]\n${page.text}`).join('\n\n').trim()
   const chapters: NewChapter[] = []
-  // 按连续页码分段，避免广告/版权页被剔除后把不相邻的正文拼成一章。
-  const runs: Array<Array<{ page: number; text: string }>> = []
-  for (const page of usable) {
-    const run = runs[runs.length - 1]
-    if (run && page.page === run[run.length - 1]!.page + 1) run.push(page)
-    else runs.push([page])
-  }
-  for (const run of runs) {
-    for (let start = 0; start < run.length; start += PAGES_PER_CHAPTER) {
-      const chunk = run.slice(start, start + PAGES_PER_CHAPTER)
-      const title = chunk.length === 1 ? `第 ${chunk[0]!.page} 页` : `第 ${chunk[0]!.page}–${chunk[chunk.length - 1]!.page} 页`
-      const text = chunk.map((page) => `[第 ${page.page} 页]\n${page.text}`).join('\n\n').trim()
-      if (text.replace(/\s/g, '').length < MIN_CHAPTER_CHARS) continue
-      chapters.push({ title, text, html: null })
+  const chapterFromOutline = buildOutlineChapters(usable, outline, pageCount)
+  if (chapterFromOutline.length > 0) {
+    chapters.push(...chapterFromOutline)
+  } else {
+    // 没有可用书签时，按连续页码分段，避免广告/版权页被剔除后把不相邻的正文拼成一章。
+    const runs: Array<Array<{ page: number; text: string }>> = []
+    for (const page of usable) {
+      const run = runs[runs.length - 1]
+      if (run && page.page === run[run.length - 1]!.page + 1) run.push(page)
+      else runs.push([page])
+    }
+    for (const run of runs) {
+      for (let start = 0; start < run.length; start += PAGES_PER_CHAPTER) {
+        const chunk = run.slice(start, start + PAGES_PER_CHAPTER)
+        const title = chunk.length === 1 ? `第 ${chunk[0]!.page} 页` : `第 ${chunk[0]!.page}–${chunk[chunk.length - 1]!.page} 页`
+        const text = chunk.map((page) => `[第 ${page.page} 页]\n${page.text}`).join('\n\n').trim()
+        if (text.replace(/\s/g, '').length < MIN_CHAPTER_CHARS) continue
+        chapters.push({ title, text, html: null })
+      }
     }
   }
   if (chapters.length === 0) throw new Error('扫描版 PDF 没有识别出可阅读的正文，请换一份清晰度更高的文件。')
