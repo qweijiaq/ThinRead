@@ -13,8 +13,12 @@ interface TopBarProps {
   onSearch(): void
   onNotes(): void
   onMap(): void
+  onLab(): void
+  onCompose(): void
   notesActive?: boolean
   mapActive?: boolean
+  labActive?: boolean
+  composeActive?: boolean
   onRenameBook?: () => void
 }
 
@@ -29,8 +33,12 @@ export function TopBar({
   onSearch,
   onNotes,
   onMap,
+  onLab,
+  onCompose,
   notesActive = false,
   mapActive = false,
+  labActive = false,
+  composeActive = false,
   onRenameBook,
 }: TopBarProps): JSX.Element {
   const preset = PROVIDER_PRESETS.find((item) => item.id === settings?.provider)
@@ -52,10 +60,10 @@ export function TopBar({
         >
           页边
         </span>
-        {book || notesActive || mapActive ? (
+        {book || notesActive || mapActive || labActive || composeActive ? (
           <>
             <span className="topbar-divider" />
-            {book && !notesActive && !mapActive && onRenameBook ? (
+            {book && !notesActive && !mapActive && !labActive && !composeActive && onRenameBook ? (
               <button
                 type="button"
                 className="topbar-book topbar-book-button"
@@ -65,14 +73,35 @@ export function TopBar({
                 {book.title}
               </button>
             ) : (
-              <span className="topbar-book" title={mapActive ? '知识地图' : notesActive ? '全库笔记' : book?.title}>
-                {mapActive ? '知识地图' : notesActive ? '全库笔记' : book?.title}
+              <span
+                className="topbar-book"
+                title={
+                  labActive
+                    ? 'AI 工作台'
+                    : mapActive
+                      ? '知识地图'
+                      : composeActive
+                        ? '整本成稿'
+                        : notesActive
+                          ? '全库笔记'
+                          : book?.title
+                }
+              >
+                {labActive
+                  ? 'AI 工作台'
+                  : mapActive
+                    ? '知识地图'
+                    : composeActive
+                      ? '整本成稿'
+                      : notesActive
+                        ? '全库笔记'
+                        : book?.title}
               </span>
             )}
             <button type="button" className="ghost-button small" onClick={onLibrary}>
               书架
             </button>
-            {book && !notesActive && !mapActive ? (
+            {book && !notesActive && !mapActive && !labActive && !composeActive ? (
               <button type="button" className="ghost-button small" onClick={onReparse} title="用新的解析器重新拆分章节">
                 重新解析
               </button>
@@ -81,6 +110,16 @@ export function TopBar({
         ) : null}
       </div>
       <div className="topbar-right">
+        {book ? (
+          <button
+            type="button"
+            className={`ghost-button small${composeActive ? ' is-active' : ''}`}
+            onClick={onCompose}
+            title="整本成稿"
+          >
+            成书
+          </button>
+        ) : null}
         <button
           type="button"
           className={`ghost-button small${notesActive ? ' is-active' : ''}`}
@@ -96,6 +135,14 @@ export function TopBar({
           title="知识地图"
         >
           地图
+        </button>
+        <button
+          type="button"
+          className={`ghost-button small${labActive ? ' is-active' : ''}`}
+          onClick={onLab}
+          title="AI 工作台"
+        >
+          工作台
         </button>
         <button type="button" className="ghost-button small" onClick={onSearch} title="搜索（⌘K）">
           搜索

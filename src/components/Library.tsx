@@ -1,5 +1,5 @@
-import { useEffect, useState, type JSX } from 'react'
-import type { BookSummary, ReviewStats } from '../../shared/types.js'
+import type { JSX } from 'react'
+import type { BookSummary } from '../../shared/types.js'
 
 interface LibraryProps {
   books: BookSummary[]
@@ -7,20 +7,11 @@ interface LibraryProps {
   onOpen(bookId: string): void
   onImport(): void
   onDelete(bookId: string): void
-  onOpenReview(): void
   onRename(book: BookSummary): void
+  onCompose(bookId: string): void
 }
 
-export function Library({ books, importing, onOpen, onImport, onDelete, onOpenReview, onRename }: LibraryProps): JSX.Element {
-  const [stats, setStats] = useState<ReviewStats | null>(null)
-
-  useEffect(() => {
-    void window.api
-      .getReviewStats()
-      .then(setStats)
-      .catch(() => setStats(null))
-  }, [books.length])
-
+export function Library({ books, importing, onOpen, onImport, onDelete, onRename, onCompose }: LibraryProps): JSX.Element {
   if (books.length === 0) {
     return (
       <main className="welcome">
@@ -62,32 +53,6 @@ export function Library({ books, importing, onOpen, onImport, onDelete, onOpenRe
           {importing ? '正在解析…' : '导入新书'}
         </button>
       </div>
-      {stats && stats.total > 0 ? (
-        <section className="daily-review">
-          <div className="daily-review-copy">
-            <span className="daily-kicker">今日回顾</span>
-            <h2>{stats.due > 0 ? `${stats.due} 张卡片到期` : '今天的复习完成了'}</h2>
-            <p>
-              今日 {stats.reviewedToday}/10 · {stats.streakDays > 0 ? `连续 ${stats.streakDays} 天` : '今天开始'}
-            </p>
-          </div>
-          <div className="daily-review-meter" aria-hidden="true">
-            <span
-              style={{
-                width: `${stats.due === 0 && stats.reviewedToday > 0 ? 100 : Math.min(100, (stats.reviewedToday / 10) * 100)}%`,
-              }}
-            />
-          </div>
-          <button
-            type="button"
-            className="primary-button small"
-            onClick={onOpenReview}
-            disabled={stats.due === 0}
-          >
-            {stats.due > 0 ? '开始复习' : '已完成'}
-          </button>
-        </section>
-      ) : null}
       <div className="book-grid">
         {books.map((book) => (
           <article
@@ -122,6 +87,16 @@ export function Library({ books, importing, onOpen, onImport, onDelete, onOpenRe
               <div className="book-actions">
                 <span>{book.progress > 0 ? `已读 ${Math.round(book.progress * 100)}%` : '尚未开始'}</span>
                 <span className="book-action-buttons">
+                  <button
+                    type="button"
+                    className="text-button"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      onCompose(book.id)
+                    }}
+                  >
+                    成书
+                  </button>
                   <button
                     type="button"
                     className="text-button"

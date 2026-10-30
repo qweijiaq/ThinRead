@@ -29,6 +29,7 @@ interface NotesPanelProps {
   onOpenNote(note: Note): void
   onOpenRelated(note: RelatedNote): void
   onListen(text: string): void
+  onShare(note: Note): void
 }
 
 function StreamingCard({ partial, onCancel }: { partial: GeneratePartial | null; onCancel(): void }): JSX.Element {
@@ -126,6 +127,7 @@ export function NotesPanel({
   onOpenNote,
   onOpenRelated,
   onListen,
+  onShare,
 }: NotesPanelProps): JSX.Element {
   const condensedNote = notes.find((note) => note.kind === 'condensed') ?? null
   const summaryNotes = notes.filter((note) => note.kind === 'summary')
@@ -196,6 +198,7 @@ export function NotesPanel({
         expanding={expandingNoteId === note.id}
         onUpdate={onUpdate}
         onDelete={onDelete}
+        onShare={onShare}
         onExpand={onExpand}
         onJumpQuote={onJumpQuote}
         onOpenNote={onOpenNote}
@@ -325,6 +328,9 @@ export function NotesPanel({
                 <input type="checkbox" checked={includeCards} onChange={(event) => setIncludeCards(event.target.checked)} />
                 附卡片
               </label>
+              <button type="button" className="text-button" onClick={() => onShare(condensedNote)}>
+                分享
+              </button>
               <button type="button" className="text-button" onClick={() => onListen(condensedNote.content)}>
                 朗读
               </button>

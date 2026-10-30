@@ -23,6 +23,8 @@ import type {
   SearchResult,
   LibraryFilter,
   LibraryNote,
+  LabArtifact,
+  LabExperiment,
   ReviewRating,
   ReviewStats,
   TagCount,
@@ -201,6 +203,39 @@ export function initDatabase(dataDir: string): void {
     );
     CREATE INDEX IF NOT EXISTS idx_note_reviews_due ON note_reviews(due_at);
 
+    CREATE TABLE IF NOT EXISTS lab_experiments (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      goal TEXT NOT NULL,
+      steps TEXT NOT NULL,
+      duration TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'planned',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS lab_artifacts (
+      tool TEXT NOT NULL,
+      scope TEXT NOT NULL DEFAULT 'latest',
+      title TEXT NOT NULL,
+      content TEXT NOT NULL,
+      meta TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (tool, scope)
+    );
+
+    CREATE TABLE IF NOT EXISTS lab_artifact_versions (
+      id TEXT PRIMARY KEY,
+      tool TEXT NOT NULL,
+      scope TEXT NOT NULL,
+      title TEXT NOT NULL,
+      content TEXT NOT NULL,
+      meta TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_lab_artifact_versions_tool ON lab_artifact_versions(tool, created_at DESC);
+
     CREATE TABLE IF NOT EXISTS meta (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
@@ -209,6 +244,7 @@ export function initDatabase(dataDir: string): void {
   migrateBooks(db)
   migrateChapters(db)
   migrateNotes(db)
+  migrateLabArtifacts(db)
 }
 
 function migrateNotes(conn: DatabaseSync): void {
@@ -224,6 +260,16 @@ function migrateNotes(conn: DatabaseSync): void {
   for (const [name, ddl] of additions) {
     if (!columns.has(name)) conn.exec(`ALTER TABLE notes ADD COLUMN ${name} ${ddl}`)
   }
+}
+
+function migrateLabArtifacts(conn: DatabaseSync): void {
+  conn
+    .prepare(
+      `INSERT OR IGNORE INTO lab_artifact_versions (id, tool, scope, title, content, meta, created_at)
+       SELECT 'legacy:' || tool || ':' || scope, tool, scope, title, content, meta, updated_at
+       FROM lab_artifacts`,
+    )
+    .run()
 }
 
 function migrateBooks(conn: DatabaseSync): void {
@@ -994,8 +1040,7 @@ export function getReviewQueue(limit = 30): LibraryNote[] {
   return rows.map(mapLibraryNote)
 }
 
-export function reviewNote(noteId: string, rating: ReviewRating): void {
-  if (rating !== 'again' && rating !== 'hard' && rating !== 'good' && rating !== 'easy') {
+export function reviewNote(noteId: string, rating: ReviewRating): void {  if (rating !== 'again' && rating !== 'hard' && rating !== 'good' && rating !== 'easy') {
     throw new Error('复习评分无效。')
   }
   const conn = database()
@@ -1062,8 +1107,221 @@ export function reviewNote(noteId: string, rating: ReviewRating): void {
 
 const REVIEWABLE_KINDS = new Set<NoteKind>(['point', 'claim', 'summary', 'question', 'thought'])
 
-export interface MapNote {
+export function getLabArtifact(tool: string, scope = 'latest'): LabArtifact | null {
+  const conn = database()
+  let row = (scope === 'latest'
+    ? conn.prepare('SELECT * FROM lab_artifact_versions WHERE tool = ? ORDER BY created_at DESC LIMIT 1').get(tool)
+    : conn
+        .prepare(
+          'SELECT * FROM lab_artifact_versions WHERE tool = ? AND scope = ? ORDER BY created_at DESC LIMIT 1',
+        )
+        .get(tool, scope)) as LabArtifactRow | undefined
+  // 兼容旧版本只保存 latest 的结果：新作用域没有记录时回退到旧结果。
+  if (!row && scope !== 'latest') {
+    row = conn
+      .prepare("SELECT * FROM lab_artifact_versions WHERE tool = ? AND scope = 'latest' ORDER BY created_at DESC LIMIT 1")
+      .get(tool) as LabArtifactRow | undefined
+  }
+  return row ? mapLabArtifact(row) : null
+}
+
+interface LabArtifactRow {
   id: string
+  tool: string
+  scope: string
+  title: string
+  content: string
+  meta: string | null
+  created_at: string
+}
+
+export function listLabArtifacts(tool: string, limit = 30): LabArtifact[] {
+  const rows = database()
+    .prepare('SELECT * FROM lab_artifact_versions WHERE tool = ? ORDER BY created_at DESC LIMIT ?')
+    .all(tool, Math.min(Math.max(limit, 1), 100)) as unknown as Array<{
+    id: string
+    tool: string
+    scope: string
+    title: string
+    content: string
+    meta: string | null
+    created_at: string
+  }>
+  return rows.map(mapLabArtifact)
+}
+
+export function saveLabArtifact(input: {
+  tool: string
+  scope: string
+  title: string
+  content: string
+  meta?: string | null
+}): LabArtifact {
+  const tool = input.tool.trim()
+  const scope = input.scope.trim() || 'latest'
+  const title = input.title.trim() || 'AI 结果'
+  if (!tool) throw new Error('工具无效。')
+  if (typeof input.content !== 'string') throw new Error('生成内容无效。')
+  const id = crypto.randomUUID()
+  const now = new Date().toISOString()
+  database()
+    .prepare(
+      `INSERT INTO lab_artifact_versions (id, tool, scope, title, content, meta, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(id, tool, scope, title, input.content, input.meta ?? null, now)
+  return {
+    id,
+    tool,
+    scope,
+    title,
+    content: input.content,
+    meta: input.meta ?? null,
+    createdAt: now,
+  }
+}
+
+function mapLabArtifact(row: LabArtifactRow): LabArtifact {
+  return {
+    id: row.id,
+    tool: row.tool,
+    scope: row.scope,
+    title: row.title,
+    content: row.content,
+    meta: row.meta,
+    createdAt: row.created_at,
+  }
+}
+
+export function listExperiments(): LabExperiment[] {  const rows = database()
+    .prepare('SELECT * FROM lab_experiments ORDER BY created_at DESC, rowid DESC')
+    .all() as unknown as Array<{
+    id: string
+    title: string
+    goal: string
+    steps: string
+    duration: string
+    status: string
+    created_at: string
+  }>
+  return rows.map((row) => ({
+    id: row.id,
+    title: row.title,
+    goal: row.goal,
+    steps: row.steps,
+    duration: row.duration,
+    status: row.status === 'active' || row.status === 'done' ? row.status : 'planned',
+    createdAt: row.created_at,
+  }))
+}
+
+export function createExperiment(input: {
+  title: string
+  goal: string
+  steps: string
+  duration: string
+}): LabExperiment {
+  const id = crypto.randomUUID()
+  const now = new Date().toISOString()
+  database()
+    .prepare(
+      `INSERT INTO lab_experiments (id, title, goal, steps, duration, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 'planned', ?, ?)`,
+    )
+    .run(id, input.title, input.goal, input.steps, input.duration, now, now)
+  return {
+    id,
+    title: input.title,
+    goal: input.goal,
+    steps: input.steps,
+    duration: input.duration,
+    status: 'planned',
+    createdAt: now,
+  }
+}
+
+export function updateExperimentStatus(id: string, status: LabExperiment['status']): void {
+  if (status !== 'planned' && status !== 'active' && status !== 'done') throw new Error('实验状态无效。')
+  database()
+    .prepare('UPDATE lab_experiments SET status = ?, updated_at = ? WHERE id = ?')
+    .run(status, new Date().toISOString(), id)
+}
+
+export function mergeNoteTags(tags: string[], canonical: string): number {
+  const wanted = new Set(tags.map((tag) => tag.trim()).filter(Boolean))
+  const target = canonical.trim()
+  if (wanted.size === 0 || !target) return 0
+  const conn = database()
+  const rows = conn.prepare('SELECT id, tags FROM notes').all() as unknown as Array<{ id: string; tags: string }>
+  let changed = 0
+  const now = new Date().toISOString()
+  conn.exec('BEGIN')
+  try {
+    for (const row of rows) {
+      const current = parseTags(row.tags)
+      if (!current.some((tag) => wanted.has(tag))) continue
+      const next = [...new Set(current.map((tag) => (wanted.has(tag) ? target : tag)))]
+      conn.prepare('UPDATE notes SET tags = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(next), now, row.id)
+      conn.prepare('DELETE FROM note_embeddings WHERE note_id = ?').run(row.id)
+      changed += 1
+    }
+    conn.exec('COMMIT')
+  } catch (error) {
+    conn.exec('ROLLBACK')
+    throw error
+  }
+  return changed
+}
+
+export function mergeNotes(keepId: string, mergeId: string): Note {
+  if (keepId === mergeId) throw new Error('不能合并同一张卡片。')
+  const keep = getNote(keepId)
+  const duplicate = getNote(mergeId)
+  if (keep.bookId !== duplicate.bookId) throw new Error('只能合并同一本书里的卡片。')
+  const content = duplicate.content && !keep.content.includes(duplicate.content)
+    ? [keep.content, duplicate.content].filter(Boolean).join('\n\n')
+    : keep.content
+  const tags = [...new Set([...keep.tags, ...duplicate.tags])]
+  const divergences = [...keep.divergences, ...duplicate.divergences]
+    .filter((item, index, list) => list.findIndex((other) => other.type === item.type && other.text === item.text) === index)
+    .slice(0, 3)
+  const quote = keep.quote || duplicate.quote
+  const quoteVerified = keep.quote ? keep.quoteVerified : duplicate.quoteVerified
+  const role = keep.role || duplicate.role
+  const section = keep.section || duplicate.section
+  const importance = Math.max(keep.importance ?? 0, duplicate.importance ?? 0) || null
+  const now = new Date().toISOString()
+  const conn = database()
+  conn.exec('BEGIN')
+  try {
+    conn
+      .prepare(
+        `UPDATE notes SET content = ?, quote = ?, quote_verified = ?, tags = ?, section = ?, importance = ?,
+         role = ?, expansion = ?, edited = 1, updated_at = ? WHERE id = ?`,
+      )
+      .run(
+        content,
+        quote,
+        quoteVerified ? 1 : 0,
+        JSON.stringify(tags),
+        section,
+        importance,
+        role,
+        divergences.length > 0 ? JSON.stringify(divergences) : null,
+        now,
+        keepId,
+      )
+    conn.prepare('DELETE FROM notes WHERE id = ?').run(mergeId)
+    conn.prepare('DELETE FROM note_embeddings WHERE note_id = ?').run(keepId)
+    conn.exec('COMMIT')
+  } catch (error) {
+    conn.exec('ROLLBACK')
+    throw error
+  }
+  return getNote(keepId)
+}
+
+export interface MapNote {  id: string
   bookId: string
   bookTitle: string
   chapterId: string | null
@@ -1073,6 +1331,7 @@ export interface MapNote {
   tags: string[]
   importance: number
   updatedAt: string
+  preview: string
   vector: number[] | null
 }
 
@@ -1082,7 +1341,7 @@ export function listMapNotes(limit = 300): { notes: MapNote[]; total: number } {
   const rows = conn
     .prepare(
       `SELECT n.id, n.book_id, b.title AS book_title, n.chapter_id, c.title AS chapter_title,
-              n.title, n.kind, n.tags, n.importance, n.updated_at, e.vector
+              n.title, n.content, n.kind, n.tags, n.importance, n.updated_at, e.vector
        FROM notes n
        JOIN books b ON b.id = n.book_id
        LEFT JOIN chapters c ON c.id = n.chapter_id
@@ -1102,6 +1361,7 @@ export function listMapNotes(limit = 300): { notes: MapNote[]; total: number } {
     importance: number | null
     updated_at: string
     vector: string | null
+    content: string
   }>
   return {
     total: Number(totalRow?.count ?? 0),
@@ -1116,6 +1376,7 @@ export function listMapNotes(limit = 300): { notes: MapNote[]; total: number } {
       tags: parseTags(row.tags),
       importance: row.importance == null ? 2 : Number(row.importance),
       updatedAt: row.updated_at,
+      preview: row.content.replace(/\s+/g, ' ').trim().slice(0, 180),
       vector: parseVector(row.vector),
     })),
   }
@@ -1459,7 +1720,7 @@ export function deriveTitle(kind: NoteKind, content: string): string {
     .replace(/^[#>\-\s]+/, '')
     .split('\n')[0]
     ?.trim()
-  const head = (firstLine || content.trim()).slice(0, 26)
+  const head = (firstLine || content.trim()).slice(0, kind === 'point' || kind === 'claim' ? 60 : 26)
   if (kind === 'summary') return '本章摘要'
   if (kind === 'question') return head ? `问题 · ${head}` : '阅读问题'
   return head || '未命名笔记'

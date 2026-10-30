@@ -1,4 +1,5 @@
 import type { Note } from '../../shared/types.js'
+import { noteDisplayTitle, titleRepeatsContent } from './note-display.js'
 
 const DIVERGENCE_LABELS: Record<string, string> = {
   boundary: '边界',
@@ -26,7 +27,10 @@ export function buildChapterMarkdown(args: MarkdownExportArgs): string {
 
   if (args.includeCards && args.cards.length > 0) {
     const cards = args.cards.map((card, index) => {
-      const lines = [`### ${index + 1}. ${card.title}`, card.content.trim()]
+      const repeats = titleRepeatsContent(card)
+      const heading = repeats ? noteDisplayTitle(card) : card.title
+      const lines = [`### ${index + 1}. ${heading}`]
+      if (!repeats) lines.push(card.content.trim())
       if (card.role) lines.push(`- **在文中的作用**：${card.role}`)
       if (card.quote) lines.push(`- **原文依据**：${card.quote}`)
       if (card.divergences.length > 0) {

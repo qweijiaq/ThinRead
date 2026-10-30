@@ -16,6 +16,7 @@ interface ReaderProps {
   onOpenEcho(echo: RelatedNote): void
   onListen(): void
   onRenameChapter(): void
+  onMarginNote(text: string): void
 }
 
 /** 旧版本解析出的章节会把标题重复放进正文；渲染时去掉与章节标题相同的前导标题文本。 */
@@ -99,6 +100,7 @@ export function Reader({
   onOpenEcho,
   onListen,
   onRenameChapter,
+  onMarginNote,
 }: ReaderProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const [selection, setSelection] = useState<string>('')
@@ -154,7 +156,7 @@ export function Reader({
     if (!containerRef.current?.contains(range.commonAncestorContainer)) return
     const rect = range.getBoundingClientRect()
     setSelection(text)
-    setToolbar({ x: Math.min(window.innerWidth - 180, Math.max(180, rect.left + rect.width / 2)), y: rect.top - 10 })
+    setToolbar({ x: Math.min(window.innerWidth - 240, Math.max(240, rect.left + rect.width / 2)), y: rect.top - 10 })
   }
 
   function takeQuote(): void {
@@ -231,6 +233,17 @@ export function Reader({
         <div className="selection-toolbar" style={{ left: toolbar.x, top: toolbar.y }}>
           <button type="button" onClick={takeQuote}>
             记笔记
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              onMarginNote(selection)
+              window.getSelection()?.removeAllRanges()
+              setSelection('')
+              setToolbar(null)
+            }}
+          >
+            AI 边注
           </button>
           <button
             type="button"

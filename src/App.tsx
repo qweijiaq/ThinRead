@@ -20,22 +20,28 @@ import type {
   SearchResult,
   SettingsView,
 } from '../shared/types.js'
+import { BookCompose } from './components/BookCompose.js'
 import { ChapterList } from './components/ChapterList.js'
 import { ChatPanel } from './components/ChatPanel.js'
 import { FeynmanPanel } from './components/FeynmanPanel.js'
 import { FormatPanel } from './components/FormatPanel.js'
 import type { FormatMessage } from './components/FormatPanel.js'
 import { KnowledgeMap } from './components/KnowledgeMap.js'
+import { LabView } from './components/LabView.js'
 import { Library } from './components/Library.js'
 import { ListenPanel } from './components/ListenPanel.js'
+import { MarginNoteDialog } from './components/MarginNoteDialog.js'
 import { NotesPanel } from './components/NotesPanel.js'
 import { NotesLibrary } from './components/NotesLibrary.js'
 import { OrganizeDialog } from './components/OrganizeDialog.js'
 import { Reader } from './components/Reader.js'
 import { RenameDialog } from './components/RenameDialog.js'
 import { SearchDialog } from './components/SearchDialog.js'
+import { ShareDialog } from './components/ShareDialog.js'
 import { SettingsDialog } from './components/SettingsDialog.js'
 import { TopBar } from './components/TopBar.js'
+import { noteDisplayTitle, titleRepeatsContent } from './lib/note-display.js'
+import type { ShareBook, ShareNote, ShareTemplate } from './lib/share-card.js'
 
 function messageOf(error: unknown): string {
   const raw = error instanceof Error ? error.message : String(error)
@@ -79,9 +85,16 @@ export function App(): JSX.Element {
   const [toast, setToast] = useState<{ kind: 'error' | 'info'; text: string } | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
-  const [mainView, setMainView] = useState<'reader' | 'notes' | 'map'>('reader')
-  const [autoReview, setAutoReview] = useState(false)
+  const [mainView, setMainView] = useState<'reader' | 'notes' | 'map' | 'lab' | 'compose'>('reader')
+  const [labMounted, setLabMounted] = useState(false)
+  const [shareTarget, setShareTarget] = useState<{
+    note?: ShareNote
+    book?: ShareBook
+    notes?: ShareNote[]
+    initialTemplate?: ShareTemplate
+  } | null>(null)
   const [listen, setListen] = useState<{ title: string; text: string } | null>(null)
+  const [marginQuote, setMarginQuote] = useState<string | null>(null)
   const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null)
   const [focusNote, setFocusNote] = useState<{ id: string; key: number } | null>(null)
   const [pendingNoteId, setPendingNoteId] = useState<string | null>(null)
@@ -326,7 +339,17 @@ export function App(): JSX.Element {
           current && current.id === event.chapterId ? { ...current, noteReport: event.report } : current,
         )
       }
-      if (book) void window.api.listNotes(book.id).then(setAllNotes).catch(() => undefined)
+      if (book) {
+        void window.api
+          .listNotes(book.id)
+          .then((items) => {
+            setAllNotes(items)
+            setBooks((current) =>
+              current.map((item) => (item.id === book.id ? { ...item, noteCount: items.length } : item)),
+            )
+          })
+          .catch(() => undefined)
+      }
     })
     const offError = window.api.onGenerationError((event) => {
       if (event.chapterId !== chapter?.id) return
@@ -334,10 +357,29 @@ export function App(): JSX.Element {
       setPartial(null)
       setError(event.message)
     })
+    const offBookDone = window.api.onBookGenerationDone((event) => {
+      if (event.bookId !== book?.id) return
+      setToast({
+        kind: event.failed.length > 0 ? 'error' : 'info',
+        text: event.cancelled
+          ? '整本生成已取消。'
+          : `整本生成完成：新生成 ${event.generated} 节${event.failed.length > 0 ? `，失败 ${event.failed.length} 节` : ''}。`,
+      })
+      void window.api
+        .listNotes(event.bookId)
+        .then((items) => {
+          setAllNotes(items)
+          setBooks((current) =>
+            current.map((item) => (item.id === event.bookId ? { ...item, noteCount: items.length } : item)),
+          )
+        })
+        .catch(() => undefined)
+    })
     return () => {
       offPartial()
       offDone()
       offError()
+      offBookDone()
     }
   }, [chapter?.id, book?.id])
 
@@ -390,6 +432,41 @@ export function App(): JSX.Element {
       })
     },
     [book, chapter, createNote],
+  )
+
+  const saveLabReport = useCallback(
+    async (title: string, markdown: string, targetBookId: string, targetChapterId: string): Promise<void> => {
+      const ownerId = targetBookId || book?.id || books[0]?.id
+      if (!ownerId) throw new Error('还没有导入书。')
+      await window.api.createNote({
+        bookId: ownerId,
+        chapterId: targetChapterId || null,
+        kind: 'summary',
+        title,
+        content: markdown,
+      })
+      if (book?.id === ownerId && (!targetChapterId || chapter?.id === targetChapterId)) {
+        await refreshNotes(ownerId, chapter?.id ?? null)
+      }
+      setToast({ kind: 'info', text: '已存为笔记。' })
+    },
+    [book, books, chapter?.id, refreshNotes],
+  )
+
+  const saveMarginNote = useCallback(
+    async (markdown: string): Promise<void> => {
+      if (!chapter || !marginQuote) throw new Error('先选中一段原文。')
+      await createNote({
+        bookId: chapter.bookId,
+        chapterId: chapter.id,
+        kind: 'thought',
+        title: `AI 边注 · ${marginQuote.slice(0, 16)}`,
+        content: markdown,
+        quote: marginQuote,
+      })
+      setToast({ kind: 'info', text: '边注已保存。' })
+    },
+    [chapter, marginQuote, createNote],
   )
 
   const startRenameBook = useCallback((target: BookSummary) => {
@@ -814,9 +891,90 @@ export function App(): JSX.Element {
     setOrganizeOpen(false)
   }
 
-  function openDailyReview(): void {
-    setAutoReview(true)
-    setMainView('notes')
+  function openLab(): void {
+    setLabMounted(true)
+    setMainView('lab')
+  }
+
+  async function openCompose(bookId?: string): Promise<void> {
+    if (bookId && book?.id !== bookId) await openBook(bookId)
+    setMainView('compose')
+  }
+
+  function shareNote(note: Note): void {
+    if (!book) return
+    setShareTarget({
+      note: {
+        id: note.id,
+        title: noteDisplayTitle(note),
+        content: note.content,
+        quote: note.quote,
+        tags: note.tags,
+        bookTitle: book.title,
+        chapterTitle: note.chapterId ? chapterTitles[note.chapterId] ?? null : null,
+        kind: note.kind,
+      },
+    })
+  }
+
+  function shareLibraryNote(note: LibraryNote): void {
+    setShareTarget({
+      note: {
+        id: note.id,
+        title: noteDisplayTitle(note),
+        content: note.content,
+        quote: note.quote,
+        tags: note.tags,
+        bookTitle: note.bookTitle,
+        chapterTitle: note.chapterTitle,
+        kind: note.kind,
+      },
+    })
+  }
+
+  function shareDeck(notes: LibraryNote[]): void {
+    setShareTarget({
+      notes: notes.map((note) => ({
+        id: note.id,
+        title: noteDisplayTitle(note),
+        content: note.content,
+        quote: note.quote,
+        tags: note.tags,
+        bookTitle: note.bookTitle,
+        chapterTitle: note.chapterTitle,
+        kind: note.kind,
+      })),
+      initialTemplate: 'deck',
+    })
+  }
+
+  async function shareCurrentBook(): Promise<void> {
+    if (!book) return
+    try {
+      const all = await window.api.listNotes(book.id)
+      const points = all.filter((note) => note.kind === 'point' || note.kind === 'claim')
+      const fallback = all.filter((note) => note.kind === 'summary' || note.kind === 'condensed' || note.kind === 'thought')
+      const cards = (points.length > 0 ? points : fallback).slice(0, 4).map((note) => {
+        const title = noteDisplayTitle(note).slice(0, 60)
+        const detail = titleRepeatsContent(note) ? note.role ?? note.quote ?? '' : note.content
+        return {
+          title,
+          content: detail.replace(/\s+/g, ' ').trim().slice(0, 120),
+        }
+      })
+      setShareTarget({
+        book: {
+          title: book.title,
+          author: book.author,
+          chapterCount: chapters.filter((chapter) => !chapter.hidden).length,
+          noteCount: all.length,
+          cards,
+        },
+        initialTemplate: 'book',
+      })
+    } catch (err) {
+      setToast({ kind: 'error', text: messageOf(err) })
+    }
   }
 
   return (
@@ -834,6 +992,10 @@ export function App(): JSX.Element {
         notesActive={mainView === 'notes'}
         onMap={() => setMainView('map')}
         mapActive={mainView === 'map'}
+        onLab={openLab}
+        labActive={mainView === 'lab'}
+        onCompose={() => void openCompose(book?.id)}
+        composeActive={mainView === 'compose'}
         onRenameBook={book ? () => startRenameBook(book) : undefined}
       />
 
@@ -846,19 +1008,32 @@ export function App(): JSX.Element {
         </div>
       ) : null}
 
-      {mainView === 'notes' ? (
+      {mainView === 'lab' ? null : mainView === 'notes' ? (
         <NotesLibrary
           books={books}
           onBack={() => setMainView('reader')}
           onOpen={(note) => void openLibraryNote(note)}
-          autoStartReview={autoReview}
-          onAutoStarted={() => setAutoReview(false)}
+          onShare={shareLibraryNote}
+          onShareDeck={shareDeck}
         />
       ) : mainView === 'map' ? (
         <KnowledgeMap
           onBack={() => setMainView('reader')}
           onOpenNote={(node) => void openMapNote(node)}
           onOpenBook={(bookId) => void openMapBook(bookId)}
+        />
+      ) : mainView === 'compose' && book ? (
+        <BookCompose
+          key={book.id}
+          book={book}
+          chapters={chapters}
+          onBack={() => setMainView('reader')}
+          onOpenChapter={(chapterId) => {
+            const meta = chapters.find((item) => item.id === chapterId)
+            setMainView('reader')
+            if (meta) void openChapter(book.id, meta, chapters)
+          }}
+          onShareBook={() => void shareCurrentBook()}
         />
       ) : book ? (
         <div className="workspace">
@@ -890,6 +1065,7 @@ export function App(): JSX.Element {
             onRenameChapter={() => {
               if (chapter) startRenameChapter(chapter)
             }}
+            onMarginNote={(quote) => setMarginQuote(quote)}
           />
           <aside className="side-panel">
             <div className="side-tabs">
@@ -948,6 +1124,7 @@ export function App(): JSX.Element {
                 onJumpQuote={(quote) => setScrollTarget({ quote, key: Date.now() })}
                 onOpenNote={(note) => void openNote(note)}
                 onListen={(text) => setListen({ title: `朗读 · ${chapter?.title ?? ''}`, text })}
+                onShare={shareNote}
               />
             ) : sideTab === 'chat' ? (
               <ChatPanel
@@ -990,10 +1167,21 @@ export function App(): JSX.Element {
           onOpen={(bookId) => void openBook(bookId)}
           onImport={() => void importBook()}
           onDelete={(bookId) => void deleteBook(bookId)}
-          onOpenReview={openDailyReview}
           onRename={startRenameBook}
+          onCompose={(bookId) => void openCompose(bookId)}
         />
       )}
+
+      {labMounted ? (
+        <div className={`lab-shell${mainView === 'lab' ? ' is-active' : ''}`}>
+          <LabView
+            books={books}
+            onBack={() => setMainView('reader')}
+            onSaveReport={saveLabReport}
+            onListen={(title, text) => setListen({ title, text })}
+          />
+        </div>
+      ) : null}
 
       {settings ? (
         <SettingsDialog
@@ -1018,6 +1206,15 @@ export function App(): JSX.Element {
 
       {listen ? <ListenPanel title={listen.title} text={listen.text} onClose={() => setListen(null)} /> : null}
 
+      {marginQuote && chapter ? (
+        <MarginNoteDialog
+          chapter={chapter}
+          quote={marginQuote}
+          onSave={saveMarginNote}
+          onClose={() => setMarginQuote(null)}
+        />
+      ) : null}
+
       {renameTarget ? (
         <RenameDialog
           open
@@ -1032,6 +1229,16 @@ export function App(): JSX.Element {
           value={renameTarget.value}
           onSave={saveRename}
           onClose={() => setRenameTarget(null)}
+        />
+      ) : null}
+
+      {shareTarget ? (
+        <ShareDialog
+          note={shareTarget.note ?? null}
+          book={shareTarget.book ?? null}
+          notes={shareTarget.notes ?? null}
+          initialTemplate={shareTarget.initialTemplate}
+          onClose={() => setShareTarget(null)}
         />
       ) : null}
 

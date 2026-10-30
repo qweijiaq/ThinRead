@@ -197,7 +197,7 @@ export interface FeynmanResult {
   misconceptions: string[]
 }
 
-export type KnowledgeNodeType = 'book' | 'note'
+export type KnowledgeNodeType = 'book' | 'note' | 'concept'
 
 export interface KnowledgeMapNode {
   id: string
@@ -212,6 +212,7 @@ export interface KnowledgeMapNode {
   weight: number
   tags: string[]
   noteCount: number | null
+  preview: string | null
 }
 
 export interface KnowledgeMapEdge {
@@ -229,6 +230,104 @@ export interface KnowledgeMapData {
   semanticReady: boolean
   totalNotes: number
   displayedNotes: number
+}
+
+export type LabToolId =
+  | 'author-roundtable'
+  | 'cross-book-synthesis'
+  | 'argument-map'
+  | 'margin-note'
+  | 'weekly-review'
+  | 'concept-merge'
+  | 'library-research'
+  | 'adaptive-quiz'
+  | 'devils-advocate'
+  | 'reading-path'
+  | 'view-timeline'
+  | 'knowledge-gaps'
+  | 'action-experiment'
+  | 'podcast'
+  | 'chapter-annotations'
+  | 'voice-chat'
+  | 'entity-network'
+  | 'card-dedupe'
+  | 'share-card'
+  | 'book-club'
+  | 'fact-check'
+  | 'annual-report'
+  | 'pdf-page'
+
+export interface LabRequest {
+  tool: LabToolId
+  bookIds?: string[]
+  chapterId?: string
+  question?: string
+  text?: string
+}
+
+export interface LabReport {
+  title: string
+  markdown: string
+}
+
+export interface LabChatAnswer {
+  answer: string
+}
+
+export interface LabMergeGroup {
+  canonical: string
+  tags: string[]
+  reason: string
+  noteCount: number
+}
+
+export interface LabDuplicatePair {
+  keepId: string
+  keepTitle: string
+  keepBookTitle: string
+  keepChapterTitle: string | null
+  mergeId: string
+  mergeTitle: string
+  mergeBookTitle: string
+  mergeChapterTitle: string | null
+  score: number
+}
+
+export interface LabQuizQuestion {
+  question: string
+  kind: string
+  answer: string
+  source: string
+}
+
+export interface LabQuiz {
+  questions: LabQuizQuestion[]
+}
+
+export interface LabAnswerCheck {
+  verdict: 'good' | 'partial' | 'off'
+  feedback: string
+  missing: string[]
+}
+
+export interface LabExperiment {
+  id: string
+  title: string
+  goal: string
+  steps: string
+  duration: string
+  status: 'planned' | 'active' | 'done'
+  createdAt: string
+}
+
+export interface LabArtifact {
+  id: string
+  tool: string
+  scope: string
+  title: string
+  content: string
+  meta: string | null
+  createdAt: string
 }
 
 export interface NoteDraft {
@@ -437,6 +536,62 @@ export interface GenerationErrorEvent {
   message: string
 }
 
+export interface BookGenerationOptions {
+  /** 只补还没有读薄稿的章节；默认 true。 */
+  onlyMissing?: boolean
+}
+
+export interface BookGenerationChapter {
+  chapterId: string
+  title: string
+  index: number
+  total: number
+  status: 'start' | 'done' | 'error' | 'skipped'
+  message?: string
+  notes?: number
+}
+
+export interface BookGenerationProgress extends BookGenerationChapter {
+  bookId: string
+  done: number
+}
+
+export interface BookGenerationDoneEvent {
+  bookId: string
+  generated: number
+  skipped: number
+  existing: number
+  failed: Array<{ chapterId: string; title: string; message: string }>
+  cancelled: boolean
+}
+
+export type BookComposeLength = 'tight' | 'full'
+export type BookComposeVoice = 'calm' | 'personal' | 'sharp'
+
+export interface BookComposeOptions {
+  length: BookComposeLength
+  voice: BookComposeVoice
+}
+
+export interface BookComposeProgress {
+  stage: 'collect' | 'rewrite' | 'polish' | 'assemble'
+  done: number
+  total: number
+  message: string
+}
+
+export interface BookComposeResult {
+  title: string
+  markdown: string
+  sourceChapters: number
+  sourceChars: number
+  outputChars: number
+  durationMs: number
+  model: string
+  createdAt: string
+  options: BookComposeOptions
+}
+
 export interface AppInfo {
   version: string
   dataDir: string
@@ -470,11 +625,39 @@ export interface ReadingApi {
   askChapter(chapterId: string, question: string, history: ChatTurn[], mode: ChatMode): Promise<ChatAnswer>
   evaluateExplanation(chapterId: string, explanation: string): Promise<FeynmanResult>
   getKnowledgeMap(): Promise<KnowledgeMapData>
+  runLab(request: LabRequest): Promise<LabReport>
+  labChat(request: LabRequest, history: ChatTurn[]): Promise<LabChatAnswer>
+  marginNote(chapterId: string, quote: string): Promise<LabReport>
+  generateQuiz(chapterId: string): Promise<LabQuiz>
+  checkQuizAnswer(chapterId: string, question: string, answer: string): Promise<LabAnswerCheck>
+  suggestConceptMerges(): Promise<LabMergeGroup[]>
+  mergeNoteTags(tags: string[], canonical: string): Promise<number>
+  findDuplicateNotes(): Promise<LabDuplicatePair[]>
+  mergeNotes(keepId: string, mergeId: string): Promise<Note>
+  listExperiments(): Promise<LabExperiment[]>
+  createExperiment(goal: string): Promise<LabExperiment>
+  updateExperimentStatus(id: string, status: LabExperiment['status']): Promise<void>
+  saveImage(dataUrl: string, defaultName: string): Promise<SaveFileResult>
+  analyzePdfPage(bookId: string, page: number): Promise<LabReport>
+  getLabArtifact(tool: string, scope?: string): Promise<LabArtifact | null>
+  listLabArtifacts(tool: string, limit?: number): Promise<LabArtifact[]>
+  saveLabArtifact(input: {
+    tool: string
+    scope: string
+    title: string
+    content: string
+    meta?: string | null
+  }): Promise<LabArtifact>
   createNote(draft: NoteDraft): Promise<Note>
   updateNote(id: string, patch: NotePatch): Promise<Note>
   deleteNote(id: string): Promise<void>
   generateNotes(chapterId: string): Promise<void>
+  generateBookNotes(bookId: string, options?: BookGenerationOptions): Promise<void>
   cancelGeneration(): Promise<void>
+  composeBook(bookId: string, options: BookComposeOptions): Promise<BookComposeResult>
+  cancelBookCompose(): Promise<void>
+  saveHtml(defaultName: string, content: string): Promise<SaveFileResult>
+  copyImage(dataUrl: string): Promise<void>
   expandNote(noteId: string): Promise<Note>
   getSettings(): Promise<SettingsView>
   saveSettings(patch: SettingsPatch): Promise<SettingsView>
@@ -487,5 +670,8 @@ export interface ReadingApi {
   onGenerationPartial(cb: (event: GenerationPartialEvent) => void): () => void
   onGenerationDone(cb: (event: GenerationDoneEvent) => void): () => void
   onGenerationError(cb: (event: GenerationErrorEvent) => void): () => void
+  onBookGenerationProgress(cb: (event: BookGenerationProgress) => void): () => void
+  onBookGenerationDone(cb: (event: BookGenerationDoneEvent) => void): () => void
+  onBookComposeProgress(cb: (event: BookComposeProgress) => void): () => void
   onSemanticReady(cb: () => void): () => void
 }

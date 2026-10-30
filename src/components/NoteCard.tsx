@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
 
 import type { Note, NoteKind, NotePatch } from '../../shared/types.js'
+import { titleRepeatsContent } from '../lib/note-display.js'
 import { Markdown } from './Markdown.js'
 
 export const KIND_LABEL: Record<NoteKind, string> = {
@@ -27,6 +28,7 @@ interface NoteCardProps {
   expanding: boolean
   onUpdate(id: string, patch: NotePatch): Promise<void>
   onDelete(id: string): Promise<void>
+  onShare?(note: Note): void
   onExpand(id: string): void
   onJumpQuote(quote: string): void
   onOpenNote(note: Note): void
@@ -55,6 +57,7 @@ export function NoteCard({
   expanding,
   onUpdate,
   onDelete,
+  onShare,
   onExpand,
   onJumpQuote,
   onOpenNote,
@@ -66,6 +69,7 @@ export function NoteCard({
   const [draftContent, setDraftContent] = useState(note.content)
   const [saving, setSaving] = useState(false)
   const rootRef = useRef<HTMLElement>(null)
+  const repeatsTitle = titleRepeatsContent(note)
 
   useEffect(() => {
     if (focusKey === 0) return
@@ -77,7 +81,13 @@ export function NoteCard({
   }, [focusKey, note.author, note.content])
 
   async function save(): Promise<void> {
-    const title = draftTitle.trim() && draftTitle.trim() !== '未命名笔记' ? draftTitle.trim() : titleFromContent(draftContent)
+    const titleUnchanged = draftTitle.trim() === note.title.trim()
+    const title =
+      titleUnchanged && repeatsTitle
+        ? titleFromContent(draftContent)
+        : draftTitle.trim() && draftTitle.trim() !== '未命名笔记'
+          ? draftTitle.trim()
+          : titleFromContent(draftContent)
     setSaving(true)
     try {
       await onUpdate(note.id, { title, content: draftContent })
@@ -125,6 +135,11 @@ export function NoteCard({
             </>
           ) : (
             <>
+              {onShare ? (
+                <button type="button" className="text-button" onClick={() => onShare(note)}>
+                  分享
+                </button>
+              ) : null}
               <button type="button" className="text-button" onClick={() => setEditing(true)}>
                 编辑
               </button>
@@ -173,9 +188,11 @@ export function NoteCard({
         </div>
       ) : (
         <>
-          {hideTitle ? null : <h3 className="note-title">{note.title}</h3>}
+          {hideTitle || repeatsTitle ? null : <h3 className="note-title">{note.title}</h3>}
           {note.content.trim() ? (
-            <Markdown text={note.content} onWikiLink={onWikiLink} />
+            <div className={repeatsTitle ? 'note-statement' : undefined}>
+              <Markdown text={note.content} onWikiLink={onWikiLink} />
+            </div>
           ) : (
             <p className="note-empty">（空笔记，点“编辑”补充）</p>
           )}

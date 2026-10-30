@@ -1,6 +1,12 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
 import type {
+  BookComposeOptions,
+  BookComposeProgress,
+  BookComposeResult,
+  BookGenerationDoneEvent,
+  BookGenerationOptions,
+  BookGenerationProgress,
   BookSummary,
   ChapterContent,
   ChapterFlag,
@@ -15,6 +21,15 @@ import type {
   GenerationErrorEvent,
   GenerationPartialEvent,
   KnowledgeMapData,
+  LabAnswerCheck,
+  LabArtifact,
+  LabChatAnswer,
+  LabDuplicatePair,
+  LabExperiment,
+  LabMergeGroup,
+  LabQuiz,
+  LabReport,
+  LabRequest,
   LibraryFilter,
   LibraryNote,
   Note,
@@ -72,7 +87,12 @@ const api: ReadingApi = {
   updateNote: (id, patch: NotePatch) => ipcRenderer.invoke('notes:update', id, patch) as Promise<Note>,
   deleteNote: (id) => ipcRenderer.invoke('notes:delete', id) as Promise<void>,
   generateNotes: (chapterId) => ipcRenderer.invoke('notes:generate', chapterId) as Promise<void>,
+  generateBookNotes: (bookId: string, options?: BookGenerationOptions) =>
+    ipcRenderer.invoke('notes:generate-book', bookId, options) as Promise<void>,
   cancelGeneration: () => ipcRenderer.invoke('notes:cancel') as Promise<void>,
+  composeBook: (bookId: string, options: BookComposeOptions) =>
+    ipcRenderer.invoke('book:compose', bookId, options) as Promise<BookComposeResult>,
+  cancelBookCompose: () => ipcRenderer.invoke('book:compose-cancel') as Promise<void>,
   expandNote: (noteId) => ipcRenderer.invoke('notes:expand', noteId) as Promise<Note>,
   getSettings: () => ipcRenderer.invoke('settings:get') as Promise<SettingsView>,
   saveSettings: (patch: SettingsPatch) => ipcRenderer.invoke('settings:save', patch) as Promise<SettingsView>,
@@ -82,6 +102,9 @@ const api: ReadingApi = {
   copyText: (text: string) => ipcRenderer.invoke('app:copy-text', text) as Promise<void>,
   saveMarkdown: (defaultName: string, content: string) =>
     ipcRenderer.invoke('app:save-markdown', defaultName, content) as Promise<SaveFileResult>,
+  saveHtml: (defaultName: string, content: string) =>
+    ipcRenderer.invoke('app:save-html', defaultName, content) as Promise<SaveFileResult>,
+  copyImage: (dataUrl: string) => ipcRenderer.invoke('app:copy-image', dataUrl) as Promise<void>,
   search: (query: string) => ipcRenderer.invoke('library:search', query) as Promise<SearchResult[]>,
   listLibraryNotes: (filter?: LibraryFilter) =>
     ipcRenderer.invoke('library:notes', filter) as Promise<LibraryNote[]>,
@@ -95,9 +118,41 @@ const api: ReadingApi = {
   evaluateExplanation: (chapterId: string, explanation: string) =>
     ipcRenderer.invoke('tutor:evaluate', chapterId, explanation) as Promise<FeynmanResult>,
   getKnowledgeMap: () => ipcRenderer.invoke('map:get') as Promise<KnowledgeMapData>,
+  runLab: (request: LabRequest) => ipcRenderer.invoke('lab:run', request) as Promise<LabReport>,
+  labChat: (request: LabRequest, history: ChatTurn[]) =>
+    ipcRenderer.invoke('lab:chat', request, history) as Promise<LabChatAnswer>,
+  marginNote: (chapterId: string, quote: string) =>
+    ipcRenderer.invoke('lab:margin-note', chapterId, quote) as Promise<LabReport>,
+  generateQuiz: (chapterId: string) => ipcRenderer.invoke('lab:quiz', chapterId) as Promise<LabQuiz>,
+  checkQuizAnswer: (chapterId: string, question: string, answer: string) =>
+    ipcRenderer.invoke('lab:quiz-check', chapterId, question, answer) as Promise<LabAnswerCheck>,
+  suggestConceptMerges: () => ipcRenderer.invoke('lab:concept-merges') as Promise<LabMergeGroup[]>,
+  mergeNoteTags: (tags: string[], canonical: string) =>
+    ipcRenderer.invoke('lab:merge-tags', tags, canonical) as Promise<number>,
+  findDuplicateNotes: () => ipcRenderer.invoke('lab:duplicates') as Promise<LabDuplicatePair[]>,
+  mergeNotes: (keepId: string, mergeId: string) =>
+    ipcRenderer.invoke('lab:merge-notes', keepId, mergeId) as Promise<Note>,
+  listExperiments: () => ipcRenderer.invoke('lab:experiments') as Promise<LabExperiment[]>,
+  createExperiment: (goal: string) =>
+    ipcRenderer.invoke('lab:experiment-create', goal) as Promise<LabExperiment>,
+  updateExperimentStatus: (id: string, status: LabExperiment['status']) =>
+    ipcRenderer.invoke('lab:experiment-status', id, status) as Promise<void>,
+  saveImage: (dataUrl: string, defaultName: string) =>
+    ipcRenderer.invoke('app:save-image', dataUrl, defaultName) as Promise<SaveFileResult>,
+  analyzePdfPage: (bookId: string, page: number) =>
+    ipcRenderer.invoke('lab:pdf-page', bookId, page) as Promise<LabReport>,
+  getLabArtifact: (tool: string, scope?: string) =>
+    ipcRenderer.invoke('lab:artifact-get', tool, scope) as Promise<LabArtifact | null>,
+  listLabArtifacts: (tool: string, limit?: number) =>
+    ipcRenderer.invoke('lab:artifact-list', tool, limit) as Promise<LabArtifact[]>,
+  saveLabArtifact: (input) =>
+    ipcRenderer.invoke('lab:artifact-save', input) as Promise<LabArtifact>,
   onGenerationPartial: (cb) => subscribe<GenerationPartialEvent>('generation:partial', cb),
   onGenerationDone: (cb) => subscribe<GenerationDoneEvent>('generation:done', cb),
   onGenerationError: (cb) => subscribe<GenerationErrorEvent>('generation:error', cb),
+  onBookGenerationProgress: (cb) => subscribe<BookGenerationProgress>('book:generation:progress', cb),
+  onBookGenerationDone: (cb) => subscribe<BookGenerationDoneEvent>('book:generation:done', cb),
+  onBookComposeProgress: (cb) => subscribe<BookComposeProgress>('book:compose:progress', cb),
   onSemanticReady: (cb) => subscribe<void>('semantic:ready', () => cb()),
 }
 

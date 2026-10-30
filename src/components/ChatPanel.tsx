@@ -34,6 +34,21 @@ export function ChatPanel({ chapter, bookTitle, onJumpQuote, onSave }: ChatPanel
     setInput('')
     setError(null)
     setSaved(null)
+    if (!chapter) return
+    let cancelled = false
+    void window.api.getLabArtifact('chapter-chat', chapter.id).then((artifact) => {
+      if (cancelled || !artifact) return
+      try {
+        const parsed = JSON.parse(artifact.content) as { turns?: Turn[]; mode?: ChatMode }
+        if (Array.isArray(parsed.turns)) setTurns(parsed.turns)
+        if (parsed.mode === 'answer' || parsed.mode === 'socratic') setMode(parsed.mode)
+      } catch {
+        // 忽略旧格式。
+      }
+    })
+    return () => {
+      cancelled = true
+    }
   }, [chapter?.id])
 
   useEffect(() => {
@@ -48,6 +63,16 @@ export function ChatPanel({ chapter, bookTitle, onJumpQuote, onSave }: ChatPanel
     setTurns([])
     setSaved(null)
     setError(null)
+    if (chapter) {
+      void window.api
+        .saveLabArtifact({
+          tool: 'chapter-chat',
+          scope: chapter.id,
+          title: '章节问答',
+          content: JSON.stringify({ turns: [], mode: next }),
+        })
+        .catch(() => undefined)
+    }
   }
 
   async function ask(question: string): Promise<void> {
@@ -64,8 +89,61 @@ export function ChatPanel({ chapter, bookTitle, onJumpQuote, onSave }: ChatPanel
     try {
       const result = await window.api.askChapter(chapter.id, text, history, mode)
       if (session === sessionRef.current) {
-        setTurns((current) => [...current, { role: 'assistant', content: result.answer, citations: result.citations }])
+        const finalTurns: Turn[] = [
+          ...turns,
+          { role: 'user', content: text },
+          { role: 'assistant', content: result.answer, citations: result.citations },
+        ]
+        setTurns(finalTurns)
+        void window.api
+          .saveLabArtifact({
+            tool: 'chapter-chat',
+            scope: chapter.id,
+            title: '章节问答',
+            content: JSON.stringify({ turns: finalTurns, mode }),
+          })
+          .catch(() => undefined)
       }
+    } catch (err) {
+      if (session === sessionRef.current) setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function regenerateLast(): Promise<void> {
+    if (!chapter || busy) return
+    let lastUser = -1
+    for (let index = turns.length - 1; index >= 0; index--) {
+      if (turns[index]?.role === 'user') {
+        lastUser = index
+        break
+      }
+    }
+    if (lastUser < 0) return
+    const question = turns[lastUser]!.content
+    const before = turns.slice(0, lastUser)
+    const history: ChatTurn[] = before.map((turn) => ({ role: turn.role, content: turn.content }))
+    const session = ++sessionRef.current
+    setBusy(true)
+    setError(null)
+    try {
+      const result = await window.api.askChapter(chapter.id, question, history, mode)
+      if (session !== sessionRef.current) return
+      const finalTurns: Turn[] = [
+        ...before,
+        { role: 'user', content: question },
+        { role: 'assistant', content: result.answer, citations: result.citations },
+      ]
+      setTurns(finalTurns)
+      void window.api
+        .saveLabArtifact({
+          tool: 'chapter-chat',
+          scope: chapter.id,
+          title: '章节问答',
+          content: JSON.stringify({ turns: finalTurns, mode }),
+        })
+        .catch(() => undefined)
     } catch (err) {
       if (session === sessionRef.current) setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -147,14 +225,21 @@ export function ChatPanel({ chapter, bookTitle, onJumpQuote, onSave }: ChatPanel
                 <p className="qa-no-citation">这一轮没有给出原文依据。</p>
               ) : null}
               {turn.role === 'assistant' ? (
-                <button
-                  type="button"
-                  className="text-button muted qa-save"
-                  onClick={() => void save(index, turn)}
-                  disabled={saved === index}
-                >
-                  {saved === index ? '已存为笔记' : '存为笔记'}
-                </button>
+                <div className="qa-turn-actions">
+                  <button
+                    type="button"
+                    className="text-button muted"
+                    onClick={() => void save(index, turn)}
+                    disabled={saved === index}
+                  >
+                    {saved === index ? '已存为笔记' : '存为笔记'}
+                  </button>
+                  {index === turns.length - 1 ? (
+                    <button type="button" className="text-button" onClick={() => void regenerateLast()} disabled={busy}>
+                      重新生成
+                    </button>
+                  ) : null}
+                </div>
               ) : null}
             </div>
           </div>

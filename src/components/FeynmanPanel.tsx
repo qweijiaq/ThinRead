@@ -14,6 +14,7 @@ export function FeynmanPanel({ chapter, bookTitle, hasNotes, onSave }: FeynmanPa
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
+  const [hydrated, setHydrated] = useState(false)
   const chapterRef = useRef<string | null>(chapter?.id ?? null)
 
   useEffect(() => {
@@ -22,7 +23,41 @@ export function FeynmanPanel({ chapter, bookTitle, hasNotes, onSave }: FeynmanPa
     setResult(null)
     setError(null)
     setSaved(false)
+    setHydrated(false)
+    if (!chapter) return
+    let cancelled = false
+    void window.api.getLabArtifact('feynman', chapter.id).then((artifact) => {
+      if (cancelled) return
+      if (artifact) {
+        try {
+          const parsed = JSON.parse(artifact.content) as { explanation?: string; result?: FeynmanResult }
+          if (typeof parsed.explanation === 'string') setExplanation(parsed.explanation)
+          if (parsed.result) setResult(parsed.result)
+        } catch {
+          // 忽略旧格式。
+        }
+      }
+      setHydrated(true)
+    })
+    return () => {
+      cancelled = true
+    }
   }, [chapter?.id])
+
+  useEffect(() => {
+    if (!hydrated || !chapter) return
+    const timer = window.setTimeout(() => {
+      void window.api
+        .saveLabArtifact({
+          tool: 'feynman',
+          scope: chapter.id,
+          title: '讲给我听',
+          content: JSON.stringify({ explanation, result }),
+        })
+        .catch(() => undefined)
+    }, 350)
+    return () => window.clearTimeout(timer)
+  }, [hydrated, chapter?.id, explanation, result])
 
   async function evaluate(): Promise<void> {
     if (!chapter || busy) return
