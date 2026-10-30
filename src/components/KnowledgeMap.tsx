@@ -11,6 +11,7 @@ import {
 } from 'd3-force'
 
 import type {
+  BookSummary,
   KnowledgeMapData,
   KnowledgeMapEdge,
   KnowledgeMapNode,
@@ -18,13 +19,14 @@ import type {
 } from '../../shared/types.js'
 import { noteDisplayTitle } from '../lib/note-display.js'
 import { Checkbox } from './Checkbox.js'
+import { LabRelationGraph } from './LabRelationGraph.js'
 import { Select } from './Select.js'
 
 interface KnowledgeMapProps {
+  books: BookSummary[]
   onBack(): void
   onOpenNote(node: KnowledgeMapNode): void
   onOpenBook(bookId: string): void
-  onOpenRelation(bookId?: string): void
 }
 
 interface SimNode extends KnowledgeMapNode, SimulationNodeDatum {
@@ -57,7 +59,11 @@ function jitter(id: string, seed: number, axis: number): number {
   return ((hashString(`${id}:${seed}:${axis}`) % 2001) / 1000) - 1
 }
 
-export function KnowledgeMap({ onBack, onOpenNote, onOpenBook, onOpenRelation }: KnowledgeMapProps): JSX.Element {
+export function KnowledgeMap({ books, onBack, onOpenNote, onOpenBook }: KnowledgeMapProps): JSX.Element {
+  const [mode, setMode] = useState<'map' | 'relation'>('map')
+  const [relationBookId, setRelationBookId] = useState(
+    books.find((book) => book.chapterCount > 0)?.id ?? '',
+  )
   const [data, setData] = useState<KnowledgeMapData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -261,6 +267,16 @@ export function KnowledgeMap({ onBack, onOpenNote, onOpenBook, onOpenRelation }:
   }, [selectedNode?.id, selectedNode?.type, selectedNode?.label, selectedNode?.bookId])
 
   const bookOptions = useMemo(() => data?.nodes.filter((node) => node.type === 'book') ?? [], [data])
+  const relationBooks = useMemo(() => books.filter((book) => book.chapterCount > 0), [books])
+
+  useEffect(() => {
+    if (relationBooks.length === 0) return
+    if (!relationBooks.some((book) => book.id === relationBookId)) {
+      setRelationBookId(relationBooks[0]!.id)
+    }
+  }, [relationBookId, relationBooks])
+
+  const selectedRelationBook = relationBooks.find((book) => book.id === relationBookId) ?? null
   const conceptCount = data?.nodes.filter((node) => node.type === 'concept').length ?? 0
   const crossConceptCount = [...conceptBooks.values()].filter((books) => books.size > 1).length
   const matches = (node: KnowledgeMapNode): boolean => {
@@ -397,43 +413,80 @@ export function KnowledgeMap({ onBack, onOpenNote, onOpenBook, onOpenRelation }:
     <main className="map-view">
       <div className="map-header">
         <div>
-          <h1>知识地图</h1>
+          <h1>{mode === 'map' ? '知识地图' : '人物关系'}</h1>
           <p>
-            {conceptCount} 个概念 · {bookOptions.length} 本书 · {crossConceptCount} 个跨书概念 · {data?.displayedNotes ?? 0} 条带标签笔记
-            {data && data.totalNotes > data.displayedNotes ? `（共 ${data.totalNotes} 条）` : ''}
-            <span className="map-usage">· 点击节点查看详情 · 双击打开书</span>
+            {mode === 'map' ? (
+              <>
+                {conceptCount} 个概念 · {bookOptions.length} 本书 · {crossConceptCount} 个跨书概念 · {data?.displayedNotes ?? 0} 条带标签笔记
+                {data && data.totalNotes > data.displayedNotes ? `（共 ${data.totalNotes} 条）` : ''}
+                <span className="map-usage">· 点击节点查看详情 · 双击打开书</span>
+              </>
+            ) : (
+              <>
+                {relationBooks.length} 本书 · 按人物、组织和事件抽取关系
+                <span className="map-usage">· 选择一本书后生成关系图</span>
+              </>
+            )}
           </p>
         </div>
         <div className="map-actions">
+          <div className="map-mode-switch" role="tablist" aria-label="地图模式">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === 'map'}
+              className={mode === 'map' ? 'active' : ''}
+              onClick={() => setMode('map')}
+            >
+              知识地图
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === 'relation'}
+              className={mode === 'relation' ? 'active' : ''}
+              onClick={() => setMode('relation')}
+            >
+              人物关系
+            </button>
+          </div>
           <button type="button" className="ghost-button" onClick={onBack}>
             返回
           </button>
-          <button
-            type="button"
-            className="ghost-button"
-            onClick={() =>
-              onOpenRelation(
-                selectedNode?.type === 'book'
-                  ? selectedNode.bookId
-                  : bookFilter || bookOptions[0]?.bookId,
-              )
-            }
-          >
-            人物关系图
-          </button>
-          <button
-            type="button"
-            className="ghost-button"
-            onClick={() => {
-              setLayoutKey((value) => value + 1)
-              setTransform({ x: 0, y: 0, k: 1 })
-            }}
-          >
-            重新布局
-          </button>
+          {mode === 'map' ? (
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={() => {
+                setLayoutKey((value) => value + 1)
+                setTransform({ x: 0, y: 0, k: 1 })
+              }}
+            >
+              重新布局
+            </button>
+          ) : null}
         </div>
       </div>
 
+      {mode === 'relation' ? (
+        <div className="map-relation">
+          <div className="map-relation-toolbar">
+            <span>选择一本书</span>
+            <Select
+              value={relationBookId}
+              onChange={setRelationBookId}
+              ariaLabel="选择关系图书"
+              options={relationBooks.map((book) => ({ value: book.id, label: `${book.title}${book.author ? ` · ${book.author}` : ''}` }))}
+            />
+          </div>
+          {selectedRelationBook ? (
+            <LabRelationGraph bookId={selectedRelationBook.id} bookTitle={selectedRelationBook.title} />
+          ) : (
+            <p className="map-empty">书架里还没有书。先导入一本书，再来抽取人物关系。</p>
+          )}
+        </div>
+      ) : (
+        <>
       <div className="map-toolbar">
         <input
           className="map-search"
@@ -693,6 +746,8 @@ export function KnowledgeMap({ onBack, onOpenNote, onOpenBook, onOpenRelation }:
           </aside>
         ) : null}
       </div>
+        </>
+      )}
     </main>
   )
 }

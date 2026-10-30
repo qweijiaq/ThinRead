@@ -209,9 +209,10 @@ export async function importScannedPdf(
   sourcePath: string,
   dataDir: string,
   onProgress?: (progress: OcrProgress) => void,
+  signal?: AbortSignal,
 ): Promise<BookSummary> {
   const buffer = await fs.readFile(sourcePath)
-  const parsed = await parseScannedPdf(sourcePath, onProgress)
+  const parsed = await parseScannedPdf(sourcePath, onProgress, signal)
   const bookId = crypto.randomUUID()
   const bookDir = path.join(dataDir, 'books', bookId)
   await fs.mkdir(bookDir, { recursive: true })

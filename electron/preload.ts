@@ -46,6 +46,9 @@ import type {
   Note,
   NoteDraft,
   NotePatch,
+  OcrDoneEvent,
+  OcrErrorEvent,
+  OcrImportStarted,
   OcrProgress,
   ReaderStyle,
   RelatedNote,
@@ -70,7 +73,8 @@ const api: ReadingApi = {
   importBook: () => ipcRenderer.invoke('books:import') as Promise<BookSummary | null>,
   importText: (input: TextImportInput) => ipcRenderer.invoke('books:import-text', input) as Promise<BookSummary>,
   importUrl: (url: string) => ipcRenderer.invoke('books:import-url', url) as Promise<BookSummary>,
-  importScannedPdf: () => ipcRenderer.invoke('books:import-ocr') as Promise<BookSummary | null>,
+  importScannedPdf: () => ipcRenderer.invoke('books:import-ocr') as Promise<OcrImportStarted | null>,
+  cancelOcrImport: () => ipcRenderer.invoke('books:import-ocr-cancel') as Promise<void>,
   importHighlights: () => ipcRenderer.invoke('books:import-highlights') as Promise<HighlightImportResult | null>,
   openBook: (bookId) =>
     ipcRenderer.invoke('books:open', bookId) as Promise<{
@@ -188,6 +192,8 @@ const api: ReadingApi = {
   onBookGenerationProgress: (cb) => subscribe<BookGenerationProgress>('book:generation:progress', cb),
   onBookGenerationDone: (cb) => subscribe<BookGenerationDoneEvent>('book:generation:done', cb),
   onOcrProgress: (cb) => subscribe<OcrProgress>('ocr:progress', cb),
+  onOcrDone: (cb) => subscribe<OcrDoneEvent>('ocr:done', cb),
+  onOcrError: (cb) => subscribe<OcrErrorEvent>('ocr:error', cb),
   onBookFormatProgress: (cb) => subscribe<BookFormatProgress>('book:format:progress', cb),
   onBookFormatDone: (cb) => subscribe<BookFormatDoneEvent>('book:format:done', cb),
   onChapterFormatted: (cb) => subscribe<FormatResult>('chapter:formatted', cb),

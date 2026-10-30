@@ -2,7 +2,7 @@ import { useState, type JSX } from 'react'
 
 export interface BackgroundTask {
   id: string
-  kind: 'notes' | 'format'
+  kind: 'notes' | 'format' | 'import'
   title: string
   detail: string
   done: number
@@ -39,7 +39,7 @@ export function TaskCenter({ tasks, onCancel, onDismiss }: TaskCenterProps): JSX
       >
         <span className={`task-dot${running > 0 ? ' is-running' : ''}`} />
         任务
-        {running > 0 ? ` · ${running} 进行中` : finished > 0 ? ` · ${finished} 已完成` : ''}
+        {running > 0 ? ` · ${running} 进行中` : finished > 0 ? ` · ${finished} 已结束` : ''}
       </button>
       {open ? (
         <div className="task-center-panel">
@@ -51,7 +51,7 @@ export function TaskCenter({ tasks, onCancel, onDismiss }: TaskCenterProps): JSX
                 className="text-button muted"
                 onClick={() => tasks.filter((task) => task.status !== 'running').forEach((task) => onDismiss(task.id))}
               >
-                清除已完成
+                清除已结束
               </button>
             ) : null}
           </div>

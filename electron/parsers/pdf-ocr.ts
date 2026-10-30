@@ -66,8 +66,10 @@ function findOcrScript(): string {
 export async function parseScannedPdf(
   sourcePath: string,
   onProgress?: (progress: OcrProgress) => void,
+  signal?: AbortSignal,
 ): Promise<ScannedPdfResult> {
   if (process.platform !== 'darwin') throw new Error('扫描版 PDF 的 OCR 目前只支持 macOS。')
+  if (signal?.aborted) throw new Error('OCR 已取消')
   const script = findOcrScript()
   const pages: Array<{ page: number; text: string }> = []
   let pageCount = 0
@@ -77,6 +79,12 @@ export async function parseScannedPdf(
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   let stderr = ''
+  let aborted = false
+  const onAbort = (): void => {
+    aborted = true
+    child.kill('SIGKILL')
+  }
+  signal?.addEventListener('abort', onAbort, { once: true })
   const timer = setTimeout(() => child.kill('SIGKILL'), REQUEST_TIMEOUT_MS)
   const stdout = readline.createInterface({ input: child.stdout })
 
@@ -111,12 +119,14 @@ export async function parseScannedPdf(
       })
       child.on('error', reject)
       child.on('close', (code) => {
-        if (code === 0) resolve()
+        if (aborted) reject(new Error('OCR 已取消'))
+        else if (code === 0) resolve()
         else reject(new Error(`OCR 进程退出（${code}）：${stderr.trim().slice(0, 200) || '未知错误'}`))
       })
     })
   } finally {
     clearTimeout(timer)
+    signal?.removeEventListener('abort', onAbort)
     stdout.close()
   }
 

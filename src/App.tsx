@@ -13,7 +13,6 @@ import type {
   HighlightImportResult,
   LibraryNote,
   KnowledgeMapNode,
-  LabToolId,
   Note,
   NoteDraft,
   NotePatch,
@@ -100,7 +99,6 @@ export function App(): JSX.Element {
   const [searchOpen, setSearchOpen] = useState(false)
   const [mainView, setMainView] = useState<'reader' | 'notes' | 'map' | 'lab' | 'compose' | 'content'>('reader')
   const [labMounted, setLabMounted] = useState(false)
-  const [labFocus, setLabFocus] = useState<{ tool: LabToolId; bookId?: string; key: number } | null>(null)
   const [contentFocusId, setContentFocusId] = useState<string | null>(null)
   const [shareTarget, setShareTarget] = useState<{
     note?: ShareNote
@@ -221,11 +219,48 @@ export function App(): JSX.Element {
           : `完成 ${event.formatted} 节${event.skipped > 0 ? ` · 跳过 ${event.skipped} 节` : ''}${event.failed.length > 0 ? ` · 失败 ${event.failed.length} 节` : ''}`,
       })
     })
+    const offOcrProgress = window.api.onOcrProgress((event) => {
+      upsert({
+        id: 'ocr',
+        kind: 'import',
+        title: '扫描版 PDF OCR',
+        detail: `正在识别第 ${event.page} 页`,
+        done: event.current,
+        total: event.total,
+        status: 'running',
+      })
+    })
+    const offOcrDone = window.api.onOcrDone((event) => {
+      setBackgroundTasks((current) =>
+        current.map((task) =>
+          task.id === 'ocr'
+            ? {
+                ...task,
+                status: 'done',
+                done: task.total,
+                detail: `已导入《${event.book.title}》 · ${Math.round(event.durationMs / 1000)}s`,
+              }
+            : task,
+        ),
+      )
+      setToast({
+        kind: 'info',
+        text: `OCR 导入完成：《${event.book.title}》，共 ${event.book.chapterCount} 节。`,
+      })
+      void window.api.listBooks().then(setBooks).catch(() => undefined)
+    })
+    const offOcrError = window.api.onOcrError((event) => {
+      patch('ocr', { status: event.cancelled ? 'cancelled' : 'error', detail: event.message })
+      setToast({ kind: event.cancelled ? 'info' : 'error', text: event.message })
+    })
     return () => {
       offNotesProgress()
       offNotesDone()
       offFormatProgress()
       offFormatDone()
+      offOcrProgress()
+      offOcrDone()
+      offOcrError()
     }
   }, [])
 
@@ -385,6 +420,38 @@ export function App(): JSX.Element {
     },
     [openBook],
   )
+
+  function handleOcrStarted(fileName: string): void {
+    const task: BackgroundTask = {
+      id: 'ocr',
+      kind: 'import',
+      title: '扫描版 PDF OCR',
+      detail: fileName,
+      done: 0,
+      total: 0,
+      status: 'running',
+    }
+    setBackgroundTasks((current) => {
+      const existing = current.find((item) => item.id === 'ocr')
+      if (existing) {
+        return current.map((item) =>
+          item.id === 'ocr'
+            ? {
+                ...item,
+                title: task.title,
+                detail: fileName,
+                status: 'running',
+                done: item.status === 'running' ? item.done : 0,
+                total: item.status === 'running' ? item.total : 0,
+              }
+            : item,
+        )
+      }
+      return [task, ...current].slice(0, 6)
+    })
+    setImportOpen(false)
+    setToast({ kind: 'info', text: `已开始 OCR：《${fileName}》，进度在右下角任务中心。` })
+  }
 
   const handleHighlightsImported = useCallback(
     async (result: HighlightImportResult) => {
@@ -1031,13 +1098,6 @@ export function App(): JSX.Element {
 
   function openLab(): void {
     setLabMounted(true)
-    setLabFocus(null)
-    setMainView('lab')
-  }
-
-  function openRelationGraph(bookId?: string): void {
-    setLabMounted(true)
-    setLabFocus({ tool: 'relation-graph', bookId, key: Date.now() })
     setMainView('lab')
   }
 
@@ -1153,7 +1213,8 @@ export function App(): JSX.Element {
         tasks={backgroundTasks}
         onCancel={(task) => {
           if (task.kind === 'notes') void window.api.cancelGeneration()
-          else void window.api.cancelFormat()
+          else if (task.kind === 'format') void window.api.cancelFormat()
+          else void window.api.cancelOcrImport()
         }}
         onDismiss={(id) => setBackgroundTasks((current) => current.filter((task) => task.id !== id))}
       />
@@ -1177,10 +1238,10 @@ export function App(): JSX.Element {
         />
       ) : mainView === 'map' ? (
         <KnowledgeMap
+          books={books}
           onBack={() => setMainView('reader')}
           onOpenNote={(node) => void openMapNote(node)}
           onOpenBook={(bookId) => void openMapBook(bookId)}
-          onOpenRelation={openRelationGraph}
         />
       ) : mainView === 'content' ? (
         <ContentView
@@ -1364,9 +1425,6 @@ export function App(): JSX.Element {
         <div className={`lab-shell${mainView === 'lab' ? ' is-active' : ''}`}>
           <LabView
             books={books}
-            initialTool={labFocus?.tool}
-            initialBookId={labFocus?.bookId}
-            focusKey={labFocus?.key}
             onBack={() => setMainView('reader')}
             onSaveReport={saveLabReport}
             onListen={(title, text) => setListen({ title, text })}
@@ -1467,6 +1525,7 @@ export function App(): JSX.Element {
         onFileImport={importFile}
         onImported={(imported) => void handleImported(imported)}
         onHighlightsImported={(result) => void handleHighlightsImported(result)}
+        onOcrStarted={handleOcrStarted}
       />
 
       <ConfirmHost />

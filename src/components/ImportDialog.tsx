@@ -1,6 +1,6 @@
 import { useEffect, useState, type JSX } from 'react'
 
-import type { BookSummary, HighlightImportResult, OcrProgress } from '../../shared/types.js'
+import type { BookSummary, HighlightImportResult } from '../../shared/types.js'
 
 interface ImportDialogProps {
   open: boolean
@@ -8,6 +8,7 @@ interface ImportDialogProps {
   onFileImport(): Promise<BookSummary | null>
   onImported(book: BookSummary): void
   onHighlightsImported(result: HighlightImportResult): void
+  onOcrStarted(fileName: string): void
 }
 
 type ImportMode = 'file' | 'text' | 'url' | 'highlights'
@@ -18,6 +19,7 @@ export function ImportDialog({
   onFileImport,
   onImported,
   onHighlightsImported,
+  onOcrStarted,
 }: ImportDialogProps): JSX.Element | null {
   const [mode, setMode] = useState<ImportMode>('file')
   const [title, setTitle] = useState('')
@@ -25,7 +27,6 @@ export function ImportDialog({
   const [text, setText] = useState('')
   const [url, setUrl] = useState('')
   const [busy, setBusy] = useState(false)
-  const [ocrProgress, setOcrProgress] = useState<OcrProgress | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -35,7 +36,6 @@ export function ImportDialog({
     setAuthor('')
     setText('')
     setUrl('')
-    setOcrProgress(null)
     setError(null)
   }, [open])
 
@@ -47,11 +47,6 @@ export function ImportDialog({
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [open, busy, onClose])
-
-  useEffect(() => {
-    if (!open) return
-    return window.api.onOcrProgress((progress) => setOcrProgress(progress))
-  }, [open])
 
   if (!open) return null
 
@@ -70,16 +65,17 @@ export function ImportDialog({
 
   async function chooseScannedPdf(): Promise<void> {
     setBusy(true)
-    setOcrProgress(null)
     setError(null)
     try {
-      const book = await window.api.importScannedPdf()
-      if (book) onImported(book)
+      const result = await window.api.importScannedPdf()
+      if (result?.started) {
+        onOcrStarted(result.fileName)
+        onClose()
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
       setBusy(false)
-      setOcrProgress(null)
     }
   }
 
@@ -166,22 +162,10 @@ export function ImportDialog({
                 {busy ? '正在解析…' : '选择电子书文件'}
               </button>
               <button type="button" className="ghost-button" onClick={() => void chooseScannedPdf()} disabled={busy}>
-                {busy && ocrProgress ? '正在 OCR…' : '扫描版 PDF（OCR）'}
+                扫描版 PDF（OCR）
               </button>
             </div>
-            {ocrProgress ? (
-              <div className="ocr-progress">
-                <span>正在识别第 {ocrProgress.page} 页</span>
-                <div className="progress-track">
-                  <div
-                    className="progress-fill"
-                    style={{ width: `${Math.round((ocrProgress.current / Math.max(1, ocrProgress.total)) * 100)}%` }}
-                  />
-                </div>
-                <em>{ocrProgress.current}/{ocrProgress.total}</em>
-              </div>
-            ) : null}
-            <p className="import-foot">普通 PDF 会优先读取文字层；扫描版请用 OCR 入口（仅 macOS，最多 300 页），逐页识别会更慢。导入后会先自动识别目录、版权页和广告页；Markdown / HTML / DOCX 会保留标题层级并切成章节。</p>
+            <p className="import-foot">普通 PDF 会优先读取文字层；扫描版请用 OCR 入口（仅 macOS，最多 300 页）。选完文件后会转到右下角任务中心，导入过程中可以离开这个页面或取消。Markdown / HTML / DOCX 会保留标题层级并切成章节。</p>
           </section>
         ) : mode === 'text' ? (
           <section className="import-pane">

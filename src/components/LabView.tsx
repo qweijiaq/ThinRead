@@ -6,34 +6,24 @@ import { LabDuplicateCards } from './LabDuplicateCards.js'
 import { LabMergeConcepts } from './LabMergeConcepts.js'
 import { LabPdfPage } from './LabPdfPage.js'
 import { LabQuiz } from './LabQuiz.js'
-import { LabRelationGraph } from './LabRelationGraph.js'
 import { LabReport } from './LabReport.js'
 import { Select } from './Select.js'
 
 interface LabViewProps {
   books: BookSummary[]
-  initialTool?: LabToolId
-  initialBookId?: string
-  focusKey?: number
   onBack(): void
   onSaveReport(title: string, markdown: string, bookId: string, chapterId: string): Promise<void>
   onListen(title: string, text: string): void
 }
 
-export function LabView({ books, initialTool, initialBookId, focusKey, onBack, onSaveReport, onListen }: LabViewProps): JSX.Element {
-  const [toolId, setToolId] = useState<LabToolId>(initialTool ?? 'library-research')
+export function LabView({ books, onBack, onSaveReport, onListen }: LabViewProps): JSX.Element {
+  const [toolId, setToolId] = useState<LabToolId>('library-research')
   const [bookIds, setBookIds] = useState<string[]>([])
-  const [bookId, setBookId] = useState(
-    initialBookId && books.some((book) => book.id === initialBookId)
-      ? initialBookId
-      : books.find((book) => book.chapterCount > 0)?.id ?? books[0]?.id ?? '',
-  )
+  const [bookId, setBookId] = useState(books.find((book) => book.chapterCount > 0)?.id ?? books[0]?.id ?? '')
   const [chapters, setChapters] = useState<ChapterMeta[]>([])
   const [chapterId, setChapterId] = useState('')
   const [questions, setQuestions] = useState<Record<string, string>>({})
-  const [visited, setVisited] = useState<Set<LabToolId>>(
-    () => new Set([initialTool ?? 'library-research']),
-  )
+  const [visited, setVisited] = useState<Set<LabToolId>>(() => new Set(['library-research']))
   const [chapterError, setChapterError] = useState<string | null>(null)
   const [railCollapsed, setRailCollapsed] = useState(false)
   const tool = labTool(toolId) ?? LAB_TOOLS[0]!
@@ -41,13 +31,6 @@ export function LabView({ books, initialTool, initialBookId, focusKey, onBack, o
   function setQuestion(value: string): void {
     setQuestions((current) => ({ ...current, [toolId]: value }))
   }
-
-  useEffect(() => {
-    if (!initialTool) return
-    setToolId(initialTool)
-    setVisited((current) => (current.has(initialTool) ? current : new Set(current).add(initialTool)))
-    if (initialBookId && books.some((book) => book.id === initialBookId)) setBookId(initialBookId)
-  }, [initialTool, initialBookId, focusKey])
 
   useEffect(() => {
     if (!bookId) {
@@ -147,7 +130,7 @@ export function LabView({ books, initialTool, initialBookId, focusKey, onBack, o
             <span className="lab-tool-group">{tool.group}</span>
           </div>
 
-          {tool.kind === 'chat' || tool.kind === 'report' || tool.kind === 'quiz' || tool.kind === 'relation' ? (
+          {tool.kind === 'chat' || tool.kind === 'report' || tool.kind === 'quiz' ? (
             <div className="lab-sources">
               {tool.books === 'multi' ? (
                 <div className="lab-source-block">
@@ -243,8 +226,6 @@ export function LabView({ books, initialTool, initialBookId, focusKey, onBack, o
                       }
                       onListen={onListen}
                     />
-                  ) : item.kind === 'relation' ? (
-                    <LabRelationGraph bookId={bookId} bookTitle={selectedBook?.title ?? ''} />
                   ) : item.kind === 'pdf' ? (
                     <LabPdfPage books={books} />
                   ) : item.kind === 'quiz' ? (

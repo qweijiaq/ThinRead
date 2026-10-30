@@ -260,7 +260,6 @@ export type LabToolId =
   | 'fact-check'
   | 'annual-report'
   | 'pdf-page'
-  | 'relation-graph'
 
 export interface LabRequest {
   tool: LabToolId
@@ -589,6 +588,21 @@ export interface OcrProgress {
   page: number
 }
 
+export interface OcrImportStarted {
+  started: boolean
+  fileName: string
+}
+
+export interface OcrDoneEvent {
+  book: BookSummary
+  durationMs: number
+}
+
+export interface OcrErrorEvent {
+  message: string
+  cancelled: boolean
+}
+
 export interface HighlightImportResult {
   books: BookSummary[]
   highlights: number
@@ -745,7 +759,8 @@ export interface ReadingApi {
   importBook(): Promise<BookSummary | null>
   importText(input: TextImportInput): Promise<BookSummary>
   importUrl(url: string): Promise<BookSummary>
-  importScannedPdf(): Promise<BookSummary | null>
+  importScannedPdf(): Promise<OcrImportStarted | null>
+  cancelOcrImport(): Promise<void>
   importHighlights(): Promise<HighlightImportResult | null>
   openBook(bookId: string): Promise<{ book: BookSummary; chapters: ChapterMeta[]; style: ReaderStyle }>
   renameBook(bookId: string, title: string): Promise<BookSummary>
@@ -838,6 +853,8 @@ export interface ReadingApi {
   onBookGenerationProgress(cb: (event: BookGenerationProgress) => void): () => void
   onBookGenerationDone(cb: (event: BookGenerationDoneEvent) => void): () => void
   onOcrProgress(cb: (event: OcrProgress) => void): () => void
+  onOcrDone(cb: (event: OcrDoneEvent) => void): () => void
+  onOcrError(cb: (event: OcrErrorEvent) => void): () => void
   onBookFormatProgress(cb: (event: BookFormatProgress) => void): () => void
   onBookFormatDone(cb: (event: BookFormatDoneEvent) => void): () => void
   onChapterFormatted(cb: (event: FormatResult) => void): () => void

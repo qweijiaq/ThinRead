@@ -82,7 +82,6 @@ import type {
   BookFormatOptions,
   BookFormatProgress,
   BookGenre,
-  BookSummary,
   FormatResult,
   BookGenerationDoneEvent,
   BookGenerationOptions,
@@ -102,6 +101,9 @@ import type {
   NoteDraft,
   NotePatch,
   NoteReport,
+  OcrDoneEvent,
+  OcrErrorEvent,
+  OcrImportStarted,
   ReaderStyle,
   SaveFileResult,
   SettingsPatch,
@@ -118,6 +120,7 @@ interface ActiveGeneration {
 let active: ActiveGeneration | null = null
 let composeActive: AbortController | null = null
 let activeFormat: AbortController | null = null
+let activeOcr: { controller: AbortController; fileName: string } | null = null
 
 async function generateChapterToDb(
   chapterId: string,
@@ -296,7 +299,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     return importHighlightsFile(result.filePaths[0]!, dataDir)
   })
 
-  ipcMain.handle('books:import-ocr', async (event): Promise<BookSummary | null> => {
+  ipcMain.handle('books:import-ocr', async (event): Promise<OcrImportStarted | null> => {
     const win = getWindow()
     const options: OpenDialogOptions = {
       title: '导入扫描版 PDF',
@@ -305,10 +308,41 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     }
     const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options)
     if (result.canceled || result.filePaths.length === 0) return null
+    activeOcr?.controller.abort()
+    const controller = new AbortController()
+    const filePath = result.filePaths[0]!
+    const fileName = path.basename(filePath)
+    activeOcr = { controller, fileName }
     const sender = event.sender
-    return importScannedPdf(result.filePaths[0]!, dataDir, (progress) => {
-      if (!sender.isDestroyed()) sender.send('ocr:progress', progress)
-    })
+    const send = (channel: string, payload: unknown): void => {
+      if (!sender.isDestroyed()) sender.send(channel, payload)
+    }
+    const startedAt = Date.now()
+    void (async () => {
+      try {
+        const book = await importScannedPdf(
+          filePath,
+          dataDir,
+          (progress) => send('ocr:progress', progress),
+          controller.signal,
+        )
+        if (controller.signal.aborted) return
+        send('ocr:done', { book, durationMs: Date.now() - startedAt } satisfies OcrDoneEvent)
+      } catch (error) {
+        const cancelled = controller.signal.aborted
+        send('ocr:error', {
+          message: cancelled ? 'OCR 已取消' : error instanceof Error ? error.message : String(error),
+          cancelled,
+        } satisfies OcrErrorEvent)
+      } finally {
+        if (activeOcr?.controller === controller) activeOcr = null
+      }
+    })()
+    return { started: true, fileName }
+  })
+
+  ipcMain.handle('books:import-ocr-cancel', () => {
+    activeOcr?.controller.abort()
   })
 
   ipcMain.handle('books:open', (_event, bookId: string) => {

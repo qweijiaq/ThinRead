@@ -1,6 +1,6 @@
 import type { LabToolId } from '../../shared/types.js'
 
-export type LabToolKind = 'chat' | 'report' | 'quiz' | 'merge' | 'dedupe' | 'pdf' | 'relation'
+export type LabToolKind = 'chat' | 'report' | 'quiz' | 'merge' | 'dedupe' | 'pdf'
 
 export interface LabTool {
   id: LabToolId
@@ -141,14 +141,6 @@ export const LAB_TOOLS: LabTool[] = [
     description: '分析概念图里的孤立主题、冲突和下一步值得补的内容。',
     kind: 'report',
     books: 'none',
-  },
-  {
-    id: 'relation-graph',
-    group: '深读',
-    title: '人物关系图',
-    description: '把历史、传记或小说里的人物、组织和事件抽成一张关系图。',
-    kind: 'relation',
-    books: 'single',
   },
   {
     id: 'fact-check',
