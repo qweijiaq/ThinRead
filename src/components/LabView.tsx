@@ -120,7 +120,7 @@ export function LabView({ books, onBack, onSaveReport, onListen }: LabViewProps)
             <span className="lab-tool-group">{tool.group}</span>
           </div>
 
-          {tool.kind === 'chat' || tool.kind === 'report' ? (
+          {tool.kind === 'chat' || tool.kind === 'report' || tool.kind === 'quiz' ? (
             <div className="lab-sources">
               {tool.books === 'multi' ? (
                 <div className="lab-source-block">
@@ -223,7 +223,12 @@ export function LabView({ books, onBack, onSaveReport, onListen }: LabViewProps)
                     <LabPdfPage books={books} />
                   ) : item.kind === 'quiz' ? (
                     chapterId ? (
-                      <LabQuiz key={chapterId} chapterId={chapterId} />
+                      <LabQuiz
+                      key={chapterId}
+                      chapterId={chapterId}
+                      bookTitle={selectedBook?.title ?? ''}
+                      chapterTitle={chapters.find((item) => item.id === chapterId)?.title ?? ''}
+                    />
                     ) : (
                       <p className="lab-empty">先选择一章，才能出题。</p>
                     )

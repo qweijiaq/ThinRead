@@ -11,6 +11,7 @@ import type {
   LabArtifact,
   Note,
 } from '../../shared/types.js'
+import { onContentCurrent } from '../lib/content-events.js'
 import { todayStamp } from '../lib/export.js'
 import { Markdown } from './Markdown.js'
 
@@ -92,6 +93,7 @@ export function BookCompose({
   const [notes, setNotes] = useState<Note[]>([])
   const [loadingNotes, setLoadingNotes] = useState(true)
   const [notesTick, setNotesTick] = useState(0)
+  const [composeTick, setComposeTick] = useState(0)
   const [generation, setGeneration] = useState<GenerationView>(EMPTY_GENERATION)
   const [generationResult, setGenerationResult] = useState<BookGenerationDoneEvent | null>(null)
   const [composeOptions, setComposeOptions] = useState<BookComposeOptions>({ length: 'tight', voice: 'calm' })
@@ -178,7 +180,15 @@ export function BookCompose({
 
   useEffect(() => {
     void loadCompose()
-  }, [loadCompose])
+  }, [loadCompose, composeTick])
+
+  useEffect(
+    () =>
+      onContentCurrent((detail) => {
+        if (detail.tool === 'book-compose' && detail.scope === `book:${book.id}`) setComposeTick((value) => value + 1)
+      }),
+    [book.id],
+  )
 
   useEffect(() => {
     const offPartial = window.api.onGenerationPartial((event) => {

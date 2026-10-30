@@ -15,6 +15,11 @@ import type {
   ChatMode,
   ChatTurn,
   ClassifyResult,
+  ContentApplyAction,
+  ContentApplyResult,
+  ContentFilter,
+  ContentItem,
+  ContentStatus,
   FormatResult,
   FeynmanResult,
   GenerationDoneEvent,
@@ -147,6 +152,17 @@ const api: ReadingApi = {
     ipcRenderer.invoke('lab:artifact-list', tool, limit) as Promise<LabArtifact[]>,
   saveLabArtifact: (input) =>
     ipcRenderer.invoke('lab:artifact-save', input) as Promise<LabArtifact>,
+  updateLabArtifact: (id: string, patch: { title?: string; content?: string; meta?: string | null }) =>
+    ipcRenderer.invoke('lab:artifact-update', id, patch) as Promise<LabArtifact>,
+  listContent: (filter?: ContentFilter) => ipcRenderer.invoke('content:list', filter) as Promise<ContentItem[]>,
+  getContent: (id: string) => ipcRenderer.invoke('content:get', id) as Promise<ContentItem | null>,
+  setContentFavorite: (id: string, favorite: boolean) =>
+    ipcRenderer.invoke('content:favorite', id, favorite) as Promise<ContentItem>,
+  setContentStatus: (id: string, status: ContentStatus) =>
+    ipcRenderer.invoke('content:status', id, status) as Promise<ContentItem>,
+  deleteContent: (id: string) => ipcRenderer.invoke('content:delete', id) as Promise<void>,
+  applyContent: (id: string, action: ContentApplyAction) =>
+    ipcRenderer.invoke('content:apply', id, action) as Promise<ContentApplyResult>,
   onGenerationPartial: (cb) => subscribe<GenerationPartialEvent>('generation:partial', cb),
   onGenerationDone: (cb) => subscribe<GenerationDoneEvent>('generation:done', cb),
   onGenerationError: (cb) => subscribe<GenerationErrorEvent>('generation:error', cb),

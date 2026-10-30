@@ -184,7 +184,7 @@ export const LAB_TOOLS: LabTool[] = [
     id: 'adaptive-quiz',
     group: '学习',
     title: '自适应出题',
-    description: '生成主旨、为什么、比较、应用和反例题，并检查自由回答。',
+    description: '按当前章节生成主旨、为什么、比较、应用和反例题，并检查自由回答。',
     kind: 'quiz',
     books: 'single',
     chapter: true,

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
 import type { ChatTurn, LabToolId } from '../../shared/types.js'
 import { loadLabArtifact, saveLabArtifact } from '../lib/lab-artifacts.js'
+import { onContentCurrent } from '../lib/content-events.js'
 import { labChatScope } from '../lib/lab-scope.js'
 import { Markdown } from './Markdown.js'
 
@@ -39,6 +40,8 @@ export function LabChat({ tool, bookIds, chapterId, voice = false }: LabChatProp
   const [error, setError] = useState<string | null>(null)
   const [listening, setListening] = useState(false)
   const [speaking, setSpeaking] = useState<number | null>(null)
+  const [artifactId, setArtifactId] = useState<string | null>(null)
+  const [refreshTick, setRefreshTick] = useState(0)
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const recognitionRef = useRef<{ stop(): void } | null>(null)
 
@@ -52,6 +55,7 @@ export function LabChat({ tool, bookIds, chapterId, voice = false }: LabChatProp
       try {
         const parsed = JSON.parse(artifact.content) as { turns?: Turn[] }
         if (Array.isArray(parsed.turns)) setTurns(parsed.turns)
+        setArtifactId(artifact.id)
       } catch {
         // 忽略旧格式。
       }
@@ -59,15 +63,37 @@ export function LabChat({ tool, bookIds, chapterId, voice = false }: LabChatProp
     return () => {
       cancelled = true
     }
-  }, [tool, scope])
+  }, [tool, scope, refreshTick])
+
+  useEffect(
+    () =>
+      onContentCurrent((detail) => {
+        if (detail.tool === tool && detail.scope === scope) setRefreshTick((value) => value + 1)
+      }),
+    [tool, scope],
+  )
 
   function clearChat(): void {
     setTurns([])
     setInput('')
     setError(null)
     setSpeaking(null)
+    setArtifactId(null)
     if ('speechSynthesis' in window) window.speechSynthesis.cancel()
-    void saveLabArtifact(tool, '对话', JSON.stringify({ turns: [] }), { sourceKey: scope }, scope).catch(() => undefined)
+    void saveLabArtifact(tool, '对话', JSON.stringify({ turns: [] }), { sourceKey: scope }, scope)
+      .then((artifact) => setArtifactId(artifact.id))
+      .catch(() => undefined)
+  }
+
+  function saveTurns(finalTurns: Turn[]): void {
+    const content = JSON.stringify({ turns: finalTurns })
+    const task = artifactId
+      ? window.api.updateLabArtifact(artifactId, { title: '对话', content })
+      : saveLabArtifact(tool, '对话', content, { sourceKey: scope }, scope).then((artifact) => {
+          setArtifactId(artifact.id)
+          return artifact
+        })
+    void task.catch(() => undefined)
   }
 
   useEffect(() => {
@@ -102,7 +128,7 @@ export function LabChat({ tool, bookIds, chapterId, voice = false }: LabChatProp
         { role: 'assistant', content: answer.answer },
       ]
       setTurns(finalTurns)
-      void saveLabArtifact(tool, '对话', JSON.stringify({ turns: finalTurns }), { sourceKey: scope }, scope).catch(() => undefined)
+      saveTurns(finalTurns)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -133,7 +159,7 @@ export function LabChat({ tool, bookIds, chapterId, voice = false }: LabChatProp
         { role: 'assistant', content: answer.answer },
       ]
       setTurns(finalTurns)
-      void saveLabArtifact(tool, '对话', JSON.stringify({ turns: finalTurns }), { sourceKey: scope }, scope).catch(() => undefined)
+      saveTurns(finalTurns)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {

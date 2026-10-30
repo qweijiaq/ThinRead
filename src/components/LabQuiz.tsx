@@ -1,8 +1,11 @@
 import { useEffect, useState, type JSX } from 'react'
-import type { LabAnswerCheck, LabQuiz as LabQuizData } from '../../shared/types.js'
+import type { LabAnswerCheck, LabArtifact, LabQuiz as LabQuizData } from '../../shared/types.js'
+import { onContentCurrent } from '../lib/content-events.js'
 
 interface LabQuizProps {
   chapterId: string
+  bookTitle: string
+  chapterTitle: string
 }
 
 const VERDICT_LABEL: Record<LabAnswerCheck['verdict'], string> = {
@@ -11,7 +14,7 @@ const VERDICT_LABEL: Record<LabAnswerCheck['verdict'], string> = {
   off: '需要重想',
 }
 
-export function LabQuiz({ chapterId }: LabQuizProps): JSX.Element {
+export function LabQuiz({ chapterId, bookTitle, chapterTitle }: LabQuizProps): JSX.Element {
   const [quiz, setQuiz] = useState<LabQuizData | null>(null)
   const [answers, setAnswers] = useState<Record<number, string>>({})
   const [checks, setChecks] = useState<Record<number, LabAnswerCheck>>({})
@@ -20,6 +23,10 @@ export function LabQuiz({ chapterId }: LabQuizProps): JSX.Element {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [hydrated, setHydrated] = useState(false)
+  const [artifactId, setArtifactId] = useState<string | null>(null)
+  const [refreshTick, setRefreshTick] = useState(0)
+  const [history, setHistory] = useState<LabArtifact[]>([])
+  const [selectedHistoryId, setSelectedHistoryId] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -28,6 +35,10 @@ export function LabQuiz({ chapterId }: LabQuizProps): JSX.Element {
     setAnswers({})
     setChecks({})
     setRevealed(new Set())
+    void window.api.listLabArtifacts('adaptive-quiz', 50).then((items) => {
+      if (cancelled) return
+      setHistory(items.filter((item) => item.scope === chapterId))
+    })
     void window.api.getLabArtifact('adaptive-quiz', chapterId).then((artifact) => {
       if (cancelled) return
       if (artifact) {
@@ -39,6 +50,8 @@ export function LabQuiz({ chapterId }: LabQuizProps): JSX.Element {
             revealed?: number[]
           }
           if (parsed.quiz) setQuiz(parsed.quiz)
+          setArtifactId(artifact.id)
+          setSelectedHistoryId(artifact.id)
           if (parsed.answers) setAnswers(parsed.answers)
           if (parsed.checks) setChecks(parsed.checks)
           if (Array.isArray(parsed.revealed)) setRevealed(new Set(parsed.revealed))
@@ -51,22 +64,44 @@ export function LabQuiz({ chapterId }: LabQuizProps): JSX.Element {
     return () => {
       cancelled = true
     }
-  }, [chapterId])
+  }, [chapterId, refreshTick])
 
   useEffect(() => {
-    if (!hydrated) return
+    if (!hydrated || !quiz) return
     const timer = window.setTimeout(() => {
-      void window.api
-        .saveLabArtifact({
-          tool: 'adaptive-quiz',
-          scope: chapterId,
-          title: '自适应出题',
-          content: JSON.stringify({ quiz, answers, checks, revealed: [...revealed] }),
-        })
-        .catch(() => undefined)
+      const content = JSON.stringify({ quiz, answers, checks, revealed: [...revealed] })
+      const title = chapterTitle ? `自适应出题 · ${chapterTitle}` : '自适应出题'
+      const task = artifactId
+        ? window.api.updateLabArtifact(artifactId, { title, content }).then((updated) => {
+            setHistory((current) => current.map((item) => (item.id === updated.id ? updated : item)))
+            return updated
+          })
+        : window.api
+            .saveLabArtifact({
+              tool: 'adaptive-quiz',
+              scope: chapterId,
+              title,
+              content,
+              kind: 'quiz',
+            })
+            .then((saved) => {
+              setArtifactId(saved.id)
+              setSelectedHistoryId(saved.id)
+              setHistory((current) => [saved, ...current.filter((item) => item.id !== saved.id)])
+              return saved
+            })
+      void task.catch(() => undefined)
     }, 350)
     return () => window.clearTimeout(timer)
-  }, [hydrated, chapterId, quiz, answers, checks, revealed])
+  }, [hydrated, artifactId, chapterId, chapterTitle, quiz, answers, checks, revealed])
+
+  useEffect(
+    () =>
+      onContentCurrent((detail) => {
+        if (detail.tool === 'adaptive-quiz' && detail.scope === chapterId) setRefreshTick((value) => value + 1)
+      }),
+    [chapterId],
+  )
 
   async function generate(): Promise<void> {
     setBusy(true)
@@ -74,6 +109,8 @@ export function LabQuiz({ chapterId }: LabQuizProps): JSX.Element {
     setAnswers({})
     setChecks({})
     setRevealed(new Set())
+    setArtifactId(null)
+    setSelectedHistoryId('')
     try {
       setQuiz(await window.api.generateQuiz(chapterId))
     } catch (err) {
@@ -102,13 +139,66 @@ export function LabQuiz({ chapterId }: LabQuizProps): JSX.Element {
   return (
     <div className="lab-quiz">
       <div className="lab-run-row">
-        <span className="lab-run-hint">生成 5 道需要理解才能回答的问题，不考死记硬背。</span>
+        <span className="lab-run-hint">
+          {chapterTitle ? `《${bookTitle}》 · ${chapterTitle} · ` : ''}
+          生成 5 道需要理解才能回答的问题，不考死记硬背。
+        </span>
         <button type="button" className="primary-button small" onClick={() => void generate()} disabled={busy}>
           {busy ? '出题中…' : quiz ? '重新生成' : '开始出题'}
         </button>
       </div>
+      {history.length > 1 ? (
+        <label className="lab-history">
+          历史题目
+          <select
+            value={selectedHistoryId}
+            onChange={(event) => {
+              const artifact = history.find((item) => item.id === event.target.value)
+              if (!artifact) return
+              try {
+                const parsed = JSON.parse(artifact.content) as {
+                  quiz?: LabQuizData
+                  answers?: Record<number, string>
+                  checks?: Record<number, LabAnswerCheck>
+                  revealed?: number[]
+                }
+                if (!parsed.quiz) return
+                setQuiz(parsed.quiz)
+                setAnswers(parsed.answers ?? {})
+                setChecks(parsed.checks ?? {})
+                setRevealed(new Set(parsed.revealed ?? []))
+                setArtifactId(artifact.id)
+                setSelectedHistoryId(artifact.id)
+                setError(null)
+              } catch {
+                setError('这组旧题目无法读取。')
+              }
+            }}
+          >
+            {history.map((artifact) => {
+              let label = artifact.createdAt.slice(5, 16).replace('T', ' ')
+              try {
+                const parsed = JSON.parse(artifact.content) as { quiz?: LabQuizData }
+                const first = parsed.quiz?.questions[0]?.question
+                if (first) label = `${label} · ${first.slice(0, 24)}`
+              } catch {
+                // 使用时间。
+              }
+              return (
+                <option key={artifact.id} value={artifact.id}>
+                  {label}
+                </option>
+              )
+            })}
+          </select>
+        </label>
+      ) : null}
       {error ? <div className="inline-error">{error}</div> : null}
-      {!quiz && !busy ? <p className="lab-empty">选好章节后点「开始出题」。</p> : null}
+      {!quiz && !busy ? (
+        <p className="lab-empty">
+          {chapterTitle ? `当前章节：${chapterTitle}。` : '选好章节后点「开始出题」。'}
+        </p>
+      ) : null}
       {quiz ? (
         <div className="lab-quiz-list">
           {quiz.questions.map((question, index) => {

@@ -202,26 +202,32 @@ export async function marginNote(args: {
   return { title: 'AI 边注', markdown: response.text.trim() }
 }
 
+function anchorChapterName(text: string, chapterName: string): string {
+  if (!text || !chapterName) return text
+  return text.replace(/本章节?|这一章|该章/g, `「${chapterName}」`)
+}
+
 export async function generateQuiz(args: {
   config: ModelConfig
   demo: boolean
   chapterId: string
 }): Promise<LabQuiz> {
   const context = buildChapterContext(args.chapterId)
+  const chapterName = context.chapterTitle
   if (args.demo) {
     return {
       questions: [
         {
-          question: '这一章最主要的主张是什么？',
+          question: `「${chapterName}」最主要的主张是什么？`,
           kind: '主旨',
-          answer: '用一句话概括本章的核心断言。',
-          source: '本章读薄稿',
+          answer: '用一句话概括这一章的核心断言。',
+          source: `「${chapterName}」读薄稿`,
         },
         {
-          question: '作者为什么会得出这个结论？',
+          question: `作者在「${chapterName}」里为什么会得出这个结论？`,
           kind: '为什么',
           answer: '梳理作者的论证链和关键前提。',
-          source: '本章卡片',
+          source: `「${chapterName}」卡片`,
         },
       ],
     }
@@ -229,10 +235,14 @@ export async function generateQuiz(args: {
   const model = createLanguageModel(args.config)
   const response = await generateText({
     model,
-    system: '你是阅读教练，根据本章内容出题。',
+    system: [
+      `你是阅读教练，正在为《${context.bookTitle}》的章节「${chapterName}」出题。`,
+      '题目必须让读者知道在问哪一章：直接写章节名，或写出具体的概念和原文细节；不要用“本章”“这一章”“该章”这类无法定位的说法。',
+    ].join('\n'),
     prompt: [
       context.text,
       '请生成 5 道真正需要理解才能回答的问题，类型尽量覆盖：主旨、为什么、比较、应用、反例/边界。',
+      '每道题都要能独立读懂，避免只写“本章的观点是什么”。',
       '只输出 JSON：{"questions":[{"question":"...","kind":"主旨|为什么|比较|应用|反例","answer":"参考答案","source":"原文或读薄稿中的依据"}]}。不要输出 Markdown 代码块。',
     ].join('\n\n'),
     temperature: 0.4,
@@ -244,10 +254,10 @@ export async function generateQuiz(args: {
   const questions: LabQuizQuestion[] = raw
     .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object' && !Array.isArray(item)))
     .map((item) => ({
-      question: typeof item.question === 'string' ? item.question.trim() : '',
+      question: anchorChapterName(typeof item.question === 'string' ? item.question.trim() : '', chapterName),
       kind: typeof item.kind === 'string' ? item.kind.trim() : '理解',
-      answer: typeof item.answer === 'string' ? item.answer.trim() : '',
-      source: typeof item.source === 'string' ? item.source.trim() : '',
+      answer: anchorChapterName(typeof item.answer === 'string' ? item.answer.trim() : '', chapterName),
+      source: anchorChapterName(typeof item.source === 'string' ? item.source.trim() : '', chapterName),
     }))
     .filter((item) => item.question && item.answer)
     .slice(0, 8)
@@ -270,10 +280,14 @@ export async function checkQuizAnswer(args: {
     }
   }
   const context = buildChapterContext(args.chapterId)
+  const chapterName = context.chapterTitle
   const model = createLanguageModel(args.config)
   const response = await generateText({
     model,
-    system: '你是阅读教练，检查读者的自由回答。',
+    system: [
+      `你是阅读教练，正在检查读者对《${context.bookTitle}》章节「${chapterName}」的回答。`,
+      '反馈里直接写章节名或具体概念，不要用“本章”“这一章”这类无法定位的说法。',
+    ].join('\n'),
     prompt: [
       context.text,
       `问题：${args.question}`,
@@ -290,9 +304,12 @@ export async function checkQuizAnswer(args: {
     : 'partial'
   return {
     verdict,
-    feedback: typeof parsed?.feedback === 'string' ? parsed.feedback.trim() : '',
+    feedback: anchorChapterName(typeof parsed?.feedback === 'string' ? parsed.feedback.trim() : '', chapterName),
     missing: Array.isArray(parsed?.missing)
-      ? parsed.missing.filter((item): item is string => typeof item === 'string').slice(0, 6)
+      ? parsed.missing
+          .filter((item): item is string => typeof item === 'string')
+          .map((item) => anchorChapterName(item, chapterName))
+          .slice(0, 6)
       : [],
   }
 }

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
 import type { ChapterContent, ChatCitation, ChatMode, ChatTurn } from '../../shared/types.js'
+import { onContentCurrent } from '../lib/content-events.js'
 import { Markdown } from './Markdown.js'
 
 interface ChatPanelProps {
@@ -25,6 +26,8 @@ export function ChatPanel({ chapter, bookTitle, onJumpQuote, onSave }: ChatPanel
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState<number | null>(null)
+  const [artifactId, setArtifactId] = useState<string | null>(null)
+  const [refreshTick, setRefreshTick] = useState(0)
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const sessionRef = useRef(0)
 
@@ -42,6 +45,7 @@ export function ChatPanel({ chapter, bookTitle, onJumpQuote, onSave }: ChatPanel
         const parsed = JSON.parse(artifact.content) as { turns?: Turn[]; mode?: ChatMode }
         if (Array.isArray(parsed.turns)) setTurns(parsed.turns)
         if (parsed.mode === 'answer' || parsed.mode === 'socratic') setMode(parsed.mode)
+        setArtifactId(artifact.id)
       } catch {
         // 忽略旧格式。
       }
@@ -49,7 +53,15 @@ export function ChatPanel({ chapter, bookTitle, onJumpQuote, onSave }: ChatPanel
     return () => {
       cancelled = true
     }
-  }, [chapter?.id])
+  }, [chapter?.id, refreshTick])
+
+  useEffect(
+    () =>
+      onContentCurrent((detail) => {
+        if (detail.tool === 'chapter-chat' && detail.scope === chapter?.id) setRefreshTick((value) => value + 1)
+      }),
+    [chapter?.id],
+  )
 
   useEffect(() => {
     const node = scrollRef.current
@@ -64,15 +76,38 @@ export function ChatPanel({ chapter, bookTitle, onJumpQuote, onSave }: ChatPanel
     setSaved(null)
     setError(null)
     if (chapter) {
+      setArtifactId(null)
       void window.api
         .saveLabArtifact({
           tool: 'chapter-chat',
           scope: chapter.id,
           title: '章节问答',
           content: JSON.stringify({ turns: [], mode: next }),
+          kind: 'chat',
         })
+        .then((artifact) => setArtifactId(artifact.id))
         .catch(() => undefined)
     }
+  }
+
+  function saveTurns(finalTurns: Turn[], chatMode: ChatMode): void {
+    if (!chapter) return
+    const content = JSON.stringify({ turns: finalTurns, mode: chatMode })
+    const task = artifactId
+      ? window.api.updateLabArtifact(artifactId, { title: '章节问答', content })
+      : window.api
+          .saveLabArtifact({
+            tool: 'chapter-chat',
+            scope: chapter.id,
+            title: '章节问答',
+            content,
+            kind: 'chat',
+          })
+          .then((artifact) => {
+            setArtifactId(artifact.id)
+            return artifact
+          })
+    void task.catch(() => undefined)
   }
 
   async function ask(question: string): Promise<void> {
@@ -95,14 +130,7 @@ export function ChatPanel({ chapter, bookTitle, onJumpQuote, onSave }: ChatPanel
           { role: 'assistant', content: result.answer, citations: result.citations },
         ]
         setTurns(finalTurns)
-        void window.api
-          .saveLabArtifact({
-            tool: 'chapter-chat',
-            scope: chapter.id,
-            title: '章节问答',
-            content: JSON.stringify({ turns: finalTurns, mode }),
-          })
-          .catch(() => undefined)
+        saveTurns(finalTurns, mode)
       }
     } catch (err) {
       if (session === sessionRef.current) setError(err instanceof Error ? err.message : String(err))
@@ -136,14 +164,7 @@ export function ChatPanel({ chapter, bookTitle, onJumpQuote, onSave }: ChatPanel
         { role: 'assistant', content: result.answer, citations: result.citations },
       ]
       setTurns(finalTurns)
-      void window.api
-        .saveLabArtifact({
-          tool: 'chapter-chat',
-          scope: chapter.id,
-          title: '章节问答',
-          content: JSON.stringify({ turns: finalTurns, mode }),
-        })
-        .catch(() => undefined)
+      saveTurns(finalTurns, mode)
     } catch (err) {
       if (session === sessionRef.current) setError(err instanceof Error ? err.message : String(err))
     } finally {

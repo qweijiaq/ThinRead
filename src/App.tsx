@@ -22,6 +22,7 @@ import type {
 } from '../shared/types.js'
 import { BookCompose } from './components/BookCompose.js'
 import { ChapterList } from './components/ChapterList.js'
+import { ContentView } from './components/ContentView.js'
 import { ChatPanel } from './components/ChatPanel.js'
 import { FeynmanPanel } from './components/FeynmanPanel.js'
 import { FormatPanel } from './components/FormatPanel.js'
@@ -85,8 +86,9 @@ export function App(): JSX.Element {
   const [toast, setToast] = useState<{ kind: 'error' | 'info'; text: string } | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
-  const [mainView, setMainView] = useState<'reader' | 'notes' | 'map' | 'lab' | 'compose'>('reader')
+  const [mainView, setMainView] = useState<'reader' | 'notes' | 'map' | 'lab' | 'compose' | 'content'>('reader')
   const [labMounted, setLabMounted] = useState(false)
+  const [contentFocusId, setContentFocusId] = useState<string | null>(null)
   const [shareTarget, setShareTarget] = useState<{
     note?: ShareNote
     book?: ShareBook
@@ -802,6 +804,11 @@ export function App(): JSX.Element {
   const openSearchResult = useCallback(
     async (result: SearchResult) => {
       setSearchOpen(false)
+      if (result.type === 'content') {
+        setContentFocusId(result.id)
+        setMainView('content')
+        return
+      }
       setMainView('reader')
       if (result.type === 'book') {
         await openBook(result.bookId)
@@ -996,6 +1003,11 @@ export function App(): JSX.Element {
         labActive={mainView === 'lab'}
         onCompose={() => void openCompose(book?.id)}
         composeActive={mainView === 'compose'}
+        onContent={() => {
+          setContentFocusId(null)
+          setMainView('content')
+        }}
+        contentActive={mainView === 'content'}
         onRenameBook={book ? () => startRenameBook(book) : undefined}
       />
 
@@ -1021,6 +1033,31 @@ export function App(): JSX.Element {
           onBack={() => setMainView('reader')}
           onOpenNote={(node) => void openMapNote(node)}
           onOpenBook={(bookId) => void openMapBook(bookId)}
+        />
+      ) : mainView === 'content' ? (
+        <ContentView
+          books={books}
+          initialItemId={contentFocusId}
+          onBack={() => setMainView('reader')}
+          onOpenSource={(bookId, chapterId) => {
+            setMainView('reader')
+            void openSearchResult({
+              type: chapterId ? 'chapter' : 'book',
+              id: chapterId ?? bookId,
+              bookId,
+              bookTitle: '',
+              chapterId,
+              chapterTitle: null,
+              title: '',
+              snippet: '',
+              updatedAt: null,
+            })
+          }}
+          onAppliedSource={(bookId, chapterId) => {
+            if (book?.id !== bookId) return
+            const meta = chapters.find((item) => item.id === chapterId)
+            if (meta) void openChapter(book.id, meta, chapters)
+          }}
         />
       ) : mainView === 'compose' && book ? (
         <BookCompose

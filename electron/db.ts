@@ -28,6 +28,12 @@ import type {
   ReviewRating,
   ReviewStats,
   TagCount,
+  ContentApplyAction,
+  ContentApplyResult,
+  ContentFilter,
+  ContentItem,
+  ContentKind,
+  ContentStatus,
 } from '../shared/types.js'
 
 import { normalizeReaderStyle, parseStyleJson } from './reader-style.js'
@@ -245,6 +251,8 @@ export function initDatabase(dataDir: string): void {
   migrateChapters(db)
   migrateNotes(db)
   migrateLabArtifacts(db)
+  migrateLabArtifactMetadata(db)
+  backfillChapterNoteSnapshots(db)
 }
 
 function migrateNotes(conn: DatabaseSync): void {
@@ -270,6 +278,108 @@ function migrateLabArtifacts(conn: DatabaseSync): void {
        FROM lab_artifacts`,
     )
     .run()
+}
+
+function migrateLabArtifactMetadata(conn: DatabaseSync): void {
+  const columns = new Set(
+    (conn.prepare('PRAGMA table_info(lab_artifact_versions)').all() as unknown as Array<{ name: string }>).map(
+      (row) => row.name,
+    ),
+  )
+  const additions: Array<[string, string]> = [
+    ['kind', 'TEXT'],
+    ['book_id', 'TEXT'],
+    ['chapter_id', 'TEXT'],
+    ['favorite', 'INTEGER NOT NULL DEFAULT 0'],
+    ['status', "TEXT NOT NULL DEFAULT 'draft'"],
+    ['updated_at', 'TEXT'],
+    ['deleted_at', 'TEXT'],
+    ['applied_note_id', 'TEXT'],
+    ['current_at', 'TEXT'],
+  ]
+  for (const [name, ddl] of additions) {
+    if (!columns.has(name)) conn.exec(`ALTER TABLE lab_artifact_versions ADD COLUMN ${name} ${ddl}`)
+  }
+  conn.exec("UPDATE lab_artifact_versions SET kind = tool WHERE kind IS NULL OR kind = ''")
+  const kindRows = conn.prepare('SELECT id, tool, kind FROM lab_artifact_versions').all() as unknown as Array<{
+    id: string
+    tool: string
+    kind: string | null
+  }>
+  const validKinds = new Set(['report', 'chat', 'quiz', 'notes', 'format', 'compose', 'suggestion', 'pdf', 'other'])
+  const updateKind = conn.prepare('UPDATE lab_artifact_versions SET kind = ? WHERE id = ?')
+  for (const row of kindRows) {
+    if (!validKinds.has(row.kind ?? '')) updateKind.run(contentKindForTool(row.tool), row.id)
+  }
+  conn.exec("UPDATE lab_artifact_versions SET updated_at = created_at WHERE updated_at IS NULL OR updated_at = ''")
+  conn.exec(
+    'CREATE INDEX IF NOT EXISTS idx_lab_artifact_versions_content ON lab_artifact_versions(status, updated_at DESC)',
+  )
+  conn.exec(
+    'CREATE INDEX IF NOT EXISTS idx_lab_artifact_versions_scope ON lab_artifact_versions(tool, scope, updated_at DESC)',
+  )
+  backfillArtifactSources(conn)
+}
+
+function backfillChapterNoteSnapshots(conn: DatabaseSync): void {
+  const chapters = conn
+    .prepare(
+      `SELECT DISTINCT n.book_id, n.chapter_id, c.title AS chapter_title, b.title AS book_title, c.note_report
+       FROM notes n
+       JOIN chapters c ON c.id = n.chapter_id
+       JOIN books b ON b.id = n.book_id
+       WHERE n.author = 'ai' AND n.chapter_id IS NOT NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM lab_artifact_versions a
+           WHERE a.tool = 'chapter-notes' AND a.chapter_id = n.chapter_id
+         )`,
+    )
+    .all() as unknown as Array<{
+    book_id: string
+    chapter_id: string
+    chapter_title: string
+    book_title: string
+    note_report: string | null
+  }>
+  if (chapters.length === 0) return
+  const insert = conn.prepare(
+    `INSERT INTO lab_artifact_versions
+       (id, tool, scope, title, content, meta, created_at, kind, book_id, chapter_id, favorite, status, updated_at, applied_note_id)
+     VALUES (?, 'chapter-notes', ?, ?, ?, ?, ?, 'notes', ?, ?, 0, 'draft', ?, NULL)`,
+  )
+  const now = new Date().toISOString()
+  for (const row of chapters) {
+    const notes = listNotes(row.book_id, row.chapter_id).filter((note) => note.author === 'ai')
+    if (notes.length === 0) continue
+    const report = parseNoteReport(row.note_report)
+    insert.run(
+      crypto.randomUUID(),
+      `chapter:${row.chapter_id}`,
+      `${row.book_title} · ${row.chapter_title} · 笔记`,
+      JSON.stringify({ notes, report }),
+      JSON.stringify({ bookId: row.book_id, chapterId: row.chapter_id, chapterTitle: row.chapter_title }),
+      now,
+      row.book_id,
+      row.chapter_id,
+      now,
+    )
+  }
+}
+
+function backfillArtifactSources(conn: DatabaseSync): void {
+  const rows = conn
+    .prepare(
+      "SELECT id, scope, tool, meta FROM lab_artifact_versions WHERE book_id IS NULL OR chapter_id IS NULL",
+    )
+    .all() as unknown as Array<{ id: string; scope: string; tool: string; meta: string | null }>
+  if (rows.length === 0) return
+  const update = conn.prepare(
+    'UPDATE lab_artifact_versions SET book_id = COALESCE(?, book_id), chapter_id = COALESCE(?, chapter_id), kind = COALESCE(kind, ?) WHERE id = ?',
+  )
+  for (const row of rows) {
+    const source = artifactSource(row.tool, row.scope, row.meta)
+    update.run(source.bookId, source.chapterId, contentKindForTool(row.tool), row.id)
+  }
 }
 
 function migrateBooks(conn: DatabaseSync): void {
@@ -899,6 +1009,45 @@ export function searchLibrary(rawQuery: string, limit = 40): SearchResult[] {
     })
   }
 
+  const contents = conn
+    .prepare(
+      `SELECT a.id, a.tool, a.title, a.content, a.updated_at,
+              COALESCE(a.book_id, c.book_id) AS book_id, COALESCE(b.title, cb.title) AS book_title,
+              a.chapter_id, c.title AS chapter_title
+       FROM lab_artifact_versions a
+       LEFT JOIN chapters c ON c.id = a.chapter_id
+       LEFT JOIN books b ON b.id = a.book_id
+       LEFT JOIN books cb ON cb.id = c.book_id
+       WHERE a.status != 'deleted'
+         AND (a.title LIKE ? ESCAPE '\\' OR a.content LIKE ? ESCAPE '\\')
+       ORDER BY CASE WHEN a.title LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END, a.updated_at DESC
+       LIMIT 12`,
+    )
+    .all(like, like, like) as unknown as Array<{
+    id: string
+    tool: string
+    title: string
+    content: string
+    updated_at: string
+    book_id: string | null
+    book_title: string | null
+    chapter_id: string | null
+    chapter_title: string | null
+  }>
+  for (const row of contents) {
+    results.push({
+      type: 'content',
+      id: row.id,
+      bookId: row.book_id ?? '',
+      bookTitle: row.book_title ?? '生成内容',
+      chapterId: row.chapter_id,
+      chapterTitle: row.chapter_title,
+      title: row.title,
+      snippet: makeSnippet(readableArtifactContent(row.tool, row.content), query),
+      updatedAt: row.updated_at,
+    })
+  }
+
   return results.slice(0, limit)
 }
 
@@ -1107,21 +1256,123 @@ export function reviewNote(noteId: string, rating: ReviewRating): void {  if (ra
 
 const REVIEWABLE_KINDS = new Set<NoteKind>(['point', 'claim', 'summary', 'question', 'thought'])
 
+
+const CHAT_TOOL_IDS = new Set([
+  'author-roundtable',
+  'library-research',
+  'devils-advocate',
+  'book-club',
+  'voice-chat',
+  'chapter-chat',
+  'feynman',
+])
+const REPORT_TOOL_IDS = new Set([
+  'cross-book-synthesis',
+  'weekly-review',
+  'reading-path',
+  'annual-report',
+  'argument-map',
+  'chapter-annotations',
+  'margin-note',
+  'view-timeline',
+  'knowledge-gaps',
+  'entity-network',
+  'fact-check',
+  'podcast',
+])
+
+export function contentKindForTool(tool: string): ContentKind {
+  if (tool === 'book-compose') return 'compose'
+  if (tool === 'chapter-notes') return 'notes'
+  if (tool === 'chapter-format') return 'format'
+  if (tool === 'adaptive-quiz') return 'quiz'
+  if (tool === 'lab-dedupe' || tool === 'lab-merge') return 'suggestion'
+  if (tool === 'lab-pdf-page') return 'pdf'
+  if (CHAT_TOOL_IDS.has(tool)) return 'chat'
+  if (REPORT_TOOL_IDS.has(tool)) return 'report'
+  return 'other'
+}
+
+function parseMetaObject(raw: string | null): Record<string, unknown> {
+  if (!raw) return {}
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {}
+  } catch {
+    return {}
+  }
+}
+
+function artifactSource(
+  tool: string,
+  scope: string,
+  meta: string | null,
+): { bookId: string | null; chapterId: string | null } {
+  const parsed = parseMetaObject(meta)
+  let chapterId = typeof parsed.chapterId === 'string' && parsed.chapterId ? parsed.chapterId : null
+  let bookId = typeof parsed.bookId === 'string' && parsed.bookId ? parsed.bookId : null
+  const chapterMatch = scope.match(/^chapter:(.+)$/)
+  if (!chapterId && chapterMatch) chapterId = chapterMatch[1]!
+  if (chapterId) {
+    const row = database().prepare('SELECT book_id FROM chapters WHERE id = ?').get(chapterId) as
+      | { book_id: string }
+      | undefined
+    if (row) bookId = bookId ?? row.book_id
+    else if (!chapterMatch && !chapterId) chapterId = null
+  }
+  if (!bookId && scope) {
+    // 章节问答 / 出题 / 费曼的 scope 直接就是章节 id。
+    const chapterRow = database().prepare('SELECT id, book_id FROM chapters WHERE id = ?').get(scope) as
+      | { id: string; book_id: string }
+      | undefined
+    if (chapterRow) {
+      chapterId = chapterRow.id
+      bookId = chapterRow.book_id
+    }
+  }
+  if (!bookId) {
+    const bookMatch = scope.match(/^book:(.+)$/)
+    const booksMatch = scope.match(/^books:(.+)$/)
+    const pdfMatch = scope.match(/^pdf:([^:]+):/)
+    if (bookMatch) bookId = bookMatch[1]!
+    else if (booksMatch) bookId = booksMatch[1]!.split(',')[0]!.trim() || null
+    else if (pdfMatch) bookId = pdfMatch[1]!
+  }
+  if (tool === 'book-compose' && !bookId) {
+    const bookMatch = scope.match(/^book:(.+)$/)
+    if (bookMatch) bookId = bookMatch[1]!
+  }
+  return { bookId, chapterId }
+}
+
 export function getLabArtifact(tool: string, scope = 'latest'): LabArtifact | null {
   const conn = database()
   let row = (scope === 'latest'
-    ? conn.prepare('SELECT * FROM lab_artifact_versions WHERE tool = ? ORDER BY created_at DESC LIMIT 1').get(tool)
+    ? conn
+        .prepare(
+          "SELECT * FROM lab_artifact_versions WHERE tool = ? AND status != 'deleted' ORDER BY COALESCE(current_at, created_at) DESC LIMIT 1",
+        )
+        .get(tool)
     : conn
         .prepare(
-          'SELECT * FROM lab_artifact_versions WHERE tool = ? AND scope = ? ORDER BY created_at DESC LIMIT 1',
+          "SELECT * FROM lab_artifact_versions WHERE tool = ? AND scope = ? AND status != 'deleted' ORDER BY COALESCE(current_at, created_at) DESC LIMIT 1",
         )
         .get(tool, scope)) as LabArtifactRow | undefined
   // 兼容旧版本只保存 latest 的结果：新作用域没有记录时回退到旧结果。
   if (!row && scope !== 'latest') {
     row = conn
-      .prepare("SELECT * FROM lab_artifact_versions WHERE tool = ? AND scope = 'latest' ORDER BY created_at DESC LIMIT 1")
+      .prepare(
+        "SELECT * FROM lab_artifact_versions WHERE tool = ? AND scope = 'latest' AND status != 'deleted' ORDER BY COALESCE(current_at, created_at) DESC LIMIT 1",
+      )
       .get(tool) as LabArtifactRow | undefined
   }
+  return row ? mapLabArtifact(row) : null
+}
+
+export function getLabArtifactById(id: string): LabArtifact | null {
+  const row = database().prepare('SELECT * FROM lab_artifact_versions WHERE id = ?').get(id) as
+    | LabArtifactRow
+    | undefined
   return row ? mapLabArtifact(row) : null
 }
 
@@ -1133,20 +1384,28 @@ interface LabArtifactRow {
   content: string
   meta: string | null
   created_at: string
+  kind: string | null
+  book_id: string | null
+  chapter_id: string | null
+  favorite: number | null
+  status: string | null
+  updated_at: string | null
+  deleted_at: string | null
+  applied_note_id: string | null
+  current_at: string | null
+}
+
+interface ContentRow extends LabArtifactRow {
+  book_title: string | null
+  chapter_title: string | null
 }
 
 export function listLabArtifacts(tool: string, limit = 30): LabArtifact[] {
   const rows = database()
-    .prepare('SELECT * FROM lab_artifact_versions WHERE tool = ? ORDER BY created_at DESC LIMIT ?')
-    .all(tool, Math.min(Math.max(limit, 1), 100)) as unknown as Array<{
-    id: string
-    tool: string
-    scope: string
-    title: string
-    content: string
-    meta: string | null
-    created_at: string
-  }>
+    .prepare(
+      "SELECT * FROM lab_artifact_versions WHERE tool = ? AND status != 'deleted' ORDER BY COALESCE(current_at, created_at) DESC LIMIT ?",
+    )
+    .all(tool, Math.min(Math.max(limit, 1), 100)) as unknown as LabArtifactRow[]
   return rows.map(mapLabArtifact)
 }
 
@@ -1156,20 +1415,28 @@ export function saveLabArtifact(input: {
   title: string
   content: string
   meta?: string | null
+  kind?: ContentKind
+  bookId?: string | null
+  chapterId?: string | null
 }): LabArtifact {
   const tool = input.tool.trim()
   const scope = input.scope.trim() || 'latest'
   const title = input.title.trim() || 'AI 结果'
   if (!tool) throw new Error('工具无效。')
   if (typeof input.content !== 'string') throw new Error('生成内容无效。')
+  const source = artifactSource(tool, scope, input.meta ?? null)
+  const kind = input.kind ?? contentKindForTool(tool)
+  const bookId = input.bookId !== undefined ? input.bookId : source.bookId
+  const chapterId = input.chapterId !== undefined ? input.chapterId : source.chapterId
   const id = crypto.randomUUID()
   const now = new Date().toISOString()
   database()
     .prepare(
-      `INSERT INTO lab_artifact_versions (id, tool, scope, title, content, meta, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO lab_artifact_versions
+         (id, tool, scope, title, content, meta, created_at, kind, book_id, chapter_id, favorite, status, updated_at, applied_note_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'draft', ?, NULL)`,
     )
-    .run(id, tool, scope, title, input.content, input.meta ?? null, now)
+    .run(id, tool, scope, title, input.content, input.meta ?? null, now, kind, bookId, chapterId, now)
   return {
     id,
     tool,
@@ -1179,6 +1446,23 @@ export function saveLabArtifact(input: {
     meta: input.meta ?? null,
     createdAt: now,
   }
+}
+
+export function updateLabArtifact(
+  id: string,
+  patch: { title?: string; content?: string; meta?: string | null },
+): LabArtifact {
+  const current = getLabArtifactById(id)
+  if (!current) throw new Error('找不到这份生成内容。')
+  const title = patch.title?.trim() || current.title
+  const content = typeof patch.content === 'string' ? patch.content : current.content
+  const meta = patch.meta !== undefined ? patch.meta : current.meta
+  database()
+    .prepare('UPDATE lab_artifact_versions SET title = ?, content = ?, meta = ?, updated_at = ? WHERE id = ?')
+    .run(title, content, meta, new Date().toISOString(), id)
+  const updated = getLabArtifactById(id)
+  if (!updated) throw new Error('更新生成内容失败。')
+  return updated
 }
 
 function mapLabArtifact(row: LabArtifactRow): LabArtifact {
@@ -1191,6 +1475,269 @@ function mapLabArtifact(row: LabArtifactRow): LabArtifact {
     meta: row.meta,
     createdAt: row.created_at,
   }
+}
+
+function mapContentItem(row: ContentRow): ContentItem {
+  return {
+    ...mapLabArtifact(row),
+    kind: (row.kind || contentKindForTool(row.tool)) as ContentKind,
+    bookId: row.book_id,
+    chapterId: row.chapter_id,
+    bookTitle: row.book_title,
+    chapterTitle: row.chapter_title,
+    favorite: Number(row.favorite ?? 0) === 1,
+    status: (row.status || 'draft') as ContentStatus,
+    updatedAt: row.updated_at || row.created_at,
+    appliedNoteId: row.applied_note_id,
+  }
+}
+
+function contentSelect(): string {
+  return `SELECT a.*, b.title AS book_title, c.title AS chapter_title
+          FROM lab_artifact_versions a
+          LEFT JOIN chapters c ON c.id = a.chapter_id
+          LEFT JOIN books b ON b.id = COALESCE(a.book_id, c.book_id)`
+}
+
+export function listContent(filter: ContentFilter = {}): ContentItem[] {
+  const where: string[] = []
+  const params: Array<string | number | null> = []
+  const status = filter.status ?? 'active'
+  if (status === 'active') where.push("a.status NOT IN ('archived', 'deleted')")
+  else if (status !== 'all') {
+    where.push('a.status = ?')
+    params.push(status)
+  }
+  if (filter.favorite) where.push('a.favorite = 1')
+  if (filter.kind) {
+    where.push('a.kind = ?')
+    params.push(filter.kind)
+  }
+  if (filter.tool) {
+    where.push('a.tool = ?')
+    params.push(filter.tool)
+  }
+  if (filter.bookId) {
+    where.push('COALESCE(a.book_id, c.book_id) = ?')
+    params.push(filter.bookId)
+  }
+  if (filter.chapterId) {
+    where.push('a.chapter_id = ?')
+    params.push(filter.chapterId)
+  }
+  if (filter.query?.trim()) {
+    const escaped = filter.query.trim().replace(/[\\%_]/g, (char) => `\\${char}`)
+    const like = `%${escaped}%`
+    where.push("(a.title LIKE ? ESCAPE '\\' OR a.content LIKE ? ESCAPE '\\')")
+    params.push(like, like)
+  }
+  const limit = Math.min(Math.max(filter.limit ?? 100, 1), 300)
+  const rows = database()
+    .prepare(`${contentSelect()} ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY a.updated_at DESC, a.created_at DESC LIMIT ?`)
+    .all(...params, limit) as unknown as ContentRow[]
+  return rows.map(mapContentItem)
+}
+
+export function getContent(id: string): ContentItem | null {
+  const row = database().prepare(`${contentSelect()} WHERE a.id = ?`).get(id) as ContentRow | undefined
+  return row ? mapContentItem(row) : null
+}
+
+export function setContentFavorite(id: string, favorite: boolean): ContentItem {
+  database().prepare('UPDATE lab_artifact_versions SET favorite = ? WHERE id = ?').run(favorite ? 1 : 0, id)
+  const item = getContent(id)
+  if (!item) throw new Error('找不到这份生成内容。')
+  return item
+}
+
+export function setContentStatus(id: string, status: ContentStatus): ContentItem {
+  if (status !== 'draft' && status !== 'adopted' && status !== 'archived' && status !== 'deleted') {
+    throw new Error('内容状态无效。')
+  }
+  database()
+    .prepare('UPDATE lab_artifact_versions SET status = ?, deleted_at = ?, updated_at = ? WHERE id = ?')
+    .run(status, status === 'deleted' ? new Date().toISOString() : null, new Date().toISOString(), id)
+  const item = getContent(id)
+  if (!item) throw new Error('找不到这份生成内容。')
+  return item
+}
+
+export function deleteContent(id: string): void {
+  setContentStatus(id, 'deleted')
+}
+
+function readableArtifactContent(tool: string, content: string): string {
+  const kind = contentKindForTool(tool)
+  return contentAsMarkdown({
+    id: '',
+    tool,
+    scope: '',
+    title: '',
+    content,
+    meta: null,
+    createdAt: '',
+    kind,
+    bookId: null,
+    chapterId: null,
+    bookTitle: null,
+    chapterTitle: null,
+    favorite: false,
+    status: 'draft',
+    updatedAt: '',
+    appliedNoteId: null,
+  })
+}
+
+export function contentAsMarkdown(item: ContentItem): string {
+  if (item.kind === 'chat') {
+    try {
+      const parsed = JSON.parse(item.content) as { turns?: Array<{ role?: string; content?: string }> }
+      if (Array.isArray(parsed.turns)) {
+        return parsed.turns
+          .map((turn) => `**${turn.role === 'user' ? '我' : '助手'}**：${turn.content ?? ''}`)
+          .join('\n\n')
+      }
+    } catch {
+      // 旧格式。
+    }
+  }
+  if (item.kind === 'quiz') {
+    try {
+      const parsed = JSON.parse(item.content) as {
+        quiz?: { questions?: Array<Record<string, unknown>> }
+        questions?: Array<Record<string, unknown>>
+      }
+      const questions = parsed.quiz?.questions ?? parsed.questions
+      if (Array.isArray(questions)) {
+        return questions
+          .map((question, index) => {
+            const title = typeof question.question === 'string' ? question.question : ''
+            const answer = typeof question.answer === 'string' ? question.answer : ''
+            const source = typeof question.source === 'string' ? question.source : ''
+            return `${index + 1}. **${title}**\n\n参考答案：${answer}${source ? `\n\n依据：${source}` : ''}`
+          })
+          .join('\n\n')
+      }
+    } catch {
+      // 旧格式。
+    }
+  }
+  if (item.kind === 'notes') {
+    try {
+      const parsed = JSON.parse(item.content) as { notes?: Array<Record<string, unknown>> }
+      if (Array.isArray(parsed.notes)) {
+        return parsed.notes
+          .filter((note) => typeof note.content === 'string' && note.content.trim())
+          .map((note) => {
+            const title = typeof note.title === 'string' ? note.title : ''
+            return `${title ? `### ${title}\n\n` : ''}${note.content as string}`
+          })
+          .join('\n\n')
+      }
+    } catch {
+      // 旧格式。
+    }
+  }
+  if (item.kind === 'compose') {
+    try {
+      const parsed = JSON.parse(item.content) as { markdown?: string }
+      if (typeof parsed.markdown === 'string') return parsed.markdown
+    } catch {
+      // 旧格式。
+    }
+  }
+  if (item.kind === 'pdf') {
+    try {
+      const parsed = JSON.parse(item.content) as { result?: { markdown?: string } }
+      if (typeof parsed.result?.markdown === 'string') return parsed.result.markdown
+    } catch {
+      // 旧格式。
+    }
+  }
+  if (item.kind === 'format') {
+    try {
+      const parsed = JSON.parse(item.content) as { note?: string }
+      if (typeof parsed.note === 'string' && parsed.note.trim()) return parsed.note
+    } catch {
+      // 旧格式。
+    }
+  }
+  return item.content
+}
+
+export function applyContent(id: string, action: ContentApplyAction): ContentApplyResult {
+  const item = getContent(id)
+  if (!item || item.status === 'deleted') throw new Error('这份生成内容已经删除。')
+
+  if (action === 'current') {
+    database()
+      .prepare("UPDATE lab_artifact_versions SET current_at = ?, status = 'adopted', updated_at = ? WHERE id = ?")
+      .run(new Date().toISOString(), new Date().toISOString(), id)
+    return { appliedTo: 'current', message: '已设为当前内容。' }
+  }
+
+  if (action === 'source') {
+    if (!item.chapterId) throw new Error('这份内容没有关联章节。')
+    if (item.kind === 'format') {
+      const parsed = JSON.parse(item.content) as { html?: string; removed?: RemovedPart[]; style?: ReaderStyle }
+      if (typeof parsed.html !== 'string' || !parsed.html.trim()) throw new Error('这份排版没有可应用的正文。')
+      saveChapterFormat(item.chapterId, parsed.html, Array.isArray(parsed.removed) ? parsed.removed : [])
+      if (parsed.style && item.bookId) saveBookStyle(item.bookId, parsed.style)
+      database()
+        .prepare("UPDATE lab_artifact_versions SET status = 'adopted', updated_at = ? WHERE id = ?")
+        .run(new Date().toISOString(), id)
+      return { appliedTo: 'chapter', chapterId: item.chapterId, message: '排版已应用到章节。' }
+    }
+    if (item.kind === 'notes') {
+      const parsed = JSON.parse(item.content) as { notes?: Note[]; report?: NoteReport | null }
+      if (!Array.isArray(parsed.notes) || parsed.notes.length === 0) throw new Error('这份记录没有可恢复的笔记。')
+      const generated: GeneratedNote[] = parsed.notes.map((note) => ({
+        kind: note.kind,
+        title: note.title,
+        content: note.content,
+        quote: note.quote,
+        quoteVerified: note.quoteVerified,
+        tags: note.tags,
+        section: note.section,
+        importance: note.importance,
+        role: note.role,
+        divergences: note.divergences,
+      }))
+      replaceAiNotes(item.chapterId, generated)
+      if (parsed.report) saveNoteReport(item.chapterId, parsed.report)
+      database()
+        .prepare("UPDATE lab_artifact_versions SET status = 'adopted', updated_at = ? WHERE id = ?")
+        .run(new Date().toISOString(), id)
+      return { appliedTo: 'chapter', chapterId: item.chapterId, message: '这组笔记已恢复到章节。' }
+    }
+    throw new Error('这份内容不能直接应用到来源章节。')
+  }
+
+  if (action === 'note') {
+    if (item.appliedNoteId) {
+      try {
+        const existing = getNote(item.appliedNoteId)
+        return { appliedTo: 'note', noteId: existing.id, message: '这份内容已经存为笔记。' }
+      } catch {
+        // 原笔记已删除，重新存一份。
+      }
+    }
+    const bookId = item.bookId ?? (listBooks()[0]?.id ?? null)
+    if (!bookId) throw new Error('还没有可以存放笔记的书。')
+    const note = createNote({
+      bookId,
+      chapterId: item.chapterId,
+      kind: 'summary',
+      title: item.title,
+      content: contentAsMarkdown(item),
+    })
+    database()
+      .prepare("UPDATE lab_artifact_versions SET status = 'adopted', applied_note_id = ?, updated_at = ? WHERE id = ?")
+      .run(note.id, new Date().toISOString(), id)
+    return { appliedTo: 'note', noteId: note.id, message: '已存为笔记。' }
+  }
+
+  return { appliedTo: 'none', message: '没有执行任何操作。' }
 }
 
 export function listExperiments(): LabExperiment[] {  const rows = database()

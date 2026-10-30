@@ -334,6 +334,42 @@ export interface LabArtifact {
   createdAt: string
 }
 
+export type ContentKind = 'report' | 'chat' | 'quiz' | 'notes' | 'format' | 'compose' | 'suggestion' | 'pdf' | 'other'
+
+export type ContentStatus = 'draft' | 'adopted' | 'archived' | 'deleted'
+
+export interface ContentItem extends LabArtifact {
+  kind: ContentKind
+  bookId: string | null
+  chapterId: string | null
+  bookTitle: string | null
+  chapterTitle: string | null
+  favorite: boolean
+  status: ContentStatus
+  updatedAt: string
+  appliedNoteId: string | null
+}
+
+export interface ContentFilter {
+  query?: string
+  kind?: ContentKind
+  tool?: string
+  bookId?: string
+  chapterId?: string
+  favorite?: boolean
+  status?: 'active' | ContentStatus | 'all'
+  limit?: number
+}
+
+export type ContentApplyAction = 'note' | 'source' | 'current'
+
+export interface ContentApplyResult {
+  appliedTo: 'note' | 'chapter' | 'current' | 'none'
+  noteId?: string
+  chapterId?: string
+  message: string
+}
+
 export interface NoteDraft {
   bookId: string
   chapterId?: string | null
@@ -495,7 +531,7 @@ export interface SaveFileResult {
   path: string | null
 }
 
-export type SearchResultType = 'book' | 'chapter' | 'note'
+export type SearchResultType = 'book' | 'chapter' | 'note' | 'content'
 
 export interface SearchResult {
   type: SearchResultType
@@ -651,7 +687,20 @@ export interface ReadingApi {
     title: string
     content: string
     meta?: string | null
+    kind?: ContentKind
+    bookId?: string | null
+    chapterId?: string | null
   }): Promise<LabArtifact>
+  updateLabArtifact(
+    id: string,
+    patch: { title?: string; content?: string; meta?: string | null },
+  ): Promise<LabArtifact>
+  listContent(filter?: ContentFilter): Promise<ContentItem[]>
+  getContent(id: string): Promise<ContentItem | null>
+  setContentFavorite(id: string, favorite: boolean): Promise<ContentItem>
+  setContentStatus(id: string, status: ContentStatus): Promise<ContentItem>
+  deleteContent(id: string): Promise<void>
+  applyContent(id: string, action: ContentApplyAction): Promise<ContentApplyResult>
   createNote(draft: NoteDraft): Promise<Note>
   updateNote(id: string, patch: NotePatch): Promise<Note>
   deleteNote(id: string): Promise<void>

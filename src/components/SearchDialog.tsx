@@ -11,12 +11,14 @@ const GROUPS: Array<{ type: SearchResultType; label: string }> = [
   { type: 'book', label: '书' },
   { type: 'chapter', label: '章节' },
   { type: 'note', label: '笔记' },
+  { type: 'content', label: '生成内容' },
 ]
 
 const KIND_LABEL: Record<SearchResultType, string> = {
   book: '书',
   chapter: '章节',
   note: '笔记',
+  content: '生成',
 }
 
 function highlight(text: string, query: string): JSX.Element {
@@ -130,8 +132,8 @@ export function SearchDialog({ open, onClose, onOpen }: SearchDialogProps): JSX.
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={handleKey}
-            placeholder="搜索书名、章节或笔记内容…"
-            aria-label="搜索书名、章节或笔记内容"
+            placeholder="搜索书名、章节、笔记或生成内容…"
+            aria-label="搜索书名、章节、笔记或生成内容"
           />
           <span className="search-shortcut">Esc</span>
         </div>
@@ -139,7 +141,7 @@ export function SearchDialog({ open, onClose, onOpen }: SearchDialogProps): JSX.
         <div className="search-results">
           {error ? <div className="inline-error">{error}</div> : null}
           {!query.trim() ? (
-            <p className="search-empty">输入关键词，跨所有书搜索书名、章节正文和笔记。</p>
+            <p className="search-empty">输入关键词，跨所有书搜索书名、章节正文、笔记和生成内容。</p>
           ) : loading && results.length === 0 ? (
             <p className="search-empty">正在搜索…</p>
           ) : results.length === 0 ? (

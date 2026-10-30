@@ -6,7 +6,9 @@ import { generateText } from 'ai'
 
 import {
   applyChapterFlags,
+  applyContent,
   createNote,
+  deleteContent,
   deleteChapters,
   deleteNote,
   deleteBook as deleteBookRow,
@@ -15,6 +17,7 @@ import {
   getBookSummary,
   getChapter,
   getChapters,
+  getContent,
   getLabArtifact,
   getNote,
   listLabArtifacts,
@@ -22,6 +25,7 @@ import {
   getReviewStats,
   listBooks,
   listExperiments,
+  listContent,
   listLibraryNotes,
   listLibraryTags,
   listNotes,
@@ -38,6 +42,9 @@ import {
   saveBookStyle,
   saveChapterFormat,
   saveLabArtifact,
+  setContentFavorite,
+  setContentStatus,
+  updateLabArtifact,
   saveNoteDivergences,
   saveNoteReport,
   searchLibrary,
@@ -76,6 +83,10 @@ import type {
   BookGenerationProgress,
   ChapterFlag,
   ChatMode,
+  ContentApplyAction,
+  ContentFilter,
+  ContentKind,
+  ContentStatus,
   ChatTurn,
   GeneratePartial,
   LabRequest,
@@ -131,6 +142,17 @@ async function generateChapterToDb(
   if (signal.aborted) throw new Error('生成已取消')
   const notes = replaceAiNotes(chapterId, result.notes)
   saveNoteReport(chapterId, result.report)
+  // 每次生成留一份可恢复的快照；内容库和管理页从这里读取历史。
+  saveLabArtifact({
+    tool: 'chapter-notes',
+    scope: `chapter:${chapterId}`,
+    title: `${book.title} · ${chapter.title} · 笔记`,
+    kind: 'notes',
+    bookId: chapter.bookId,
+    chapterId,
+    content: JSON.stringify({ notes: result.notes, report: result.report }),
+    meta: JSON.stringify({ bookId: chapter.bookId, chapterId, chapterTitle: chapter.title }),
+  })
   return { notes, report: result.report }
 }
 
@@ -222,6 +244,16 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     })
     saveChapterFormat(chapterId, result.html, result.removed)
     const savedStyle = saveBookStyle(chapter.bookId, result.style)
+    saveLabArtifact({
+      tool: 'chapter-format',
+      scope: `chapter:${chapterId}`,
+      title: `${chapter.title} · AI 排版`,
+      kind: 'format',
+      bookId: chapter.bookId,
+      chapterId,
+      content: JSON.stringify({ html: result.html, removed: result.removed, style: savedStyle, note: result.note }),
+      meta: JSON.stringify({ bookId: chapter.bookId, chapterId, chapterTitle: chapter.title }),
+    })
     return {
       chapterId,
       html: result.html,
@@ -420,9 +452,55 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     typeof tool === 'string' ? listLabArtifacts(tool, typeof limit === 'number' ? limit : 30) : [],
   )
 
-  ipcMain.handle('lab:artifact-save', (_event, input: { tool: string; scope: string; title: string; content: string; meta?: string | null }) => {
-    if (!input || typeof input !== 'object') throw new Error('保存内容无效。')
-    return saveLabArtifact(input)
+  ipcMain.handle(
+    'lab:artifact-save',
+    (
+      _event,
+      input: {
+        tool: string
+        scope: string
+        title: string
+        content: string
+        meta?: string | null
+        kind?: ContentKind
+        bookId?: string | null
+        chapterId?: string | null
+      },
+    ) => {
+      if (!input || typeof input !== 'object') throw new Error('保存内容无效。')
+      return saveLabArtifact(input)
+    },
+  )
+
+  ipcMain.handle('lab:artifact-update', (_event, id: string, patch) => {
+    if (typeof id !== 'string' || !patch || typeof patch !== 'object') throw new Error('生成内容参数无效。')
+    return updateLabArtifact(id, patch)
+  })
+
+  ipcMain.handle('content:list', (_event, filter?: ContentFilter) =>
+    listContent(filter && typeof filter === 'object' ? filter : {}),
+  )
+
+  ipcMain.handle('content:get', (_event, id: string) => (typeof id === 'string' ? getContent(id) : null))
+
+  ipcMain.handle('content:favorite', (_event, id: string, favorite: boolean) => {
+    if (typeof id !== 'string' || typeof favorite !== 'boolean') throw new Error('收藏参数无效。')
+    return setContentFavorite(id, favorite)
+  })
+
+  ipcMain.handle('content:status', (_event, id: string, status: ContentStatus) => {
+    if (typeof id !== 'string') throw new Error('内容参数无效。')
+    return setContentStatus(id, status)
+  })
+
+  ipcMain.handle('content:delete', (_event, id: string) => {
+    if (typeof id !== 'string') throw new Error('内容参数无效。')
+    deleteContent(id)
+  })
+
+  ipcMain.handle('content:apply', (_event, id: string, action: ContentApplyAction) => {
+    if (typeof id !== 'string') throw new Error('内容参数无效。')
+    return applyContent(id, action)
   })
 
   ipcMain.handle('notes:list', (_event, bookId: string, chapterId?: string | null) =>
