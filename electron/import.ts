@@ -17,6 +17,7 @@ import { parseDocx, parseHtmlDocument, parseMarkdownDocument } from './parsers/d
 import { parseEpub } from './parsers/epub.js'
 import { parseMobi } from './parsers/mobi.js'
 import { parsePdf } from './parsers/pdf.js'
+import { extractPdfCover } from './parsers/pdf-cover.js'
 import { parseScannedPdf } from './parsers/pdf-ocr.js'
 import { groupHighlights, parseHighlightsFile } from './parsers/highlights.js'
 import type { HighlightEntry } from './parsers/highlights.js'
@@ -116,10 +117,13 @@ async function persistParsedBook(
   classifyOptions: { skipToc?: boolean } = {},
 ): Promise<BookSummary> {
   let coverPath: string | null = null
-  if (parsed.cover) {
+  const cover =
+    parsed.cover ??
+    (format === 'pdf' || format === 'pdf-ocr' ? await extractPdfCover(storedPath) : null)
+  if (cover) {
     try {
-      coverPath = path.join(path.dirname(storedPath), `cover${parsed.cover.extension}`)
-      await fs.writeFile(coverPath, parsed.cover.data)
+      coverPath = path.join(path.dirname(storedPath), `cover${cover.extension}`)
+      await fs.writeFile(coverPath, cover.data)
     } catch {
       coverPath = null
     }

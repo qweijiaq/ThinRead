@@ -31,3 +31,20 @@ jobs:
         run: pnpm test
       - name: Build
         run: pnpm build
+
+  ui-smoke:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: UI smoke test
+        run: pnpm test:ui

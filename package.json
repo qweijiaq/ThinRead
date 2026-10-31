@@ -14,6 +14,7 @@
     "start": "electron .",
     "screenshot": "pnpm build && electron . --screenshot=./screenshot.png",
     "test": "node scripts/run-tests.mjs",
+    "test:ui": "pnpm build && node scripts/test-ui.mjs",
     "pack": "pnpm build && electron-builder --dir",
     "dist:mac": "pnpm build && electron-builder --mac",
     "dist:win": "pnpm build && electron-builder --win",

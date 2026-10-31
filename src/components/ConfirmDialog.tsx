@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
 import { createPortal } from 'react-dom'
 
+import { useDialogFocus } from '../lib/useDialogFocus.js'
+
 export interface ConfirmRequest {
   title?: string
   message: string
@@ -30,6 +32,7 @@ export function confirmDialog(request: ConfirmRequest): Promise<boolean> {
 export function ConfirmHost(): JSX.Element | null {
   const [pending, setPending] = useState<PendingConfirm | null>(null)
   const confirmRef = useRef<HTMLButtonElement | null>(null)
+  const dialogRef = useDialogFocus<HTMLDivElement>(Boolean(pending), () => finish(false), 'button.primary-button')
 
   useEffect(() => {
     showConfirm = (request, resolve) => setPending({ request, resolve })
@@ -66,6 +69,7 @@ export function ConfirmHost(): JSX.Element | null {
   return createPortal(
     <div className="modal-backdrop confirm-backdrop" onMouseDown={() => finish(false)}>
       <div
+        ref={dialogRef}
         className="confirm-dialog"
         role="alertdialog"
         aria-modal="true"

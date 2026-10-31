@@ -85,6 +85,7 @@ import { buildKnowledgeMap } from './knowledge-map.js'
 import { configureSemantic, semanticRelatedNotes, warmSemanticIndex } from './semantic.js'
 import { getActiveSettings, getReadwiseToken, getSettingsView, isDemoMode, saveSettings } from './settings.js'
 import { fetchReadwiseEntries } from './readwise.js'
+import { searchIndex } from './search-index.js'
 import type {
   BookComposeOptions,
   BookComposeResult,
@@ -691,9 +692,12 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     deleteChapters(chapterIds)
   })
 
-  ipcMain.handle('library:search', (_event, query: string) =>
-    typeof query === 'string' ? searchLibrary(query) : [],
-  )
+  ipcMain.handle('library:search', (_event, query: string) => {
+    if (typeof query !== 'string') return []
+    const term = query.replace(/\s+/g, ' ').trim()
+    if (!term) return []
+    return searchIndex(term) ?? searchLibrary(term)
+  })
 
   ipcMain.handle('library:search-semantic', async (_event, query: string) => {
     if (typeof query !== 'string' || query.trim().length < 4) return []

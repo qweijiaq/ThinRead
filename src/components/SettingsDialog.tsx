@@ -10,6 +10,7 @@ import type {
   SettingsView,
   TestResult,
 } from '../../shared/types.js'
+import { useDialogFocus } from '../lib/useDialogFocus.js'
 import { confirmDialog } from './ConfirmDialog.js'
 import { Select } from './Select.js'
 
@@ -78,6 +79,7 @@ export function SettingsDialog({
   const [testing, setTesting] = useState(false)
   const [result, setResult] = useState<TestResult | null>(null)
   const [backups, setBackups] = useState<BackupInfo[]>([])
+  const dialogRef = useDialogFocus<HTMLDivElement>(open, onClose, 'input, select, textarea')
   const [backupBusy, setBackupBusy] = useState<string | null>(null)
   const [backupError, setBackupError] = useState<string | null>(null)
   const [backupNotice, setBackupNotice] = useState<string | null>(null)
@@ -233,7 +235,14 @@ export function SettingsDialog({
 
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
-      <div className="modal" onMouseDown={(event) => event.stopPropagation()}>
+      <div
+        ref={dialogRef}
+        className="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="设置"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
         <div className="modal-head">
           <h2>设置</h2>
           <button type="button" className="icon-button" onClick={onClose} aria-label="关闭">

@@ -84,7 +84,7 @@ export function buildOutlineChapters(
   return chapters
 }
 
-function findOcrScript(): string {
+export function findPdfScript(): string {
   const resources = (process as unknown as { resourcesPath?: string }).resourcesPath
   const candidates = [
     ...(resources ? [path.join(resources, 'scripts', 'pdf-ocr.swift')] : []),
@@ -93,7 +93,7 @@ function findOcrScript(): string {
     path.join(__dirname, '..', '..', 'scripts', 'pdf-ocr.swift'),
   ]
   const found = candidates.find((candidate) => fs.existsSync(candidate))
-  if (!found) throw new Error('找不到扫描版 PDF 的 OCR 脚本。')
+  if (!found) throw new Error('找不到 PDF 处理脚本。')
   return found
 }
 
@@ -106,7 +106,7 @@ export async function parseScannedPdf(
 ): Promise<ScannedPdfResult> {
   if (process.platform !== 'darwin') throw new Error('扫描版 PDF 的 OCR 目前只支持 macOS。')
   if (signal?.aborted) throw new Error('OCR 已取消')
-  const script = findOcrScript()
+  const script = findPdfScript()
   const pages: Array<{ page: number; text: string }> = []
   let pageCount = 0
   let rangeStart = 1

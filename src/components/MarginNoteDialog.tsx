@@ -1,4 +1,5 @@
 import { useEffect, useState, type JSX } from 'react'
+import { useDialogFocus } from '../lib/useDialogFocus.js'
 import type { ChapterContent, LabReport } from '../../shared/types.js'
 import { Markdown } from './Markdown.js'
 
@@ -14,6 +15,7 @@ export function MarginNoteDialog({ chapter, quote, onSave, onClose }: MarginNote
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const dialogRef = useDialogFocus<HTMLDivElement>(true, onClose, 'button')
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -52,7 +54,14 @@ export function MarginNoteDialog({ chapter, quote, onSave, onClose }: MarginNote
 
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
-      <div className="modal margin-note-modal" onMouseDown={(event) => event.stopPropagation()}>
+      <div
+        ref={dialogRef}
+        className="modal margin-note-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="AI 边注"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
         <div className="modal-head">
           <div>
             <h2>AI 边注</h2>

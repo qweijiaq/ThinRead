@@ -1,4 +1,5 @@
 import { useEffect, type JSX } from 'react'
+import { useDialogFocus } from '../lib/useDialogFocus.js'
 import type { RelatedNote } from '../../shared/types.js'
 import { Markdown } from './Markdown.js'
 
@@ -20,9 +21,17 @@ export function EchoDialog({ bookTitle, chapterTitle, excerpt, echoes, onOpen, o
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
+  const dialogRef = useDialogFocus<HTMLDivElement>(true, onClose, 'button')
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
-      <div className="echo-modal" role="dialog" aria-modal="true" aria-label="页边回声" onMouseDown={(event) => event.stopPropagation()}>
+      <div
+        ref={dialogRef}
+        className="echo-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="页边回声"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
         <div className="echo-head">
           <div>
             <h2>页边回声</h2>

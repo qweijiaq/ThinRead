@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type JSX } from 'react'
+import { useDialogFocus } from '../lib/useDialogFocus.js'
 
 import type { BookSummary } from '../../shared/types.js'
 import type { PublishCoverStyle } from '../lib/publish-cover.js'
@@ -88,6 +89,7 @@ export function PublishDialog({ open, book, title, markdown, onClose }: PublishD
     }
   }, [open, includeCover, displayTitle, description, book.title, book.author, date, coverStyle])
 
+  const dialogRef = useDialogFocus<HTMLDivElement>(open, () => { if (!busy) onClose() }, 'button')
   if (!open) return null
 
   async function exportPackage(): Promise<void> {
@@ -121,6 +123,7 @@ export function PublishDialog({ open, book, title, markdown, onClose }: PublishD
   return (
     <div className="modal-backdrop" onMouseDown={() => !busy && onClose()}>
       <div
+        ref={dialogRef}
         className="publish-dialog"
         role="dialog"
         aria-modal="true"

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
+import { useDialogFocus } from '../lib/useDialogFocus.js'
 
 import { Checkbox } from './Checkbox.js'
 
@@ -210,9 +211,11 @@ export function ShareDialog({ note, book, notes, initialTemplate, onClose }: Sha
     }
   }
 
+  const dialogRef = useDialogFocus<HTMLDivElement>(true, onClose, 'button')
   return (
     <div className="modal-backdrop share-backdrop" onMouseDown={onClose}>
       <div
+        ref={dialogRef}
         className="share-modal"
         role="dialog"
         aria-modal="true"

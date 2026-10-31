@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type JSX } from 'react'
+import { useDialogFocus } from '../lib/useDialogFocus.js'
 
 import type { BookSummary } from '../../shared/types.js'
 import { Checkbox } from './Checkbox.js'
@@ -27,6 +28,7 @@ export function MergeBooksDialog({ open, books, onClose, onMerged }: MergeBooksD
 
   const chosen = useMemo(() => books.filter((book) => selected.has(book.id)), [books, selected])
 
+  const dialogRef = useDialogFocus<HTMLDivElement>(open, () => { if (!busy) onClose() }, 'input')
   if (!open) return null
 
   async function merge(): Promise<void> {
@@ -49,7 +51,14 @@ export function MergeBooksDialog({ open, books, onClose, onMerged }: MergeBooksD
 
   return (
     <div className="modal-backdrop" onMouseDown={() => !busy && onClose()}>
-      <div className="merge-dialog" role="dialog" aria-modal="true" aria-label="合并书籍" onMouseDown={(event) => event.stopPropagation()}>
+      <div
+        ref={dialogRef}
+        className="merge-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label="合并书籍"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
         <div className="import-head">
           <div>
             <h2>合并书籍</h2>

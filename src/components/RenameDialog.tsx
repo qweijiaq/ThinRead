@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
+import { useDialogFocus } from '../lib/useDialogFocus.js'
 
 interface RenameDialogProps {
   open: boolean
@@ -27,6 +28,8 @@ export function RenameDialog({ open, title, label, value, onSave, onClose }: Ren
     return () => window.clearTimeout(timer)
   }, [open, value])
 
+  const dialogRef = useDialogFocus<HTMLFormElement>(open, onClose, 'input')
+
   if (!open) return null
 
   async function submit(): Promise<void> {
@@ -46,7 +49,11 @@ export function RenameDialog({ open, title, label, value, onSave, onClose }: Ren
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
       <form
+        ref={dialogRef}
         className="modal rename-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
         onMouseDown={(event) => event.stopPropagation()}
         onSubmit={(event) => {
           event.preventDefault()

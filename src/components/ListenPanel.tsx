@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
+import { useDialogFocus } from '../lib/useDialogFocus.js'
 
 import { Select } from './Select.js'
 
@@ -130,9 +131,17 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
     setPlaying(true)
   }
 
+  const dialogRef = useDialogFocus<HTMLDivElement>(true, onClose, 'button')
   return (
     <div className="listen-backdrop" onMouseDown={onClose}>
-      <div className="listen-panel" role="dialog" aria-modal="true" aria-label="听读" onMouseDown={(event) => event.stopPropagation()}>
+      <div
+        ref={dialogRef}
+        className="listen-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-label="听读"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
         <div className="listen-head">
           <div>
             <h2>听读</h2>

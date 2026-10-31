@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type JSX } from 'react'
 
+import { useDialogFocus } from '../lib/useDialogFocus.js'
 import { Checkbox } from './Checkbox.js'
 import { confirmDialog } from './ConfirmDialog.js'
 import type {
@@ -64,6 +65,8 @@ export function OrganizeDialog({
     setSelected(new Set(suggestions.filter((item) => item.hidden).map((item) => item.chapterId)))
   }, [open, suggestions])
 
+  const dialogRef = useDialogFocus<HTMLDivElement>(open, () => { if (!busy && !applying) onClose() }, 'button')
+
   if (!open) return null
 
   const ordered = [...chapters].sort((a, b) => a.idx - b.idx)
@@ -125,7 +128,14 @@ export function OrganizeDialog({
 
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
-      <div className="modal organize-modal" onMouseDown={(event) => event.stopPropagation()}>
+      <div
+        ref={dialogRef}
+        className="modal organize-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="整理目录"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
         <div className="modal-head">
           <div>
             <h2>整理目录</h2>

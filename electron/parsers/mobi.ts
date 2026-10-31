@@ -19,6 +19,7 @@ interface MobiBookLike {
   loadChapter(id: string): { html: string } | undefined
   getToc?(): MobiTocItemLike[]
   resolveHref?(href: string): { id: string; selector: string } | undefined
+  getCoverImage?(): string
   destroy(): void
 }
 
@@ -28,6 +29,23 @@ interface Attempt {
   format: 'mobi' | 'azw3'
   init: MobiInitializer
 }
+
+interface ParsedMobi {
+  title: string
+  author: string
+  chapters: NewChapter[]
+  cover?: { data: Uint8Array; mime: string; extension: string }
+}
+
+const COVER_MIME: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.svg': 'image/svg+xml',
+}
+const MAX_COVER_BYTES = 8 * 1024 * 1024
 
 function patchKf8Loader(book: MobiBookLike): void {
   const target = book as unknown as {
@@ -60,7 +78,7 @@ async function parseWith(
   buffer: Buffer,
   attempt: Attempt,
   fallbackTitle: string,
-): Promise<{ title: string; author: string; chapters: NewChapter[] } | null> {
+): Promise<ParsedMobi | null> {
   const resourceDir = await fs.mkdtemp(path.join(os.tmpdir(), 'reading-notes-mobi-'))
   let book: MobiBookLike | undefined
   try {
@@ -104,10 +122,25 @@ async function parseWith(
     }
     if (chapters.length === 0) return null
     const metadata = book.getMetadata()
+    let cover: { data: Uint8Array; mime: string; extension: string } | undefined
+    try {
+      const coverPath = book.getCoverImage?.()
+      if (coverPath) {
+        const extension = path.extname(coverPath).toLowerCase()
+        const mime = COVER_MIME[extension]
+        const data = await fs.readFile(coverPath)
+        if (mime && data.length > 0 && data.length <= MAX_COVER_BYTES) {
+          cover = { data: new Uint8Array(data), mime, extension }
+        }
+      }
+    } catch {
+      // 封面缺失不应该影响正文导入。
+    }
     return {
       title: metadata.title?.trim() || fallbackTitle,
       author: (metadata.author ?? []).map((author) => author.trim()).filter(Boolean).join(', '),
       chapters,
+      cover,
     }
   } finally {
     book?.destroy()
@@ -118,14 +151,14 @@ async function parseWith(
 export async function parseMobi(
   buffer: Buffer,
   sourceName: string,
-): Promise<{ title: string; author: string; chapters: NewChapter[] }> {
+): Promise<ParsedMobi> {
   const { initMobiFile, initKf8File } = await import('@lingo-reader/mobi-parser')
   const extension = path.extname(sourceName).toLowerCase()
   const mobile: Attempt = { format: 'mobi', init: initMobiFile as MobiInitializer }
   const kf8: Attempt = { format: 'azw3', init: initKf8File as MobiInitializer }
   const attempts = extension === '.azw3' ? [kf8, mobile] : [mobile, kf8]
   const fallbackTitle = path.basename(sourceName, extension) || '未命名'
-  let best: { title: string; author: string; chapters: NewChapter[] } | null = null
+  let best: ParsedMobi | null = null
   let bestChars = 0
   for (const attempt of attempts) {
     try {

@@ -1,4 +1,5 @@
 import { useEffect, useState, type JSX } from 'react'
+import { useDialogFocus } from '../lib/useDialogFocus.js'
 
 import type { BookSummary, HighlightImportResult, OcrJob } from '../../shared/types.js'
 import { Checkbox } from './Checkbox.js'
@@ -57,6 +58,7 @@ export function ImportDialog({
     return () => document.removeEventListener('keydown', onKey)
   }, [open, busy, onClose])
 
+  const dialogRef = useDialogFocus<HTMLDivElement>(open, () => { if (!busy) onClose() }, 'button')
   if (!open) return null
 
   async function chooseFile(): Promise<void> {
@@ -178,6 +180,7 @@ export function ImportDialog({
   return (
     <div className="modal-backdrop import-backdrop" onMouseDown={() => !busy && onClose()}>
       <div
+        ref={dialogRef}
         className="import-modal"
         role="dialog"
         aria-modal="true"

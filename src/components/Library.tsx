@@ -169,7 +169,14 @@ export function Library({ books, importing, onOpen, onImport, onDelete, onRename
                 <span>{book.format.toUpperCase()}</span>
                 <span>{bookGenreLabel(book.genre)}</span>
               </div>
-              <div className="progress-track">
+              <div
+                className="progress-track"
+                role="progressbar"
+                aria-label={`${book.title} 的阅读进度`}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={Math.round(book.progress * 100)}
+              >
                 <div className="progress-fill" style={{ width: `${Math.round(book.progress * 100)}%` }} />
               </div>
               <div className="book-actions">

@@ -90,6 +90,7 @@ function ensureWindowVisible(window: BrowserWindow): void {
 }
 
 function createWindow(): void {
+  const headless = process.env.THINREAD_HEADLESS === '1'
   const appRoot = app.getAppPath()
   const window = new BrowserWindow({
     width: 1440,
@@ -106,6 +107,7 @@ function createWindow(): void {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      backgroundThrottling: !headless,
     },
   })
   mainWindow = window
@@ -130,6 +132,7 @@ function createWindow(): void {
   })
 
   window.once('ready-to-show', () => {
+    if (headless) return
     ensureWindowVisible(window)
     window.show()
     window.focus()

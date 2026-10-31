@@ -18,6 +18,35 @@ func ocr(image: CGImage) -> String {
 }
 
 let args = CommandLine.arguments
+
+// 封面模式：只渲染第一页，供书架的 PDF 封面使用。
+if args.count >= 4 && args[1] == "cover" {
+    let source = URL(fileURLWithPath: args[2])
+    let destination = URL(fileURLWithPath: args[3])
+    guard let document = PDFDocument(url: source), let page = document.page(at: 0) else {
+        FileHandle.standardError.write("cannot open pdf cover\n".data(using: .utf8)!)
+        exit(1)
+    }
+    let bounds = page.bounds(for: .mediaBox)
+    let width = max(1, bounds.width)
+    let scale = 600 / width
+    let size = NSSize(width: max(1, bounds.width * scale), height: max(1, bounds.height * scale))
+    let image = page.thumbnail(of: size, for: .mediaBox)
+    guard let tiff = image.tiffRepresentation,
+          let rep = NSBitmapImageRep(data: tiff),
+          let png = rep.representation(using: .png, properties: [:]) else {
+        FileHandle.standardError.write("cannot render pdf cover\n".data(using: .utf8)!)
+        exit(1)
+    }
+    do {
+        try png.write(to: destination)
+        exit(0)
+    } catch {
+        FileHandle.standardError.write("cannot write pdf cover\n".data(using: .utf8)!)
+        exit(1)
+    }
+}
+
 guard args.count >= 3, let maxPages = Int(args[2]), maxPages > 0 else {
     FileHandle.standardError.write("usage: pdf-ocr.swift <pdf> <max-pages>\n".data(using: .utf8)!)
     exit(2)

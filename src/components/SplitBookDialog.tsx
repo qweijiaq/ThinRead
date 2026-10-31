@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type JSX } from 'react'
+import { useDialogFocus } from '../lib/useDialogFocus.js'
 
 import type { BookSummary, ChapterMeta } from '../../shared/types.js'
 import { Select } from './Select.js'
@@ -32,6 +33,7 @@ export function SplitBookDialog({ open, book, chapters, onClose, onSplit }: Spli
     setError(null)
   }, [open, book?.id, options])
 
+  const dialogRef = useDialogFocus<HTMLDivElement>(open, () => { if (!busy) onClose() }, 'select')
   if (!open || !book) return null
 
   async function split(): Promise<void> {
@@ -50,7 +52,14 @@ export function SplitBookDialog({ open, book, chapters, onClose, onSplit }: Spli
 
   return (
     <div className="modal-backdrop" onMouseDown={() => !busy && onClose()}>
-      <div className="split-dialog" role="dialog" aria-modal="true" aria-label="拆分书籍" onMouseDown={(event) => event.stopPropagation()}>
+      <div
+        ref={dialogRef}
+        className="split-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label="拆分书籍"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
         <div className="import-head">
           <div>
             <h2>拆分书籍</h2>

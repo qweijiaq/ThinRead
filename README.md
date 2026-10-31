@@ -334,7 +334,8 @@ src/
 ```bash
 pnpm typecheck                 # 渲染层 + 主进程类型检查
 pnpm build                     # esbuild 主进程 + vite 渲染层
-pnpm test                      # 固定回归测试：划线、OCR 切章、发布包、分类、关系图
+pnpm test                      # 固定回归测试：划线、OCR 切章、发布包、分类、关系图、全文索引
+pnpm test:ui                   # 构建后启动无头 Electron，回归搜索、分页、焦点和横向滚动
 node_modules/.bin/electron . --smoke-test
 ```
 
@@ -343,7 +344,7 @@ node_modules/.bin/electron . --smoke-test
 打包：
 
 ```bash
-pnpm pack          # 只生成当前平台的未签名应用目录
+pnpm run pack      # 只生成当前平台的未签名应用目录
 pnpm dist:mac      # dmg + zip
 pnpm dist:win      # NSIS 安装包
 pnpm dist:linux    # AppImage
