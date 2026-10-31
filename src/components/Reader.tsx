@@ -268,7 +268,7 @@ export function Reader({
         )}
       </div>
       {toolbar && selection ? (
-        <div className="selection-toolbar" style={{ left: toolbar.x, top: toolbar.y }}>
+        <div className="selection-toolbar" role="toolbar" aria-label="选中文本操作" style={{ left: toolbar.x, top: toolbar.y }}>
           <button
             type="button"
             onClick={() => {

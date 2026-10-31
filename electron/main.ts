@@ -6,7 +6,7 @@ import { app, BrowserWindow, screen, shell } from 'electron'
 import { autoUpdater } from 'electron-updater'
 
 import { generateChapterNotes } from './ai/notes.js'
-import { closeDatabase, createNote, getChapter, getChapters, initDatabase, insertBook, listBooks, replaceAiNotes, setProgress } from './db.js'
+import { closeDatabase, createNote, getChapter, getChapters, initDatabase, insertBook, listBooks, markRunningOcrJobsInterrupted, replaceAiNotes, setProgress } from './db.js'
 import { ensureDailyBackup } from './backup.js'
 import { registerIpc } from './ipc.js'
 import { importBookFile } from './import.js'
@@ -255,6 +255,7 @@ app.whenReady().then(async () => {
   const dataDir = app.getPath('userData')
   initDatabase(dataDir)
   initSettings(dataDir)
+  markRunningOcrJobsInterrupted()
   if (listBooks().length > 0) {
     ensureDailyBackup(dataDir)
     setInterval(() => {

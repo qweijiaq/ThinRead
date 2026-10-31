@@ -1,4 +1,4 @@
-import { useMemo, useState, type JSX } from 'react'
+import { useEffect, useMemo, useState, type JSX } from 'react'
 import type { BookSummary } from '../../shared/types.js'
 import { bookGenreLabel } from '../lib/genres.js'
 import { confirmDialog } from './ConfirmDialog.js'
@@ -28,6 +28,25 @@ type LibrarySort = 'recent' | 'title' | 'progress' | 'chars'
 export function Library({ books, importing, onOpen, onImport, onDelete, onRename, onCompose, onMerge }: LibraryProps): JSX.Element {
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState<LibrarySort>('recent')
+  const [covers, setCovers] = useState<Record<string, string>>({})
+  useEffect(() => {
+    let cancelled = false
+    const candidates = books.filter((book) => book.hasCover)
+    if (candidates.length === 0) {
+      setCovers({})
+      return
+    }
+    void Promise.all(
+      candidates.map(async (book) => [book.id, await window.api.getBookCover(book.id)] as const),
+    ).then((entries) => {
+      if (cancelled) return
+      setCovers(Object.fromEntries(entries.filter((entry): entry is readonly [string, string] => Boolean(entry[1]))))
+    }).catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [books])
+
   const visibleBooks = useMemo(() => {
     const term = query.trim().toLowerCase()
     const filtered = term
@@ -129,8 +148,12 @@ export function Library({ books, importing, onOpen, onImport, onDelete, onRename
               }
             }}
           >
-            <div className={`book-spine ${book.format}`}>
-              <span>{book.title.slice(0, 12)}</span>
+            <div className={`book-spine ${book.format}${covers[book.id] ? ' has-cover' : ''}`}>
+              {covers[book.id] ? (
+                <img src={covers[book.id]} alt={`${book.title} 封面`} />
+              ) : (
+                <span>{book.title.slice(0, 12)}</span>
+              )}
             </div>
             <div className="book-body">
               <h3>{book.title}</h3>

@@ -18,6 +18,7 @@ import type {
   NoteKind,
   NotePatch,
   NoteReport,
+  OcrJob,
   ReaderMark,
   ReaderMarkStyle,
   ReaderStyle,
@@ -45,6 +46,7 @@ export interface NewBook {
   author: string
   format: BookFormat
   filePath: string
+  coverPath?: string | null
 }
 
 export interface BookRecord {
@@ -74,6 +76,7 @@ interface BookRow {
   author: string
   format: string
   genre: string
+  cover_path: string | null
   file_path: string
   created_at: string
   last_opened_at: string | null
@@ -199,6 +202,20 @@ export function initDatabase(dataDir: string): void {
       vector TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS ocr_jobs (
+      id TEXT PRIMARY KEY,
+      file_name TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      start_page INTEGER NOT NULL DEFAULT 1,
+      end_page INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'running',
+      current INTEGER NOT NULL DEFAULT 0,
+      total INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_ocr_jobs_updated ON ocr_jobs(updated_at DESC);
 
     CREATE TABLE IF NOT EXISTS reader_marks (
       id TEXT PRIMARY KEY,
@@ -378,6 +395,7 @@ function migrateBooks(conn: DatabaseSync): void {
   )
   if (!columns.has('style_json')) conn.exec('ALTER TABLE books ADD COLUMN style_json TEXT')
   if (!columns.has('genre')) conn.exec("ALTER TABLE books ADD COLUMN genre TEXT NOT NULL DEFAULT 'auto'")
+  if (!columns.has('cover_path')) conn.exec('ALTER TABLE books ADD COLUMN cover_path TEXT')
 }
 
 /** 旧版本的数据库没有章节标记字段，启动时补列。 */
@@ -429,9 +447,9 @@ export function insertBook(book: NewBook, chapters: NewChapter[], bookId: string
   try {
     conn
       .prepare(
-        'INSERT INTO books (id, title, author, format, file_path, created_at, last_opened_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO books (id, title, author, format, file_path, cover_path, created_at, last_opened_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
       )
-      .run(bookId, book.title, book.author, book.format, book.filePath, now, now)
+      .run(bookId, book.title, book.author, book.format, book.filePath, book.coverPath ?? null, now, now)
     const insertChapter = conn.prepare(
       'INSERT INTO chapters (id, book_id, idx, title, text, html, chars, hidden, kind, reason, classified_by, part_title, part_index, is_part) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     )
@@ -581,6 +599,29 @@ export function getBookSummary(bookId: string): BookSummary | null {
   return row ? mapBook(row) : null
 }
 
+export function updateBookCover(bookId: string, coverPath: string): void {
+  database().prepare('UPDATE books SET cover_path = ? WHERE id = ?').run(coverPath, bookId)
+}
+
+export function getBookCover(bookId: string): string | null {
+  const row = database().prepare('SELECT cover_path FROM books WHERE id = ?').get(bookId) as
+    | { cover_path: string | null }
+    | undefined
+  if (!row?.cover_path || !fs.existsSync(row.cover_path)) return null
+  const extension = path.extname(row.cover_path).toLowerCase()
+  const mime =
+    extension === '.png' ? 'image/png'
+      : extension === '.gif' ? 'image/gif'
+        : extension === '.webp' ? 'image/webp'
+          : extension === '.svg' ? 'image/svg+xml'
+            : 'image/jpeg'
+  try {
+    return `data:${mime};base64,${fs.readFileSync(row.cover_path).toString('base64')}`
+  } catch {
+    return null
+  }
+}
+
 export function setBookGenre(bookId: string, genre: BookGenre): BookSummary {
   const allowed = new Set<BookGenre>([
     'auto',
@@ -642,6 +683,7 @@ function mapBook(row: BookRow): BookSummary {
     author: row.author,
     format: row.format as BookFormat,
     genre: (row.genre as BookGenre) || 'auto',
+    hasCover: Boolean(row.cover_path) || row.format === 'epub',
     chapterCount,
     hiddenChapterCount: Number(row.hidden_chapter_count ?? 0),
     noteCount: Number(row.note_count ?? 0),
@@ -990,6 +1032,89 @@ export function listNotes(bookId: string, chapterId?: string | null): Note[] {
         .prepare('SELECT * FROM notes WHERE book_id = ? ORDER BY created_at, rowid')
         .all(bookId) as unknown as NoteRow[])
   return rows.map(mapNote)
+}
+
+function mapOcrJob(row: {
+  id: string
+  file_name: string
+  file_path: string
+  start_page: number
+  end_page: number
+  status: string
+  current: number
+  total: number
+  created_at: string
+  updated_at: string
+}): OcrJob {
+  const status =
+    row.status === 'done' || row.status === 'error' || row.status === 'cancelled' || row.status === 'interrupted'
+      ? row.status
+      : 'running'
+  return {
+    id: row.id,
+    fileName: row.file_name,
+    filePath: row.file_path,
+    startPage: row.start_page,
+    endPage: row.end_page,
+    status,
+    current: row.current,
+    total: row.total,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
+export function createOcrJob(input: {
+  fileName: string
+  filePath: string
+  startPage: number
+  endPage: number
+}): OcrJob {
+  const id = crypto.randomUUID()
+  const now = new Date().toISOString()
+  database()
+    .prepare(
+      'INSERT INTO ocr_jobs (id, file_name, file_path, start_page, end_page, status, current, total, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?)',
+    )
+    .run(id, input.fileName, input.filePath, input.startPage, input.endPage, 'running', now, now)
+  const job = getOcrJob(id)
+  if (!job) throw new Error('OCR 任务创建失败。')
+  return job
+}
+
+export function updateOcrJob(
+  id: string,
+  patch: { status?: OcrJob['status']; current?: number; total?: number },
+): void {
+  const current = getOcrJob(id)
+  if (!current) return
+  database()
+    .prepare('UPDATE ocr_jobs SET status = ?, current = ?, total = ?, updated_at = ? WHERE id = ?')
+    .run(
+      patch.status ?? current.status,
+      patch.current ?? current.current,
+      patch.total ?? current.total,
+      new Date().toISOString(),
+      id,
+    )
+}
+
+export function getOcrJob(id: string): OcrJob | null {
+  const row = database().prepare('SELECT * FROM ocr_jobs WHERE id = ?').get(id) as
+    | Parameters<typeof mapOcrJob>[0]
+    | undefined
+  return row ? mapOcrJob(row) : null
+}
+
+export function listOcrJobs(limit = 20): OcrJob[] {
+  const rows = database()
+    .prepare('SELECT * FROM ocr_jobs ORDER BY updated_at DESC LIMIT ?')
+    .all(Math.min(Math.max(limit, 1), 50)) as unknown as Array<Parameters<typeof mapOcrJob>[0]>
+  return rows.map(mapOcrJob)
+}
+
+export function markRunningOcrJobsInterrupted(): void {
+  database().prepare("UPDATE ocr_jobs SET status = 'interrupted', updated_at = ? WHERE status = 'running'").run(new Date().toISOString())
 }
 
 export function listChapterMarks(chapterId: string): ReaderMark[] {

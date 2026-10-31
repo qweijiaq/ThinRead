@@ -69,6 +69,10 @@ export function SettingsDialog({
   const [model, setModel] = useState(settings.model)
   const [apiKey, setApiKey] = useState('')
   const [generationMode, setGenerationMode] = useState<GenerationMode>(settings.generationMode)
+  const [notesModel, setNotesModel] = useState(settings.notesModel)
+  const [composeModel, setComposeModel] = useState(settings.composeModel)
+  const [labModel, setLabModel] = useState(settings.labModel)
+  const [readwiseToken, setReadwiseToken] = useState('')
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
   const [result, setResult] = useState<TestResult | null>(null)
@@ -84,6 +88,10 @@ export function SettingsDialog({
     setModel(settings.model)
     setApiKey('')
     setGenerationMode(settings.generationMode)
+    setNotesModel(settings.notesModel)
+    setComposeModel(settings.composeModel)
+    setLabModel(settings.labModel)
+    setReadwiseToken('')
     setResult(null)
     setBackupError(null)
     setBackupNotice(null)
@@ -116,6 +124,10 @@ export function SettingsDialog({
         baseUrl,
         model,
         generationMode,
+        notesModel,
+        composeModel,
+        labModel,
+        ...(readwiseToken.trim() ? { readwiseToken: readwiseToken.trim() } : {}),
         ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
       })
       onSaved(saved)
@@ -294,6 +306,26 @@ export function SettingsDialog({
               <p className="field-hint">
                 保存在本机，使用系统钥匙串加密。{preset?.keyUrl ? `获取地址：${preset.keyUrl}` : ''}
               </p>
+            </div>
+            <div className="form-row">
+              <label>任务模型覆盖</label>
+              <div className="task-model-grid">
+                <input value={notesModel} onChange={(event) => setNotesModel(event.target.value)} placeholder="读薄模型（留空用默认）" spellCheck={false} />
+                <input value={composeModel} onChange={(event) => setComposeModel(event.target.value)} placeholder="成稿模型（留空用默认）" spellCheck={false} />
+                <input value={labModel} onChange={(event) => setLabModel(event.target.value)} placeholder="工作台模型（留空用默认）" spellCheck={false} />
+              </div>
+              <p className="field-hint">只覆盖模型 ID，Base URL 和 Key 继续使用上面的服务商。</p>
+            </div>
+            <div className="form-row">
+              <label>Readwise API Token</label>
+              <input
+                type="password"
+                value={readwiseToken}
+                onChange={(event) => setReadwiseToken(event.target.value)}
+                placeholder={settings.readwiseConfigured ? '已保存，留空则不修改' : '可选，用于同步 Readwise 划线'}
+                spellCheck={false}
+              />
+              <p className="field-hint">在 readwise.io/access_token 获取；Token 用系统钥匙串加密保存在本机。</p>
             </div>
           </>
         ) : (

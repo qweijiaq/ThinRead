@@ -1285,7 +1285,7 @@ export function App(): JSX.Element {
       />
 
       {toast ? (
-        <div className={`toast ${toast.kind}`}>
+        <div className={`toast ${toast.kind}`} role="status" aria-live="polite">
           <span>{toast.text}</span>
           <button type="button" onClick={() => setToast(null)} aria-label="关闭提示">
             ×

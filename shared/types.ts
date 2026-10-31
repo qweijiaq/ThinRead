@@ -35,6 +35,7 @@ export interface BookSummary {
   author: string
   format: BookFormat
   genre: BookGenre
+  hasCover: boolean
   chapterCount: number
   hiddenChapterCount: number
   noteCount: number
@@ -585,6 +586,10 @@ export interface SettingsView {
   apiKeyHint: string
   demo: boolean
   generationMode: GenerationMode
+  notesModel: string
+  composeModel: string
+  labModel: string
+  readwiseConfigured: boolean
 }
 
 export interface SettingsPatch {
@@ -593,6 +598,10 @@ export interface SettingsPatch {
   model: string
   apiKey?: string
   generationMode?: GenerationMode
+  notesModel?: string
+  composeModel?: string
+  labModel?: string
+  readwiseToken?: string
 }
 
 export interface TestResult {
@@ -620,6 +629,20 @@ export interface OcrProgress {
 export interface OcrImportStarted {
   started: boolean
   fileName: string
+  jobId?: string
+}
+
+export interface OcrJob {
+  id: string
+  fileName: string
+  filePath: string
+  startPage: number
+  endPage: number
+  status: 'running' | 'done' | 'error' | 'cancelled' | 'interrupted'
+  current: number
+  total: number
+  createdAt: string
+  updatedAt: string
 }
 
 export interface OcrDoneEvent {
@@ -799,6 +822,9 @@ export interface ReadingApi {
   importUrl(url: string): Promise<BookSummary>
   importScannedPdf(options?: OcrImportOptions): Promise<OcrImportStarted | null>
   cancelOcrImport(): Promise<void>
+  listOcrJobs(): Promise<OcrJob[]>
+  resumeOcrJob(id: string): Promise<OcrImportStarted | null>
+  syncReadwise(): Promise<HighlightImportResult>
   importHighlights(options?: HighlightImportOptions): Promise<HighlightImportResult | null>
   openBook(bookId: string): Promise<{ book: BookSummary; chapters: ChapterMeta[]; style: ReaderStyle }>
   renameBook(bookId: string, title: string): Promise<BookSummary>
@@ -816,6 +842,7 @@ export interface ReadingApi {
   saveStyle(bookId: string, style: ReaderStyle): Promise<ReaderStyle>
   getChapter(chapterId: string): Promise<ChapterContent>
   setProgress(bookId: string, chapterId: string): Promise<void>
+  getBookCover(bookId: string): Promise<string | null>
   listChapterMarks(chapterId: string): Promise<ReaderMark[]>
   createChapterMark(input: { chapterId: string; quote: string; style: ReaderMarkStyle }): Promise<ReaderMark>
   deleteChapterMark(id: string): Promise<void>

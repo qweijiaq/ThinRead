@@ -10,6 +10,7 @@ export interface ParsedBook {
   title: string
   author: string
   chapters: NewChapter[]
+  cover?: { data: Uint8Array; mime: string; extension: string }
 }
 
 const MAX_CHAPTERS = 600
@@ -375,6 +376,27 @@ export function parseEpub(buffer: Buffer, sourceName: string): ParsedBook {
       if (id && href) manifest.set(id, resolveHref(opfPath, href))
     })
 
+  let coverHref = ''
+  const coverMetaId = $opf('meta')
+    .filter((_, element) => {
+      const node = $opf(element)
+      return (node.attr('name') ?? '').toLowerCase() === 'cover'
+    })
+    .first()
+    .attr('content')
+  if (coverMetaId) coverHref = manifest.get(coverMetaId) ?? ''
+  if (!coverHref) {
+    $opf('manifest')
+      .find('item')
+      .each((_, element) => {
+        const item = $opf(element)
+        if (!coverHref && /(^|\s)cover-image(\s|$)/i.test(item.attr('properties') ?? '')) {
+          const href = item.attr('href')
+          if (href) coverHref = resolveHref(opfPath, href)
+        }
+      })
+  }
+
   const spine: string[] = []
   $opf('spine')
     .find('itemref')
@@ -453,5 +475,14 @@ export function parseEpub(buffer: Buffer, sourceName: string): ParsedBook {
   }
 
   if (chapters.length === 0) throw new Error('这本 EPUB 里没有解析出可读的章节。')
-  return { title: title || path.basename(sourceName), author, chapters }
+  let cover: ParsedBook['cover']
+  if (coverHref) {
+    const bytes = files[coverHref]
+    const extension = path.posix.extname(coverHref).toLowerCase()
+    const mime = IMAGE_MIME[extension]
+    if (bytes && mime && bytes.byteLength <= 8 * 1024 * 1024) {
+      cover = { data: bytes, mime, extension }
+    }
+  }
+  return { title: title || path.basename(sourceName), author, chapters, ...(cover ? { cover } : {}) }
 }

@@ -13,12 +13,18 @@ import {
   applyContent,
   createChapterMark,
   createNote,
+  createOcrJob,
+  getOcrJob,
+  listOcrJobs,
+  updateOcrJob,
   deleteChapterMark,
   deleteContent,
   deleteChapters,
   deleteNote,
   deleteBook as deleteBookRow,
+  getBookCover,
   getBookRecord,
+  updateBookCover,
   getBookStyle,
   getBookSummary,
   mergeBooks,
@@ -74,10 +80,11 @@ import { composeBook } from './ai/book-compose.js'
 import { expandPoint, generateChapterNotes } from './ai/notes.js'
 import { createLanguageModel } from './ai/provider.js'
 import { askChapter, evaluateExplanation } from './ai/tutor.js'
-import { classifyImportedChapters, importBookFile, importHighlightsFile, importScannedPdf, importTextBook, importUrlBook, reparseBookFile } from './import.js'
+import { classifyImportedChapters, importBookFile, importHighlightEntries, importHighlightsFile, importScannedPdf, importTextBook, importUrlBook, reparseBookFile } from './import.js'
 import { buildKnowledgeMap } from './knowledge-map.js'
 import { configureSemantic, semanticRelatedNotes, warmSemanticIndex } from './semantic.js'
-import { getActiveSettings, getSettingsView, isDemoMode, saveSettings } from './settings.js'
+import { getActiveSettings, getReadwiseToken, getSettingsView, isDemoMode, saveSettings } from './settings.js'
+import { fetchReadwiseEntries } from './readwise.js'
 import type {
   BookComposeOptions,
   BookComposeResult,
@@ -124,7 +131,7 @@ interface ActiveGeneration {
 let active: ActiveGeneration | null = null
 let composeActive: AbortController | null = null
 let activeFormat: AbortController | null = null
-let activeOcr: { controller: AbortController; fileName: string } | null = null
+let activeOcr: { controller: AbortController; fileName: string; jobId: string } | null = null
 
 async function generateChapterToDb(
   chapterId: string,
@@ -259,6 +266,58 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     }
   }
 
+  function startOcrImport(
+    sender: { isDestroyed(): boolean; send(channel: string, payload: unknown): void },
+    filePath: string,
+    range: OcrImportOptions,
+    existing?: ReturnType<typeof getOcrJob>,
+  ): OcrImportStarted {
+    activeOcr?.controller.abort()
+    const controller = new AbortController()
+    const fileName = existing?.fileName ?? path.basename(filePath)
+    const job =
+      existing ??
+      createOcrJob({
+        fileName,
+        filePath,
+        startPage: Math.max(1, Math.floor(range.startPage ?? 1)),
+        endPage: Math.max(0, Math.floor(range.endPage ?? 0)),
+      })
+    activeOcr = { controller, fileName, jobId: job.id }
+    updateOcrJob(job.id, { status: 'running' })
+    const send = (channel: string, payload: unknown): void => {
+      if (!sender.isDestroyed()) sender.send(channel, payload)
+    }
+    const startedAt = Date.now()
+    void (async () => {
+      try {
+        const book = await importScannedPdf(
+          filePath,
+          dataDir,
+          (progress) => {
+            updateOcrJob(job.id, { status: 'running', current: progress.current, total: progress.total })
+            send('ocr:progress', progress)
+          },
+          controller.signal,
+          { startPage: job.startPage, endPage: job.endPage },
+        )
+        if (controller.signal.aborted) return
+        updateOcrJob(job.id, { status: 'done' })
+        send('ocr:done', { book, durationMs: Date.now() - startedAt } satisfies OcrDoneEvent)
+      } catch (error) {
+        const cancelled = controller.signal.aborted
+        updateOcrJob(job.id, { status: cancelled ? 'cancelled' : 'error' })
+        send('ocr:error', {
+          message: cancelled ? 'OCR 已取消' : error instanceof Error ? error.message : String(error),
+          cancelled,
+        } satisfies OcrErrorEvent)
+      } finally {
+        if (activeOcr?.controller === controller) activeOcr = null
+      }
+    })()
+    return { started: true, fileName, jobId: job.id }
+  }
+
   ipcMain.handle('books:list', () => listBooks())
 
   ipcMain.handle('books:import', async () => {
@@ -312,45 +371,28 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     }
     const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options)
     if (result.canceled || result.filePaths.length === 0) return null
-    activeOcr?.controller.abort()
-    const controller = new AbortController()
-    const filePath = result.filePaths[0]!
-    const fileName = path.basename(filePath)
-    activeOcr = { controller, fileName }
-    const sender = event.sender
-    const send = (channel: string, payload: unknown): void => {
-      if (!sender.isDestroyed()) sender.send(channel, payload)
-    }
-    const startedAt = Date.now()
-    void (async () => {
-      try {
-        const book = await importScannedPdf(
-          filePath,
-          dataDir,
-          (progress) => send('ocr:progress', progress),
-          controller.signal,
-          {
-            startPage: typeof range?.startPage === 'number' ? range.startPage : undefined,
-            endPage: typeof range?.endPage === 'number' ? range.endPage : undefined,
-          },
-        )
-        if (controller.signal.aborted) return
-        send('ocr:done', { book, durationMs: Date.now() - startedAt } satisfies OcrDoneEvent)
-      } catch (error) {
-        const cancelled = controller.signal.aborted
-        send('ocr:error', {
-          message: cancelled ? 'OCR 已取消' : error instanceof Error ? error.message : String(error),
-          cancelled,
-        } satisfies OcrErrorEvent)
-      } finally {
-        if (activeOcr?.controller === controller) activeOcr = null
-      }
-    })()
-    return { started: true, fileName }
+    return startOcrImport(event.sender, result.filePaths[0]!, range ?? {})
   })
 
   ipcMain.handle('books:import-ocr-cancel', () => {
     activeOcr?.controller.abort()
+  })
+
+  ipcMain.handle('readwise:sync', async (): Promise<HighlightImportResult> => {
+    const token = getReadwiseToken()
+    if (!token) throw new Error('还没有配置 Readwise API Token。请先在设置里填写。')
+    const entries = await fetchReadwiseEntries(token)
+    if (entries.length === 0) throw new Error('Readwise 没有返回任何划线。')
+    return importHighlightEntries(entries, dataDir, { mergeExisting: true })
+  })
+
+  ipcMain.handle('ocr:jobs', () => listOcrJobs())
+
+  ipcMain.handle('ocr:resume', (event, id: string): OcrImportStarted | null => {
+    if (typeof id !== 'string') throw new Error('OCR 任务无效。')
+    const job = getOcrJob(id)
+    if (!job) return null
+    return startOcrImport(event.sender, job.filePath, { startPage: job.startPage, endPage: job.endPage }, job)
   })
 
   ipcMain.handle('books:open', (_event, bookId: string) => {
@@ -585,6 +627,25 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     setProgress(bookId, chapterId)
   })
 
+  ipcMain.handle('books:cover', async (_event, bookId: string) => {
+    if (typeof bookId !== 'string') return null
+    const stored = getBookCover(bookId)
+    if (stored) return stored
+    const record = getBookRecord(bookId)
+    if (!record || record.format !== 'epub') return null
+    try {
+      const { parseEpub } = await import('./parsers/epub.js')
+      const parsed = parseEpub(await fs.readFile(record.filePath), record.filePath)
+      if (!parsed.cover) return null
+      const coverPath = path.join(path.dirname(record.filePath), `cover${parsed.cover.extension}`)
+      await fs.writeFile(coverPath, parsed.cover.data)
+      updateBookCover(bookId, coverPath)
+      return getBookCover(bookId)
+    } catch {
+      return null
+    }
+  })
+
   ipcMain.handle('chapters:classify', async (_event, bookId: string) => {
     const chapters = getChapters(bookId).map((chapter) => ({
       id: chapter.id,
@@ -670,13 +731,13 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
 
   ipcMain.handle('lab:run', async (_event, request: LabRequest) => {
     if (!request || typeof request !== 'object') throw new Error('任务无效。')
-    return runLab({ config: getActiveSettings(), demo: isDemoMode(), request })
+    return runLab({ config: getActiveSettings('lab'), demo: isDemoMode(), request })
   })
 
   ipcMain.handle('lab:chat', async (_event, request: LabRequest, history: ChatTurn[]) => {
     if (!request || typeof request !== 'object') throw new Error('任务无效。')
     return labChat({
-      config: getActiveSettings(),
+      config: getActiveSettings('lab'),
       demo: isDemoMode(),
       request,
       history: Array.isArray(history) ? history : [],
@@ -685,23 +746,23 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
 
   ipcMain.handle('lab:margin-note', async (_event, chapterId: string, quote: string) => {
     if (typeof chapterId !== 'string' || typeof quote !== 'string') throw new Error('边注参数无效。')
-    return marginNote({ config: getActiveSettings(), demo: isDemoMode(), chapterId, quote })
+    return marginNote({ config: getActiveSettings('lab'), demo: isDemoMode(), chapterId, quote })
   })
 
   ipcMain.handle('lab:quiz', async (_event, chapterId: string) => {
     if (typeof chapterId !== 'string') throw new Error('章节无效。')
-    return generateQuiz({ config: getActiveSettings(), demo: isDemoMode(), chapterId })
+    return generateQuiz({ config: getActiveSettings('lab'), demo: isDemoMode(), chapterId })
   })
 
   ipcMain.handle('lab:quiz-check', async (_event, chapterId: string, question: string, answer: string) => {
     if (typeof chapterId !== 'string' || typeof question !== 'string' || typeof answer !== 'string') {
       throw new Error('答案参数无效。')
     }
-    return checkQuizAnswer({ config: getActiveSettings(), demo: isDemoMode(), chapterId, question, answer })
+    return checkQuizAnswer({ config: getActiveSettings('lab'), demo: isDemoMode(), chapterId, question, answer })
   })
 
   ipcMain.handle('lab:concept-merges', async () =>
-    suggestConceptMerges({ config: getActiveSettings(), demo: isDemoMode() }),
+    suggestConceptMerges({ config: getActiveSettings('lab'), demo: isDemoMode() }),
   )
 
   ipcMain.handle('lab:merge-tags', (_event, tags: string[], canonical: string) =>
@@ -718,7 +779,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
   ipcMain.handle('lab:relation-graph', async (_event, bookId: string) => {
     if (typeof bookId !== 'string') throw new Error('书籍无效。')
     const graph = await generateRelationGraph({
-      config: getActiveSettings(),
+      config: getActiveSettings('lab'),
       demo: isDemoMode(),
       bookId,
     })
@@ -736,7 +797,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
 
   ipcMain.handle('lab:pdf-page', async (_event, bookId: string, page: number) => {
     if (typeof bookId !== 'string' || typeof page !== 'number') throw new Error('页面参数无效。')
-    return analyzePdfPage({ config: getActiveSettings(), demo: isDemoMode(), bookId, page })
+    return analyzePdfPage({ config: getActiveSettings('lab'), demo: isDemoMode(), bookId, page })
   })
 
   ipcMain.handle('lab:artifact-get', (_event, tool: string, scope?: string) =>
@@ -845,7 +906,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     const book = getBookSummary(chapter.bookId)
     if (!book) throw new Error('找不到章节所属的书')
 
-    const settings = getActiveSettings()
+    const settings = getActiveSettings('notes')
     if (settings.provider !== 'demo' && !settings.apiKey) {
       throw new Error('还没有配置 API Key。请打开右上角设置，选择模型并填入 Key。')
     }
@@ -885,7 +946,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     const book = getBookSummary(bookId)
     if (!book) throw new Error('找不到这本书')
 
-    const settings = getActiveSettings()
+    const settings = getActiveSettings('notes')
     if (settings.provider !== 'demo' && !settings.apiKey) {
       throw new Error('还没有配置 API Key。请打开右上角设置，选择模型并填入 Key。')
     }
@@ -1008,7 +1069,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
       point: note.content,
       quote: note.quote ?? '',
       section: note.section ?? '',
-      config: getActiveSettings(),
+      config: getActiveSettings('notes'),
       relatedNotes,
     })
     saveNoteDivergences(noteId, divergences)
@@ -1106,7 +1167,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
       composeActive?.abort()
       const book = getBookSummary(bookId)
       if (!book) throw new Error('找不到这本书')
-      const settings = getActiveSettings()
+      const settings = getActiveSettings('compose')
       const notes = listNotes(bookId)
       const chapters = getChapters(bookId).filter((chapter) => !chapter.hidden)
       const sources = chapters.flatMap((chapter) => {

@@ -30,7 +30,7 @@ export function TaskCenter({ tasks, onCancel, onDismiss }: TaskCenterProps): JSX
   const finished = tasks.filter((task) => task.status !== 'running').length
 
   return (
-    <div className={`task-center${open ? ' is-open' : ''}`}>
+    <div className={`task-center${open ? ' is-open' : ''}`} aria-live="polite">
       <button
         type="button"
         className="task-center-toggle"

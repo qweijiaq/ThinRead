@@ -19,6 +19,7 @@ import { parseMobi } from './parsers/mobi.js'
 import { parsePdf } from './parsers/pdf.js'
 import { parseScannedPdf } from './parsers/pdf-ocr.js'
 import { groupHighlights, parseHighlightsFile } from './parsers/highlights.js'
+import type { HighlightEntry } from './parsers/highlights.js'
 import { chaptersFromHtml, splitTextIntoChapters } from './parsers/text-book.js'
 import { parseUrl } from './parsers/url.js'
 
@@ -102,15 +103,35 @@ export async function importBookFile(sourcePath: string, dataDir: string): Promi
 
 /** 写入书籍记录；文件导入、文本导入和网页导入共用同一套存储布局。 */
 async function persistParsedBook(
-  parsed: { title: string; author: string; chapters: NewChapter[] },
+  parsed: {
+    title: string
+    author: string
+    chapters: NewChapter[]
+    cover?: { data: Uint8Array; extension: string }
+  },
   format: BookFormat,
   storedPath: string,
   bookId: string,
   _dataDir: string,
   classifyOptions: { skipToc?: boolean } = {},
 ): Promise<BookSummary> {
+  let coverPath: string | null = null
+  if (parsed.cover) {
+    try {
+      coverPath = path.join(path.dirname(storedPath), `cover${parsed.cover.extension}`)
+      await fs.writeFile(coverPath, parsed.cover.data)
+    } catch {
+      coverPath = null
+    }
+  }
   return insertBook(
-    { title: parsed.title.trim() || '未命名', author: parsed.author.trim(), format, filePath: storedPath },
+    {
+      title: parsed.title.trim() || '未命名',
+      author: parsed.author.trim(),
+      format,
+      filePath: storedPath,
+      coverPath,
+    },
     classifyImportedChapters(parsed.chapters, classifyOptions),
     bookId,
   )
@@ -142,16 +163,12 @@ export async function reparseBookFile(record: {
   }
 }
 
-export async function importHighlightsFile(
-  sourcePath: string,
+export async function importHighlightEntries(
+  entries: HighlightEntry[],
   dataDir: string,
   options: { mergeExisting?: boolean } = {},
 ): Promise<HighlightImportResult> {
-  const text = await fs.readFile(sourcePath, 'utf8')
-  const entries = parseHighlightsFile(text, path.basename(sourcePath))
-  if (entries.length === 0) {
-    throw new Error('没有从文件里读出划线。支持 Readwise CSV 和 Kindle 的 My Clippings.txt。')
-  }
+  if (entries.length === 0) throw new Error('没有从文件里读出划线。')
   const groups = groupHighlights(entries)
   const books: BookSummary[] = []
   let highlights = 0
@@ -242,6 +259,19 @@ export async function importHighlightsFile(
     }
   }
   return { books, highlights }
+}
+
+export async function importHighlightsFile(
+  sourcePath: string,
+  dataDir: string,
+  options: { mergeExisting?: boolean } = {},
+): Promise<HighlightImportResult> {
+  const text = await fs.readFile(sourcePath, 'utf8')
+  const entries = parseHighlightsFile(text, path.basename(sourcePath))
+  if (entries.length === 0) {
+    throw new Error('没有从文件里读出划线。支持 Readwise CSV 和 Kindle 的 My Clippings.txt。')
+  }
+  return importHighlightEntries(entries, dataDir, options)
 }
 
 export async function importScannedPdf(

@@ -18,6 +18,10 @@ interface StoredSettings {
   baseUrl: string
   model: string
   generationMode: GenerationMode
+  notesModel: string
+  composeModel: string
+  labModel: string
+  readwise?: StoredKey
   keys: Partial<Record<ProviderId, StoredKey>>
 }
 
@@ -30,6 +34,9 @@ const DEFAULT_SETTINGS: StoredSettings = {
   baseUrl: '',
   model: 'demo',
   generationMode: 'standard',
+  notesModel: '',
+  composeModel: '',
+  labModel: '',
   keys: {},
 }
 
@@ -52,6 +59,10 @@ function readFile(): StoredSettings {
       baseUrl: raw.baseUrl ?? '',
       model: raw.model ?? DEFAULT_SETTINGS.model,
       generationMode: normalizeMode(raw.generationMode),
+      notesModel: typeof raw.notesModel === 'string' ? raw.notesModel : '',
+      composeModel: typeof raw.composeModel === 'string' ? raw.composeModel : '',
+      labModel: typeof raw.labModel === 'string' ? raw.labModel : '',
+      readwise: raw.readwise,
       keys: raw.keys ?? {},
     }
   } catch {
@@ -68,7 +79,7 @@ function persist(): void {
   fs.writeFileSync(filePath, JSON.stringify(settings(), null, 2), { mode: 0o600 })
 }
 
-export function getActiveSettings(): {
+export function getActiveSettings(task?: 'notes' | 'compose' | 'lab'): {
   provider: ProviderId
   baseUrl: string
   model: string
@@ -76,17 +87,21 @@ export function getActiveSettings(): {
   generationMode: GenerationMode
 } {
   const current = settings()
+  const model =
+    task === 'notes' ? current.notesModel || current.model
+      : task === 'compose' ? current.composeModel || current.model
+        : task === 'lab' ? current.labModel || current.model
+          : current.model
   return {
     provider: current.provider,
     baseUrl: current.baseUrl,
-    model: current.model,
+    model,
     apiKey: readKey(current.provider),
     generationMode: current.generationMode,
   }
 }
 
-function readKey(provider: ProviderId): string | null {
-  const stored = settings().keys[provider]
+function readStoredKey(stored: StoredKey | undefined): string | null {
   if (!stored) return null
   if (stored.enc && safeStorage.isEncryptionAvailable()) {
     try {
@@ -96,6 +111,14 @@ function readKey(provider: ProviderId): string | null {
     }
   }
   return stored.plain ?? null
+}
+
+function readKey(provider: ProviderId): string | null {
+  return readStoredKey(settings().keys[provider])
+}
+
+export function getReadwiseToken(): string | null {
+  return readStoredKey(settings().readwise)
 }
 
 function encodeKey(apiKey: string): StoredKey {
@@ -118,6 +141,10 @@ export function getSettingsView(): SettingsView {
     apiKeyHint: demo ? '演示模式' : (stored?.hint ?? ''),
     demo,
     generationMode: current.generationMode,
+    notesModel: current.notesModel,
+    composeModel: current.composeModel,
+    labModel: current.labModel,
+    readwiseConfigured: readStoredKey(current.readwise) !== null,
   }
 }
 
@@ -138,6 +165,12 @@ export function saveSettings(patch: SettingsPatch): SettingsView {
   current.baseUrl = patch.baseUrl.trim()
   current.model = patch.model.trim()
   if (patch.generationMode) current.generationMode = normalizeMode(patch.generationMode)
+  if (patch.notesModel !== undefined) current.notesModel = patch.notesModel.trim()
+  if (patch.composeModel !== undefined) current.composeModel = patch.composeModel.trim()
+  if (patch.labModel !== undefined) current.labModel = patch.labModel.trim()
+  if (patch.readwiseToken && patch.readwiseToken.trim()) {
+    current.readwise = encodeKey(patch.readwiseToken.trim())
+  }
   if (patch.apiKey && patch.apiKey.trim()) {
     current.keys[patch.provider] = encodeKey(patch.apiKey.trim())
   }

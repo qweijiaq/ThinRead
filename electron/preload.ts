@@ -51,6 +51,7 @@ import type {
   OcrErrorEvent,
   OcrImportOptions,
   OcrImportStarted,
+  OcrJob,
   OcrProgress,
   ReaderMark,
   ReaderMarkStyle,
@@ -80,6 +81,9 @@ const api: ReadingApi = {
   importScannedPdf: (options?: OcrImportOptions) =>
     ipcRenderer.invoke('books:import-ocr', options) as Promise<OcrImportStarted | null>,
   cancelOcrImport: () => ipcRenderer.invoke('books:import-ocr-cancel') as Promise<void>,
+  listOcrJobs: () => ipcRenderer.invoke('ocr:jobs') as Promise<OcrJob[]>,
+  resumeOcrJob: (id: string) => ipcRenderer.invoke('ocr:resume', id) as Promise<OcrImportStarted | null>,
+  syncReadwise: () => ipcRenderer.invoke('readwise:sync') as Promise<HighlightImportResult>,
   importHighlights: (options?: HighlightImportOptions) =>
     ipcRenderer.invoke('books:import-highlights', options) as Promise<HighlightImportResult | null>,
   openBook: (bookId) =>
@@ -111,6 +115,7 @@ const api: ReadingApi = {
   saveStyle: (bookId, style) => ipcRenderer.invoke('books:saveStyle', bookId, style) as Promise<ReaderStyle>,
   getChapter: (chapterId) => ipcRenderer.invoke('chapters:get', chapterId) as Promise<ChapterContent>,
   setProgress: (bookId, chapterId) => ipcRenderer.invoke('books:progress', bookId, chapterId) as Promise<void>,
+  getBookCover: (bookId: string) => ipcRenderer.invoke('books:cover', bookId) as Promise<string | null>,
   listChapterMarks: (chapterId: string) => ipcRenderer.invoke('marks:list', chapterId) as Promise<ReaderMark[]>,
   createChapterMark: (input: { chapterId: string; quote: string; style: ReaderMarkStyle }) =>
     ipcRenderer.invoke('marks:create', input) as Promise<ReaderMark>,

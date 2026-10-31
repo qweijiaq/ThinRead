@@ -1,6 +1,6 @@
 import { useEffect, useState, type JSX } from 'react'
 
-import type { BookSummary, HighlightImportResult } from '../../shared/types.js'
+import type { BookSummary, HighlightImportResult, OcrJob } from '../../shared/types.js'
 import { Checkbox } from './Checkbox.js'
 
 interface ImportDialogProps {
@@ -30,6 +30,7 @@ export function ImportDialog({
   const [ocrStart, setOcrStart] = useState('')
   const [ocrEnd, setOcrEnd] = useState('')
   const [mergeHighlights, setMergeHighlights] = useState(false)
+  const [ocrJobs, setOcrJobs] = useState<OcrJob[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -44,6 +45,7 @@ export function ImportDialog({
     setOcrEnd('')
     setMergeHighlights(false)
     setError(null)
+    void window.api.listOcrJobs().then(setOcrJobs).catch(() => setOcrJobs([]))
   }, [open])
 
   useEffect(() => {
@@ -92,6 +94,35 @@ export function ImportDialog({
             }
           : undefined,
       )
+      if (result?.started) {
+        onOcrStarted(result.fileName)
+        onClose()
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function syncReadwise(): Promise<void> {
+    setBusy(true)
+    setError(null)
+    try {
+      const result = await window.api.syncReadwise()
+      onHighlightsImported(result)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function resumeOcr(job: OcrJob): Promise<void> {
+    setBusy(true)
+    setError(null)
+    try {
+      const result = await window.api.resumeOcrJob(job.id)
       if (result?.started) {
         onOcrStarted(result.fileName)
         onClose()
@@ -211,6 +242,24 @@ export function ImportDialog({
                 扫描版 PDF（OCR）
               </button>
             </div>
+            {ocrJobs.find((job) => job.status !== 'done') ? (
+              <div className="ocr-resume">
+                <span>
+                  上次 OCR 未完成：{ocrJobs.find((job) => job.status !== 'done')!.fileName}
+                  {ocrJobs.find((job) => job.status !== 'done')!.total > 0
+                    ? ` · ${ocrJobs.find((job) => job.status !== 'done')!.current}/${ocrJobs.find((job) => job.status !== 'done')!.total}`
+                    : ''}
+                </span>
+                <button
+                  type="button"
+                  className="ghost-button small"
+                  onClick={() => void resumeOcr(ocrJobs.find((job) => job.status !== 'done')!)}
+                  disabled={busy}
+                >
+                  继续
+                </button>
+              </div>
+            ) : null}
             <p className="import-foot">普通 PDF 会优先读取文字层；扫描版请用 OCR 入口（仅 macOS，最多 300 页）。选完文件后会转到右下角任务中心，导入过程中可以离开这个页面或取消。页码范围只对扫描版 OCR 生效，留空表示整本；单次最多 300 页。Markdown / HTML / DOCX 会保留标题层级并切成章节。</p>
           </section>
         ) : mode === 'text' ? (
@@ -246,10 +295,15 @@ export function ImportDialog({
               onChange={setMergeHighlights}
               label="合并到同名书（书名和作者都匹配时追加划线）"
             />
-            <button type="button" className="primary-button" onClick={() => void chooseHighlights()} disabled={busy}>
-              {busy ? '正在整理划线…' : '选择划线文件'}
-            </button>
-            <p className="import-foot">Readwise 请选择 readwise.csv；Kindle 请选择 My Clippings.txt。重复划线会自动去重；不勾选合并时会为每本书建立新书。</p>
+            <div className="import-actions">
+              <button type="button" className="primary-button" onClick={() => void chooseHighlights()} disabled={busy}>
+                {busy ? '正在整理划线…' : '选择划线文件'}
+              </button>
+              <button type="button" className="ghost-button" onClick={() => void syncReadwise()} disabled={busy}>
+                同步 Readwise
+              </button>
+            </div>
+            <p className="import-foot">Readwise 请选择 readwise.csv 或先在设置里配置 Token 后直接同步；Kindle 请选择 My Clippings.txt。重复划线会自动去重；不勾选合并时会为每本书建立新书。</p>
           </section>
         ) : (
           <section className="import-pane">
