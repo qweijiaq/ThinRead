@@ -1,5 +1,5 @@
 import { useEffect, useState, type JSX } from 'react'
-import type { ChapterContent, GeneratePartial, GenerationMode, Note, NoteDraft, NotePatch, NoteReport, RelatedNote } from '../../shared/types.js'
+import type { ChapterContent, GeneratePartial, GenerationMode, Note, NoteDraft, NotePatch, NoteReport, ReaderMark, RelatedNote } from '../../shared/types.js'
 import { buildChapterMarkdown, markdownFilename, todayStamp } from '../lib/export.js'
 import { noteBacklinks, relatedNotes, snippet } from '../lib/links.js'
 import { Checkbox } from './Checkbox.js'
@@ -17,6 +17,7 @@ interface NotesPanelProps {
   error: string | null
   report: NoteReport | null
   generationMode: GenerationMode
+  marks: ReaderMark[]
   crossBookNotes: RelatedNote[]
   focusNoteId: string | null
   focusKey: number
@@ -32,6 +33,8 @@ interface NotesPanelProps {
   onOpenRelated(note: RelatedNote): void
   onListen(text: string): void
   onShare(note: Note): void
+  onDeleteMark(id: string): void
+  onRevealMark(quote: string): void
 }
 
 function StreamingCard({ partial, onCancel }: { partial: GeneratePartial | null; onCancel(): void }): JSX.Element {
@@ -116,6 +119,7 @@ export function NotesPanel({
   error,
   report,
   generationMode,
+  marks,
   crossBookNotes,
   focusNoteId,
   focusKey,
@@ -131,6 +135,8 @@ export function NotesPanel({
   onOpenRelated,
   onListen,
   onShare,
+  onDeleteMark,
+  onRevealMark,
 }: NotesPanelProps): JSX.Element {
   const condensedNote = notes.find((note) => note.kind === 'condensed') ?? null
   const summaryNotes = notes.filter((note) => note.kind === 'summary')
@@ -290,6 +296,7 @@ export function NotesPanel({
               ? ` · 用时 ${report.durationMs < 10000 ? (report.durationMs / 1000).toFixed(1) : Math.round(report.durationMs / 1000)}s`
               : ''}
             {report.mode === 'fast' ? ' · 快速' : report.mode === 'deep' ? ' · 精读' : report.mode === 'standard' ? ' · 标准' : ''}
+            {report.usage?.totalTokens ? ` · ${report.usage.totalTokens.toLocaleString()} tokens` : ''}
           </div>
           {report.omittedItems && report.omittedItems.length > 0 ? (
             <details className="omitted-details">
@@ -353,6 +360,30 @@ export function NotesPanel({
           </div>
           {exportError ? <div className="inline-error">{exportError}</div> : null}
           {renderCard(condensedNote, true)}
+        </section>
+      ) : null}
+
+      {marks.length > 0 ? (
+        <section className="reader-marks-section">
+          <div className="note-group-head">
+            <span>划词标记</span>
+            <span className="muted">{marks.length}</span>
+          </div>
+          <div className="reader-mark-list">
+            {marks.map((mark) => (
+              <div key={mark.id} className="reader-mark-row">
+                <span className={`reader-mark-style style-${mark.style}`}>
+                  {mark.style === 'highlight' ? '高亮' : mark.style === 'underline' ? '划线' : '删除线'}
+                </span>
+                <button type="button" className="reader-mark-quote" onClick={() => onRevealMark(mark.quote)}>
+                  {mark.quote}
+                </button>
+                <button type="button" className="text-button muted" onClick={() => onDeleteMark(mark.id)}>
+                  移除
+                </button>
+              </div>
+            ))}
+          </div>
         </section>
       ) : null}
 

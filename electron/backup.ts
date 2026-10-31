@@ -157,6 +157,24 @@ function archivePathFor(dataDir: string, id: string): string {
   return target
 }
 
+export function exportBackup(dataDir: string, id: string, destination: string): void {
+  const archivePath = archivePathFor(dataDir, id)
+  fs.mkdirSync(path.dirname(destination), { recursive: true })
+  fs.copyFileSync(archivePath, destination)
+}
+
+/** 每天至少留一份自动备份；已有 24 小时内的每日备份时不重复创建。 */
+export function ensureDailyBackup(dataDir: string): BackupInfo | null {
+  const latest = listBackups(dataDir).find((item) => item.kind === 'auto' && item.label === '每日自动备份')
+  if (latest && Date.now() - new Date(latest.createdAt).getTime() < 24 * 60 * 60 * 1000) return null
+  try {
+    return createBackup(dataDir, 'auto', '每日自动备份')
+  } catch (error) {
+    console.warn('[backup] daily snapshot failed', error instanceof Error ? error.message : error)
+    return null
+  }
+}
+
 export function deleteBackup(dataDir: string, id: string): void {
   const archivePath = archivePathFor(dataDir, id)
   fs.rmSync(archivePath, { force: true })

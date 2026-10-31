@@ -6,3 +6,6 @@ dist-electron/
 *.db
 *.db-shm
 *.db-wal
+
+.test-build/
+release/

@@ -144,6 +144,22 @@ export function SettingsDialog({
     }
   }
 
+  async function exportLatestBackup(): Promise<void> {
+    const latest = backups[0]
+    if (!latest || backupBusy) return
+    setBackupBusy('export')
+    setBackupError(null)
+    setBackupNotice(null)
+    try {
+      const saved = await window.api.exportBackup(latest.id)
+      if (saved.saved) setBackupNotice(`备份已导出到 ${saved.path}`)
+    } catch (error) {
+      setBackupError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setBackupBusy(null)
+    }
+  }
+
   async function restoreBackup(item: BackupInfo): Promise<void> {
     const confirmed = await confirmDialog({
       title: '恢复这个备份',
@@ -297,6 +313,14 @@ export function SettingsDialog({
           <div className="backup-actions">
             <button type="button" className="ghost-button small" onClick={() => void makeBackup()} disabled={backupBusy !== null}>
               {backupBusy === 'create' ? '备份中…' : '立即备份'}
+            </button>
+            <button
+              type="button"
+              className="ghost-button small"
+              onClick={() => void exportLatestBackup()}
+              disabled={backups.length === 0 || backupBusy !== null}
+            >
+              {backupBusy === 'export' ? '导出中…' : '导出最新备份'}
             </button>
             <button type="button" className="text-button muted" onClick={() => void window.api.openBackupsDir()}>
               打开备份目录

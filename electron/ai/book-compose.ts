@@ -6,6 +6,7 @@ import type {
   BookComposeResult,
   BookGenre,
   GenerationMode,
+  TokenUsage,
 } from '../../shared/types.js'
 import { genreRule } from './genre.js'
 import type { ModelConfig } from './provider.js'
@@ -30,6 +31,7 @@ export interface ComposeArgs {
   options: BookComposeOptions
   genre?: BookGenre
   mode?: GenerationMode
+  usage?: TokenUsage
   config: ModelConfig
   demo: boolean
   signal: AbortSignal
@@ -50,6 +52,14 @@ const VOICE_RULES: Record<BookComposeOptions['voice'], string> = {
   calm: '语气克制、准确，像一位编辑在讲清楚一本书，不煽动、不卖弄。',
   personal: '用第一人称读者视角，可以写“我读到这里才意识到”，但不要变成个人日记，重点仍是书。',
   sharp: '允许明确判断和不同意见，指出作者论证的强弱和边界，但要尊重原意。',
+}
+
+function recordUsage(target: TokenUsage | undefined, usage: unknown): void {
+  if (!target || !usage || typeof usage !== 'object') return
+  const value = usage as { inputTokens?: unknown; outputTokens?: unknown; totalTokens?: unknown }
+  target.inputTokens += Number(value.inputTokens) || 0
+  target.outputTokens += Number(value.outputTokens) || 0
+  target.totalTokens += Number(value.totalTokens) || 0
 }
 
 function outputTarget(sourceChars: number, length: BookComposeOptions['length']): number {
@@ -86,6 +96,8 @@ export async function composeBook(args: ComposeArgs): Promise<BookComposeResult>
   }
 
   const model = createLanguageModel(args.config)
+  const usage: TokenUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 }
+  args.usage = usage
   let draft = ''
   const fastTrack = args.mode === 'fast' && sourceChars <= FINAL_EDITOR_CHARS
   if (sourceChars <= SINGLE_PASS_CHARS || fastTrack) {
@@ -161,6 +173,8 @@ export async function composeBook(args: ComposeArgs): Promise<BookComposeResult>
     sourceChars,
     outputChars: markdown.length,
     durationMs: Date.now() - startedAt,
+    usage: { ...usage },
+    promptVersion: 'compose-v4',
     model: args.config.model,
     createdAt: new Date().toISOString(),
     options: args.options,
@@ -237,6 +251,7 @@ async function rewriteBatch(
         maxRetries: 1,
         abortSignal: controller.signal,
       })
+      recordUsage(args.usage, response.usage)
       const section = cleanSection(response.text)
       if (section.length <= maxTarget || attempt === 1) return section
       prompt = `${basePrompt}\n\n上一次输出了 ${section.length.toLocaleString()} 字，仍然太长。请再压一轮：保留全部关键判断和必要例子，删除重复、铺垫、解释性从句和次要案例，把正文控制在 ${target.toLocaleString()} 字以内。`
@@ -286,6 +301,7 @@ async function finalEdit(
       maxRetries: 1,
       abortSignal: controller.signal,
     })
+    recordUsage(args.usage, response.usage)
     let markdown = cleanArticle(response.text)
     const title = extractTitle(markdown, args.bookTitle)
     if (!/^#\s+/m.test(markdown)) markdown = `# ${title}\n\n${markdown}`
@@ -335,6 +351,7 @@ async function frameLongBook(
       maxRetries: 1,
       abortSignal: controller.signal,
     })
+    recordUsage(args.usage, response.usage)
     const raw = cleanArticle(response.text)
     const [head, tail = ''] = raw.split('<<<END>>>')
     const title = extractTitle(head ?? '', args.bookTitle)
@@ -413,6 +430,8 @@ function demoCompose(
     sourceChars,
     outputChars: markdown.length,
     durationMs: Date.now() - startedAt,
+    usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+    promptVersion: 'compose-v4-demo',
     model: args.config.model,
     createdAt: new Date().toISOString(),
     options: args.options,

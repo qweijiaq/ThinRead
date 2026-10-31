@@ -2,16 +2,18 @@ import crypto from 'node:crypto'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 
-import { BrowserWindow, ClipboardItem, clipboard, dialog, ipcMain, nativeImage, shell } from 'electron'
+import { app, BrowserWindow, ClipboardItem, clipboard, dialog, ipcMain, nativeImage, shell } from 'electron'
 import type { OpenDialogOptions } from 'electron'
 import { generateText } from 'ai'
 
-import { backupsDir, createBackup, deleteBackup, listBackups, restoreBackup } from './backup.js'
+import { backupsDir, createBackup, deleteBackup, exportBackup, listBackups, restoreBackup } from './backup.js'
 
 import {
   applyChapterFlags,
   applyContent,
+  createChapterMark,
   createNote,
+  deleteChapterMark,
   deleteContent,
   deleteChapters,
   deleteNote,
@@ -28,6 +30,7 @@ import {
   getNote,
   listLabArtifacts,
   listBooks,
+  listChapterMarks,
   listContent,
   listLibraryNotes,
   listLibraryTags,
@@ -603,6 +606,24 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     typeof query === 'string' ? searchLibrary(query) : [],
   )
 
+  ipcMain.handle('library:search-semantic', async (_event, query: string) => {
+    if (typeof query !== 'string' || query.trim().length < 4) return []
+    const semantic = await semanticRelatedNotes('', query, 12).catch(() => null)
+    return (semantic ?? []).map((note) => ({
+      type: 'note' as const,
+      id: note.id,
+      bookId: note.bookId,
+      bookTitle: note.bookTitle,
+      chapterId: note.chapterId,
+      chapterTitle: note.chapterTitle,
+      title: note.title,
+      snippet: note.content.replace(/\s+/g, ' ').trim().slice(0, 180),
+      updatedAt: null,
+      source: 'semantic' as const,
+      score: note.score,
+    }))
+  })
+
   ipcMain.handle('library:notes', (_event, filter?: LibraryFilter) =>
     listLibraryNotes(filter && typeof filter === 'object' ? filter : {}),
   )
@@ -770,6 +791,23 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
   ipcMain.handle('content:apply', (_event, id: string, action: ContentApplyAction) => {
     if (typeof id !== 'string') throw new Error('内容参数无效。')
     return applyContent(id, action)
+  })
+
+  ipcMain.handle('marks:list', (_event, chapterId: string) => {
+    if (typeof chapterId !== 'string') return []
+    return listChapterMarks(chapterId)
+  })
+
+  ipcMain.handle('marks:create', (_event, input: { chapterId: string; quote: string; style: 'highlight' | 'underline' | 'strikethrough' }) => {
+    if (!input || typeof input.chapterId !== 'string' || typeof input.quote !== 'string') {
+      throw new Error('标记参数无效。')
+    }
+    return createChapterMark(input)
+  })
+
+  ipcMain.handle('marks:delete', (_event, id: string) => {
+    if (typeof id !== 'string') throw new Error('标记无效。')
+    deleteChapterMark(id)
   })
 
   ipcMain.handle('notes:list', (_event, bookId: string, chapterId?: string | null) =>
@@ -987,6 +1025,23 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     deleteBackup(dataDir, id)
   })
 
+  ipcMain.handle('backup:export', async (_event, id: string): Promise<SaveFileResult> => {
+    if (typeof id !== 'string') throw new Error('备份编号无效。')
+    const info = listBackups(dataDir).find((item) => item.id === id)
+    if (!info) throw new Error('找不到这个备份。')
+    const win = getWindow()
+    const options = {
+      title: '导出备份',
+      defaultPath: `ThinRead-backup-${info.createdAt.slice(0, 10)}.zip`,
+      filters: [{ name: 'ZIP', extensions: ['zip'] }],
+    }
+    const result = win ? await dialog.showSaveDialog(win, options) : await dialog.showSaveDialog(options)
+    if (result.canceled || !result.filePath) return { saved: false, path: null }
+    const destination = result.filePath.toLowerCase().endsWith('.zip') ? result.filePath : `${result.filePath}.zip`
+    exportBackup(dataDir, id, destination)
+    return { saved: true, path: destination }
+  })
+
   ipcMain.handle('backup:open-dir', async () => {
     const dir = backupsDir(dataDir)
     await fs.mkdir(dir, { recursive: true })
@@ -1031,7 +1086,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
   })
 
   ipcMain.handle('app:info', () => ({
-    version: '0.1.0',
+    version: app.getVersion(),
     dataDir,
     demo: getSettingsView().demo,
   }))

@@ -1,8 +1,51 @@
+export type PublishCoverStyle = 'paper' | 'ink' | 'minimal'
+
 export interface PublishCoverInput {
   title: string
   author: string
   date: string
   description?: string
+  style?: PublishCoverStyle
+}
+
+interface CoverPalette {
+  background: [string, string, string]
+  ink: string
+  soft: string
+  muted: string
+  line: string
+  accent: string
+  grid: string
+}
+
+const PALETTES: Record<PublishCoverStyle, CoverPalette> = {
+  paper: {
+    background: ['#f6f0e4', '#f9f5ec', '#eee5d5'],
+    ink: '#2b2720',
+    soft: '#6d6253',
+    muted: '#847967',
+    line: '#d9cdba',
+    accent: '#a84a2b',
+    grid: 'rgba(168, 74, 43, 0.16)',
+  },
+  ink: {
+    background: ['#0f1215', '#161b20', '#111417'],
+    ink: '#f2eadb',
+    soft: '#c7b9a7',
+    muted: '#938878',
+    line: '#343a40',
+    accent: '#d68a62',
+    grid: 'rgba(214, 138, 98, 0.12)',
+  },
+  minimal: {
+    background: ['#fbfaf6', '#ffffff', '#f1f3f7'],
+    ink: '#1e2329',
+    soft: '#5f6670',
+    muted: '#7b7a74',
+    line: '#e2e4e8',
+    accent: '#2f4f9e',
+    grid: 'rgba(47, 79, 158, 0.10)',
+  },
 }
 
 const SERIF = '"Songti SC", "STSong", "Noto Serif CJK SC", "SimSun", Georgia, serif'
@@ -51,14 +94,15 @@ export function renderPublishCover(input: PublishCoverInput): string {
   const ctx = canvas.getContext('2d')
   if (!ctx) throw new Error('无法创建封面画布。')
 
-  const paper = ctx.createLinearGradient(0, 0, 1200, 630)
-  paper.addColorStop(0, '#f6f0e4')
-  paper.addColorStop(0.55, '#f9f5ec')
-  paper.addColorStop(1, '#eee5d5')
-  ctx.fillStyle = paper
+  const palette = PALETTES[input.style ?? 'paper']
+  const background = ctx.createLinearGradient(0, 0, 1200, 630)
+  background.addColorStop(0, palette.background[0])
+  background.addColorStop(0.55, palette.background[1])
+  background.addColorStop(1, palette.background[2])
+  ctx.fillStyle = background
   ctx.fillRect(0, 0, 1200, 630)
 
-  ctx.strokeStyle = 'rgba(168, 74, 43, 0.16)'
+  ctx.strokeStyle = palette.grid
   ctx.lineWidth = 1
   for (let y = 52; y < 630; y += 30) {
     ctx.beginPath()
@@ -67,27 +111,27 @@ export function renderPublishCover(input: PublishCoverInput): string {
     ctx.stroke()
   }
 
-  ctx.fillStyle = '#a84a2b'
+  ctx.fillStyle = palette.accent
   ctx.fillRect(86, 74, 6, 132)
 
-  ctx.fillStyle = '#a84a2b'
+  ctx.fillStyle = palette.accent
   ctx.font = `600 18px ${SANS}`
   ctx.fillText('页边 · THINREAD', 120, 92)
-  ctx.fillStyle = '#847967'
+  ctx.fillStyle = palette.muted
   ctx.font = `400 15px ${SANS}`
   ctx.fillText('读书笔记', 120, 116)
 
   const title = input.title.replace(/\s+/g, ' ').trim() || '未命名读书笔记'
   const fitted = fitTitle(ctx, title, 900, 250)
   const titleTop = 174
-  ctx.fillStyle = '#2b2720'
+  ctx.fillStyle = palette.ink
   ctx.font = `600 ${fitted.size}px ${SERIF}`
   fitted.lines.forEach((line, index) => {
     ctx.fillText(line, 120, titleTop + index * fitted.lineHeight)
   })
 
   const ruleY = titleTop + fitted.lines.length * fitted.lineHeight + 24
-  ctx.strokeStyle = '#d9cdba'
+  ctx.strokeStyle = palette.line
   ctx.lineWidth = 2
   ctx.beginPath()
   ctx.moveTo(120, ruleY)
@@ -96,7 +140,7 @@ export function renderPublishCover(input: PublishCoverInput): string {
 
   const description = (input.description ?? '').replace(/\s+/g, ' ').trim().slice(0, 72)
   if (description) {
-    ctx.fillStyle = '#6d6253'
+    ctx.fillStyle = palette.soft
     ctx.font = `400 22px ${SERIF}`
     const descriptionLines = wrap(ctx, description, 960).slice(0, 2)
     descriptionLines.forEach((line, index) => {
@@ -104,14 +148,14 @@ export function renderPublishCover(input: PublishCoverInput): string {
     })
   }
 
-  ctx.fillStyle = '#2b2720'
+  ctx.fillStyle = palette.ink
   ctx.font = `600 20px ${SANS}`
   if (input.author.trim()) ctx.fillText(input.author.trim(), 120, 556)
-  ctx.fillStyle = '#847967'
+  ctx.fillStyle = palette.muted
   ctx.font = `400 17px ${SANS}`
   ctx.fillText(input.date, 120, 588)
 
-  ctx.fillStyle = '#a84a2b'
+  ctx.fillStyle = palette.accent
   ctx.font = `500 16px ${SANS}`
   ctx.textAlign = 'right'
   ctx.fillText('把一本书读成自己的', 1080, 574)

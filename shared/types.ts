@@ -131,6 +131,12 @@ export interface Note {
   updatedAt: string
 }
 
+export interface TokenUsage {
+  inputTokens: number
+  outputTokens: number
+  totalTokens: number
+}
+
 export interface NoteReport {
   originalChars: number
   condensedChars: number
@@ -147,6 +153,9 @@ export interface NoteReport {
   durationMs: number
   /** 使用的生成档位；旧报告没有这一项。 */
   mode?: GenerationMode
+  /** 本次生成累计的模型 token；旧报告可能没有。 */
+  usage?: TokenUsage
+  promptVersion?: string
   model: string
   createdAt: string
 }
@@ -161,6 +170,17 @@ export interface RelatedNote {
   content: string
   tags: string[]
   score: number
+}
+
+export type ReaderMarkStyle = 'highlight' | 'underline' | 'strikethrough'
+
+export interface ReaderMark {
+  id: string
+  bookId: string
+  chapterId: string
+  quote: string
+  style: ReaderMarkStyle
+  createdAt: string
 }
 
 export interface LibraryNote extends Note {
@@ -305,6 +325,8 @@ export interface RelationNode {
   /** 模型提供的百科背景；不是书内原文，需要核对。 */
   encyclopedia: string
   description: string
+  /** 书中出现这一节点的章节或页码，便于回查。 */
+  chapters?: string[]
 }
 
 export interface RelationEdge {
@@ -316,6 +338,8 @@ export interface RelationEdge {
   reverseLabel: string
   kind: 'family' | 'ally' | 'rival' | 'suspect' | 'motive' | 'clue' | 'event' | 'other'
   description: string
+  /** 这条关系出现的章节或页码。 */
+  chapters?: string[]
 }
 
 export interface RelationGraph {
@@ -635,6 +659,9 @@ export interface SearchResult {
   title: string
   snippet: string
   updatedAt: string | null
+  /** 语义检索追加的笔记结果。 */
+  source?: 'keyword' | 'semantic'
+  score?: number
 }
 
 export interface GenerationProgress {
@@ -743,6 +770,8 @@ export interface BookComposeResult {
   sourceChars: number
   outputChars: number
   durationMs: number
+  usage?: TokenUsage
+  promptVersion?: string
   model: string
   createdAt: string
   options: BookComposeOptions
@@ -778,6 +807,9 @@ export interface ReadingApi {
   saveStyle(bookId: string, style: ReaderStyle): Promise<ReaderStyle>
   getChapter(chapterId: string): Promise<ChapterContent>
   setProgress(bookId: string, chapterId: string): Promise<void>
+  listChapterMarks(chapterId: string): Promise<ReaderMark[]>
+  createChapterMark(input: { chapterId: string; quote: string; style: ReaderMarkStyle }): Promise<ReaderMark>
+  deleteChapterMark(id: string): Promise<void>
   classifyChapters(bookId: string): Promise<ClassifyResult>
   applyChapterFlags(flags: ChapterFlag[]): Promise<void>
   deleteChapters(chapterIds: string[]): Promise<void>
@@ -844,9 +876,11 @@ export interface ReadingApi {
   restoreBackup(id: string): Promise<void>
   deleteBackup(id: string): Promise<void>
   openBackupsDir(): Promise<void>
+  exportBackup(id: string): Promise<SaveFileResult>
   copyText(text: string): Promise<void>
   saveMarkdown(defaultName: string, content: string): Promise<SaveFileResult>
   search(query: string): Promise<SearchResult[]>
+  searchSemantic(query: string): Promise<SearchResult[]>
   onGenerationPartial(cb: (event: GenerationPartialEvent) => void): () => void
   onGenerationDone(cb: (event: GenerationDoneEvent) => void): () => void
   onGenerationError(cb: (event: GenerationErrorEvent) => void): () => void

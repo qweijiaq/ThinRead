@@ -8,6 +8,7 @@ import type {
   GenerationMode,
   NoteDivergence,
   NoteReport,
+  TokenUsage,
 } from '../../shared/types.js'
 import type { GeneratedNote } from '../db.js'
 import { deriveTitle } from '../db.js'
@@ -20,6 +21,15 @@ const MAX_SECTION_CHARS = 6_000
 const MAX_OMITTED = 30
 const CONCURRENCY = 4
 const MAX_DIVERGENCES = 3
+
+function recordUsage(target: TokenUsage | undefined, usage: unknown): void {
+  if (!target || !usage || typeof usage !== 'object') return
+  const value = usage as { inputTokens?: unknown; outputTokens?: unknown; totalTokens?: unknown }
+  target.inputTokens += Number(value.inputTokens) || 0
+  target.outputTokens += Number(value.outputTokens) || 0
+  target.totalTokens += Number(value.totalTokens) || 0
+}
+
 function requestTimeout(parent: AbortSignal, ms: number): AbortSignal {
   const anySignal = (AbortSignal as unknown as { any?: (signals: AbortSignal[]) => AbortSignal }).any
   return anySignal ? anySignal([parent, AbortSignal.timeout(ms)]) : parent
@@ -80,6 +90,7 @@ export interface GenerateArgs {
   demo: boolean
   genre?: BookGenre
   mode?: GenerationMode
+  usage?: TokenUsage
   lookupRelatedNotes?: (concepts: string[]) => RelatedContext[]
 }
 
@@ -101,6 +112,8 @@ export async function generateChapterNotes(
   const startedAt = Date.now()
   const mode = args.mode ?? 'standard'
   const model = createLanguageModel(args.config)
+  const usage: TokenUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 }
+  args.usage = usage
   const sections = buildSections(args.chapterHtml, args.chapterText)
   if (sections.length === 0) throw new Error('这一章没有可读的正文。')
   const chunks = splitSections(sections)
@@ -135,37 +148,48 @@ export async function generateChapterNotes(
   if (!merged.main.trim()) throw new Error('读薄稿为空，请重试或换一个模型。')
 
   // 阶段一回查与阶段二提炼并行：审计和卡片都只依赖读薄稿。
-  // 快速模式跳过回查，标准模式回查一次，精读模式再补一轮细节回查。
+  // 卡片完成后立刻开始延伸，让延伸与仍然在跑的回查并行。
+  // 快速模式跳过回查和延伸，精读模式并行补一轮细节回查。
   onPartial({ progress: { phase: 'cards', done: 0, total: 1, cards: 0 } })
   const range = cardRange(countChars(merged.main), mode)
-  const [audit, extractedCards] = await Promise.all([
-    mode === 'fast' ? Promise.resolve([] as AuditMissing[]) : auditFidelity(model, args, merged.main, signal),
-    extractCards(model, args, merged.main, range, signal),
-  ])
-  if (mode === 'deep') {
-    const extra = await auditDetails(model, args, merged.main, signal)
-    const seen = new Set(audit.map((item) => normalizeForMatch(item.point)))
-    for (const item of extra) {
-      const key = normalizeForMatch(item.point)
-      if (!key || seen.has(key)) continue
-      seen.add(key)
-      audit.push(item)
-    }
-  }
-  let cards = extractedCards
+  const auditPromise =
+    mode === 'fast'
+      ? Promise.resolve([] as AuditMissing[])
+      : auditFidelity(model, args, merged.main, signal)
+  const detailAuditPromise =
+    mode === 'deep'
+      ? auditDetails(model, args, merged.main, signal)
+      : Promise.resolve([] as AuditMissing[])
+  let cards = await extractCards(model, args, merged.main, range, signal)
   if (cards.length > range.max) {
     cards = await refilterCards(model, args, cards, range.max, signal)
   }
   if (cards.length === 0) cards = fallbackCards(merged.main)
   onPartial({ progress: { phase: 'cards', done: 1, total: 1, cards: cards.length } })
 
+  onPartial({ progress: { phase: 'expand', done: 0, total: cards.length, cards: cards.length } })
+  const expandPromise =
+    mode === 'fast'
+      ? Promise.resolve(new Map<number, NoteDivergence[]>())
+      : expandCards(model, args, cards, signal)
+  const [audit, detailAudit, divergences] = await Promise.all([
+    auditPromise,
+    detailAuditPromise,
+    expandPromise,
+  ])
+  if (detailAudit.length > 0) {
+    const seen = new Set(audit.map((item) => normalizeForMatch(item.point)))
+    for (const item of detailAudit) {
+      const key = normalizeForMatch(item.point)
+      if (!key || seen.has(key)) continue
+      seen.add(key)
+      audit.push(item)
+    }
+  }
+
   const auditBlock = buildAuditBlock(audit)
   const condensedDoc = buildCondensedDoc(merged.main, auditBlock)
 
-  // 阶段三：只对卡片做有限延伸；快速模式不生成延伸，省掉一次请求。
-  onPartial({ progress: { phase: 'expand', done: 0, total: cards.length, cards: cards.length } })
-  const divergences =
-    mode === 'fast' ? new Map<number, NoteDivergence[]>() : await expandCards(model, args, cards, signal)
   divergences.forEach((items, index) => {
     const card = cards[index]
     if (card) card.divergences = items
@@ -194,6 +218,8 @@ export async function generateChapterNotes(
     omittedItems: merged.omitted.slice(0, MAX_OMITTED),
     durationMs: Date.now() - startedAt,
     mode,
+    usage: { ...usage },
+    promptVersion: 'notes-v4',
     model: args.config.model,
     createdAt: new Date().toISOString(),
   }
@@ -352,6 +378,7 @@ async function condenseChunk(
       maxRetries: 1,
       abortSignal: requestTimeout(signal, 180_000),
     })
+    recordUsage(args.usage, response.usage)
     const parsed = normalizeCondense(response.text, chunk.title)
     if (!parsed.compressed) continue
     last = parsed
@@ -484,6 +511,7 @@ async function auditFidelity(
       maxRetries: 1,
       abortSignal: requestTimeout(signal, 180_000),
     })
+    recordUsage(args.usage, response.usage)
     return normalizeAudit(parseJsonFromText(response.text)).slice(0, 12)
   } catch (error) {
     if (signal.aborted) throw error
@@ -523,6 +551,7 @@ async function auditDetails(
       maxRetries: 1,
       abortSignal: requestTimeout(signal, 180_000),
     })
+    recordUsage(args.usage, response.usage)
     return normalizeAudit(parseJsonFromText(response.text)).slice(0, 8)
   } catch (error) {
     if (signal.aborted) throw error
@@ -606,6 +635,7 @@ async function extractCards(
       maxRetries: 1,
       abortSignal: requestTimeout(signal, 180_000),
     })
+    recordUsage(args.usage, response.usage)
     return normalizeCards(parseJsonFromText(response.text), args.chapterText).slice(0, range.max)
   } catch (error) {
     if (signal.aborted) throw error
@@ -644,6 +674,7 @@ async function refilterCards(
       maxRetries: 1,
       abortSignal: requestTimeout(signal, 180_000),
     })
+    recordUsage(args.usage, response.usage)
     const filtered = normalizeCards(parseJsonFromText(response.text), args.chapterText).slice(0, max)
     if (filtered.length > 0) return filtered
   } catch (error) {
@@ -761,6 +792,7 @@ async function expandCards(
       maxRetries: 1,
       abortSignal: requestTimeout(signal, 180_000),
     })
+    recordUsage(args.usage, response.usage)
     return normalizeDivergences(parseJsonFromText(response.text), items)
   } catch (error) {
     if (signal.aborted) throw error

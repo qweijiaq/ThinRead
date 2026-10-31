@@ -656,6 +656,98 @@ function relationContext(bookId: string): { bookTitle: string; author: string; t
   return { bookTitle: book.title, author: book.author, text }
 }
 
+function normalizeStringList(value: unknown, max = 8): string[] {
+  if (Array.isArray(value)) {
+    return [...new Set(value.filter((item): item is string => typeof item === 'string').map((item) => item.trim()).filter(Boolean))].slice(0, max)
+  }
+  if (typeof value === 'string') {
+    return [...new Set(value.split(/[、,，;；]/).map((item) => item.trim()).filter(Boolean))].slice(0, max)
+  }
+  return []
+}
+
+function relationKey(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[\s　]/g, '')
+    .replace(/[“”"'‘’「」『』（）()【】\[\]…—–\-·、，,。.；;：:！!？?《》<>]/g, '')
+}
+
+/** 合并模型把同一个人/地点写成多个节点的情况；只合并同类型节点。 */
+export function mergeRelationAliases(graph: RelationGraph): RelationGraph {
+  const parent = new Map<string, string>()
+  const find = (id: string): string => {
+    let current = id
+    while (parent.get(current) && parent.get(current) !== current) current = parent.get(current)!
+    parent.set(id, current)
+    return current
+  }
+  const union = (a: string, b: string): void => {
+    const rootA = find(a)
+    const rootB = find(b)
+    if (rootA !== rootB) parent.set(rootB, rootA)
+  }
+  for (const node of graph.nodes) parent.set(node.id, node.id)
+  const owners = new Map<string, string>()
+  for (const node of graph.nodes) {
+    for (const value of [node.label, ...node.aliases]) {
+      const key = relationKey(value)
+      if (!key) continue
+      const scoped = `${node.kind}:${key}`
+      const existing = owners.get(scoped)
+      if (existing && existing !== node.id) union(existing, node.id)
+      else owners.set(scoped, node.id)
+    }
+  }
+  const groups = new Map<string, RelationNode[]>()
+  for (const node of graph.nodes) {
+    const root = find(node.id)
+    const list = groups.get(root) ?? []
+    list.push(node)
+    groups.set(root, list)
+  }
+  const remap = new Map<string, string>()
+  const nodes: RelationNode[] = []
+  for (const list of groups.values()) {
+    const primary = [...list].sort(
+      (a, b) => b.importance - a.importance || a.label.length - b.label.length,
+    )[0]!
+    const aliases = new Set<string>()
+    const chapters = new Set<string>()
+    for (const node of list) {
+      remap.set(node.id, primary.id)
+      aliases.add(node.label)
+      node.aliases.forEach((alias) => aliases.add(alias))
+      node.chapters?.forEach((chapter) => chapters.add(chapter))
+    }
+    aliases.delete(primary.label)
+    nodes.push({
+      ...primary,
+      aliases: [...aliases].filter(Boolean).slice(0, 8),
+      chapters: [...chapters].slice(0, 8),
+      importance: Math.max(...list.map((node) => node.importance)),
+      identity: list.map((node) => node.identity).find(Boolean) ?? '',
+      rank: list.map((node) => node.rank).find(Boolean) ?? '',
+      affiliation: list.map((node) => node.affiliation).find(Boolean) ?? '',
+      encyclopedia: [...list].sort((a, b) => b.encyclopedia.length - a.encyclopedia.length)[0]?.encyclopedia ?? '',
+      description: [...list].sort((a, b) => b.description.length - a.description.length)[0]?.description ?? '',
+      realWorld: list.some((node) => node.realWorld),
+    })
+  }
+  const edges: RelationEdge[] = []
+  const seen = new Set<string>()
+  for (const edge of graph.edges) {
+    const source = remap.get(edge.source) ?? edge.source
+    const target = remap.get(edge.target) ?? edge.target
+    if (source === target) continue
+    const key = `${source}\u0000${target}\u0000${edge.label}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    edges.push({ ...edge, source, target })
+  }
+  return { ...graph, nodes, edges }
+}
+
 function normalizeRelationGraph(raw: unknown, bookTitle: string): RelationGraph {
   const obj = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {}
   const rawNodes = Array.isArray(obj.nodes) ? obj.nodes : []
@@ -691,6 +783,7 @@ function normalizeRelationGraph(raw: unknown, bookTitle: string): RelationGraph 
       realWorld: item.realWorld === true,
       encyclopedia: typeof item.encyclopedia === 'string' ? item.encyclopedia.trim().slice(0, 600) : '',
       description: typeof item.description === 'string' ? item.description.trim().slice(0, 300) : '',
+      chapters: normalizeStringList(item.chapters ?? item.chapterRefs ?? item.sources, 8),
     })
     byLabel.set(label, id)
   }
@@ -717,6 +810,7 @@ function normalizeRelationGraph(raw: unknown, bookTitle: string): RelationGraph 
       reverseLabel,
       kind: validEdgeKinds.has(String(item.kind)) ? (item.kind as RelationEdge['kind']) : 'other',
       description: typeof item.description === 'string' ? item.description.trim().slice(0, 240) : '',
+      chapters: normalizeStringList(item.chapters ?? item.chapterRefs ?? item.sources, 8),
     })
   }
   return {
@@ -770,11 +864,11 @@ export async function generateRelationGraph(args: {
     '2. 节点总数控制在 6–24 个。人物用 kind=person；组织、地点、事件、概念分别用 organization/place/event/concept。',
     '3. 只有人物才标注叙事 role：detective=侦探/调查者，killer=凶手，victim=被害人，witness=关键证人，suspect=嫌疑人，protagonist=主角，supporting=配角，other=其他。地点、事件、概念和普通组织一律 role=other，不要把它们标成配角。',
     '4. 每个人物都要尽量填写 identity（身份/职业）、rank（官阶/职位/称号/神职，没有就留空）、affiliation（国家/阵营/家族/组织/神话谱系）和 aliases（别名、字号、封号）。历史/历史小说尤其要写清官阶和阵营，不能只写“将军”“官员”这种泛称。',
-    '5. 边表达明确关系：亲缘、盟友、敌对、嫌疑、动机、线索、事件牵连等；每条边写 label（source→target）、reverseLabel（target→source，例如“杀害/被杀害”“追查/被追查”“效忠/统领”）和一句具体依据，尽量写出因为什么事、在哪一章。',
+    '5. 边表达明确关系：亲缘、盟友、敌对、嫌疑、动机、线索、事件牵连等；每条边写 label（source→target）、reverseLabel（target→source，例如“杀害/被杀害”“追查/被追查”“效忠/统领”）和一句具体依据，并在 chapters 里写出出现这一关系的章节/页码。',
     '6. 根据体裁补充该类书的重点：历史/传记写官阶、阵营、继承、战争和转折；侦探写动机、时间线、物证、证词、误导和揭示；神话写神职、谱系、领域；现实主义小说写关系变化和人物弧光；非虚构写作者、机构、理论和论证关系。',
     '7. 真实人物、真实地点或神话人物请把 realWorld 设为 true，并在 encyclopedia 中用 2–4 句提供公认的百科背景（生卒/时代/地点/身份/神话出处）。这是模型常识，不是书中原文；不确定的细节宁可留空，不要编造。虚构人物或地点 realWorld=false，encyclopedia 留空。',
     '8. plot 用 3–8 句话按时间顺序概括完整情节链，必须标注「含剧透」；summary 只放一句话主题。',
-    '只输出 JSON 对象：{"title":"...","genre":"...","summary":"...","plot":"...","nodes":[{"id":"p1","label":"...","kind":"person|organization|place|event|concept","role":"detective|killer|victim|witness|suspect|protagonist|supporting|other","importance":5,"identity":"...","rank":"...","affiliation":"...","aliases":["..."],"realWorld":true,"encyclopedia":"...","description":"..."}],"edges":[{"source":"p1","target":"p2","label":"...","reverseLabel":"...","kind":"family|ally|rival|suspect|motive|clue|event|other","description":"..."}]}。不要输出 Markdown 代码块。',
+    '只输出 JSON 对象：{"title":"...","genre":"...","summary":"...","plot":"...","nodes":[{"id":"p1","label":"...","kind":"person|organization|place|event|concept","role":"detective|killer|victim|witness|suspect|protagonist|supporting|other","importance":5,"identity":"...","rank":"...","affiliation":"...","aliases":["..."],"realWorld":true,"encyclopedia":"...","description":"...","chapters":["第X章"]}],"edges":[{"source":"p1","target":"p2","label":"...","reverseLabel":"...","kind":"family|ally|rival|suspect|motive|clue|event|other","description":"...","chapters":["第X章"]}]}。不要输出 Markdown 代码块。',
   ].join('\n')
   const response = await generateText({
     model,
@@ -784,7 +878,7 @@ export async function generateRelationGraph(args: {
     maxRetries: 1,
     abortSignal: AbortSignal.timeout(180_000),
   })
-  const graph = normalizeRelationGraph(parseJsonObject(response.text), context.bookTitle)
+  const graph = mergeRelationAliases(normalizeRelationGraph(parseJsonObject(response.text), context.bookTitle))
   if (graph.nodes.length < 2) throw new Error('没有抽出足够的人物或事件，请换一个模型或先补充章节笔记。')
   return graph
 }
@@ -838,7 +932,9 @@ export async function analyzePdfPage(args: {
 }
 
 function findPdfPageScript(): string {
+  const resources = (process as unknown as { resourcesPath?: string }).resourcesPath
   const candidates = [
+    ...(resources ? [path.join(resources, 'scripts', 'pdf-page.swift')] : []),
     path.join(process.cwd(), 'scripts', 'pdf-page.swift'),
     path.join(__dirname, '..', 'scripts', 'pdf-page.swift'),
     path.join(__dirname, '..', '..', 'scripts', 'pdf-page.swift'),

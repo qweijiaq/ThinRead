@@ -36,7 +36,7 @@ const OCR_AD_TERMS = [
   '学员',
 ]
 
-function isOcrNoisePage(text: string): boolean {
+export function isOcrNoisePage(text: string): boolean {
   const compact = text.replace(/\s+/g, '')
   if (/图书在版编目|ISBN\s*97[89]|版权所有|出版发行/.test(compact)) return true
   const hits = OCR_AD_TERMS.filter((term) => compact.includes(term)).length
@@ -57,7 +57,7 @@ interface OutlineEntry {
   depth: number
 }
 
-function buildOutlineChapters(
+export function buildOutlineChapters(
   pages: Array<{ page: number; text: string }>,
   outline: OutlineEntry[],
   pageCount: number,
@@ -85,7 +85,9 @@ function buildOutlineChapters(
 }
 
 function findOcrScript(): string {
+  const resources = (process as unknown as { resourcesPath?: string }).resourcesPath
   const candidates = [
+    ...(resources ? [path.join(resources, 'scripts', 'pdf-ocr.swift')] : []),
     path.join(process.cwd(), 'scripts', 'pdf-ocr.swift'),
     path.join(__dirname, '..', 'scripts', 'pdf-ocr.swift'),
     path.join(__dirname, '..', '..', 'scripts', 'pdf-ocr.swift'),

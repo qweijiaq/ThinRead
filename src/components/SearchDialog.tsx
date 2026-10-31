@@ -21,6 +21,11 @@ const KIND_LABEL: Record<SearchResultType, string> = {
   content: '生成',
 }
 
+function mergeResults(base: SearchResult[], extra: SearchResult[]): SearchResult[] {
+  const seen = new Set(base.map((item) => `${item.type}:${item.id}`))
+  return [...base, ...extra.filter((item) => !seen.has(`${item.type}:${item.id}`))]
+}
+
 function highlight(text: string, query: string): JSX.Element {
   const term = query.trim()
   if (!term) return <>{text}</>
@@ -70,7 +75,7 @@ export function SearchDialog({ open, onClose, onOpen }: SearchDialogProps): JSX.
         .search(term)
         .then((found) => {
           if (cancelled) return
-          setResults(found)
+          setResults((current) => mergeResults(found, current.filter((item) => item.source === 'semantic')))
           setActive(0)
           setError(null)
         })
@@ -82,6 +87,14 @@ export function SearchDialog({ open, onClose, onOpen }: SearchDialogProps): JSX.
         .finally(() => {
           if (!cancelled) setLoading(false)
         })
+      void window.api
+        .searchSemantic(term)
+        .then((extra) => {
+          if (!cancelled && extra.length > 0) {
+            setResults((current) => mergeResults(current, extra))
+          }
+        })
+        .catch(() => undefined)
     }, 160)
     return () => {
       cancelled = true
@@ -168,6 +181,7 @@ export function SearchDialog({ open, onClose, onOpen }: SearchDialogProps): JSX.
                       >
                         <span className="search-result-line">
                           <span className={`search-result-kind type-${result.type}`}>{KIND_LABEL[result.type]}</span>
+                          {result.source === 'semantic' ? <span className="search-result-source">语义</span> : null}
                           <span className="search-result-title">{highlight(result.title, query)}</span>
                         </span>
                         <span className="search-result-meta">

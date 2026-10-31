@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type JSX } from 'react'
 
-import type { ChapterContent, ReaderStyle, RelatedNote } from '../../shared/types.js'
+import type { ChapterContent, ReaderMark, ReaderMarkStyle, ReaderStyle, RelatedNote } from '../../shared/types.js'
 import { EchoDialog } from './EchoDialog.js'
 
 interface ReaderProps {
@@ -11,12 +11,17 @@ interface ReaderProps {
   scrollTarget: { quote: string; key: number } | null
   echoes: RelatedNote[]
   excerpt: string
-  onQuote(text: string): void
+  marks: ReaderMark[]
+  onCreateMark(style: ReaderMarkStyle, text: string): void
+  onClearMarks(ids: string[]): void
   onOpenFormat(): void
   onOpenEcho(echo: RelatedNote): void
   onListen(): void
   onRenameChapter(): void
   onMarginNote(text: string): void
+  onAsk(text: string): void
+  onShareQuote(text: string): void
+  onListenSelection(text: string): void
 }
 
 /** 旧版本解析出的章节会把标题重复放进正文；渲染时去掉与章节标题相同的前导标题文本。 */
@@ -95,12 +100,17 @@ export function Reader({
   scrollTarget,
   echoes,
   excerpt,
-  onQuote,
+  marks,
+  onCreateMark,
+  onClearMarks,
   onOpenFormat,
   onOpenEcho,
   onListen,
   onRenameChapter,
   onMarginNote,
+  onAsk,
+  onShareQuote,
+  onListenSelection,
 }: ReaderProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const [selection, setSelection] = useState<string>('')
@@ -122,11 +132,44 @@ export function Reader({
     '--reader-paragraph-gap': `${style.paragraphSpacing}em`,
   } as CSSProperties
 
+  const selectedMarks = useMemo(() => {
+    const selected = selection.replace(/\s+/g, '')
+    if (selected.length < 4) return []
+    return marks.filter((mark) => {
+      const quote = mark.quote.replace(/\s+/g, '')
+      return quote.includes(selected) || selected.includes(quote)
+    })
+  }, [marks, selection])
+
   useEffect(() => {
     setSelection('')
     setToolbar(null)
     setEchoOpen(false)
   }, [chapter?.id])
+
+  useEffect(() => {
+    const root = containerRef.current
+    const css = CSS as unknown as { highlights?: { delete(name: string): void; set(name: string, value: unknown): void } }
+    const HighlightCtor = (window as unknown as { Highlight?: new (...ranges: Range[]) => unknown }).Highlight
+    if (!root || !css.highlights || !HighlightCtor) return
+    const names = ['reader-mark-highlight', 'reader-mark-underline', 'reader-mark-strikethrough']
+    names.forEach((name) => css.highlights!.delete(name))
+    const groups = new Map<ReaderMarkStyle, Range[]>()
+    for (const mark of marks) {
+      const range = findQuoteRange(root, mark.quote)
+      if (!range) continue
+      const list = groups.get(mark.style) ?? []
+      list.push(range)
+      groups.set(mark.style, list)
+    }
+    for (const [style, ranges] of groups) {
+      if (ranges.length === 0) continue
+      css.highlights.set(`reader-mark-${style}`, new HighlightCtor(...ranges))
+    }
+    return () => {
+      names.forEach((name) => css.highlights!.delete(name))
+    }
+  }, [marks, html, chapter?.id, loading])
 
   useEffect(() => {
     if (!scrollTarget || !containerRef.current) return
@@ -156,15 +199,10 @@ export function Reader({
     if (!containerRef.current?.contains(range.commonAncestorContainer)) return
     const rect = range.getBoundingClientRect()
     setSelection(text)
-    setToolbar({ x: Math.min(window.innerWidth - 240, Math.max(240, rect.left + rect.width / 2)), y: rect.top - 10 })
-  }
-
-  function takeQuote(): void {
-    if (!selection) return
-    onQuote(selection)
-    window.getSelection()?.removeAllRanges()
-    setSelection('')
-    setToolbar(null)
+    setToolbar({
+      x: Math.min(window.innerWidth - 500, Math.max(500, rect.left + rect.width / 2)),
+      y: Math.max(60, rect.top - 10),
+    })
   }
 
   return (
@@ -231,8 +269,62 @@ export function Reader({
       </div>
       {toolbar && selection ? (
         <div className="selection-toolbar" style={{ left: toolbar.x, top: toolbar.y }}>
-          <button type="button" onClick={takeQuote}>
-            记笔记
+          <button
+            type="button"
+            onClick={() => {
+              onCreateMark('highlight', selection)
+              window.getSelection()?.removeAllRanges()
+              setSelection('')
+              setToolbar(null)
+            }}
+          >
+            高亮
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              onCreateMark('underline', selection)
+              window.getSelection()?.removeAllRanges()
+              setSelection('')
+              setToolbar(null)
+            }}
+          >
+            划线
+          </button>
+          <button
+            type="button"
+            title="给选中文字加删除线"
+            onClick={() => {
+              onCreateMark('strikethrough', selection)
+              window.getSelection()?.removeAllRanges()
+              setSelection('')
+              setToolbar(null)
+            }}
+          >
+            删除
+          </button>
+          {selectedMarks.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => {
+                onClearMarks(selectedMarks.map((mark) => mark.id))
+                window.getSelection()?.removeAllRanges()
+                setSelection('')
+                setToolbar(null)
+              }}
+            >
+              清除
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => {
+              onAsk(selection)
+              setSelection('')
+              setToolbar(null)
+            }}
+          >
+            问 AI
           </button>
           <button
             type="button"
@@ -244,6 +336,26 @@ export function Reader({
             }}
           >
             AI 边注
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              onShareQuote(selection)
+              setSelection('')
+              setToolbar(null)
+            }}
+          >
+            分享
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              onListenSelection(selection)
+              setSelection('')
+              setToolbar(null)
+            }}
+          >
+            朗读
           </button>
           <button
             type="button"

@@ -3,9 +3,11 @@ import os from 'node:os'
 import path from 'node:path'
 
 import { app, BrowserWindow, screen, shell } from 'electron'
+import { autoUpdater } from 'electron-updater'
 
 import { generateChapterNotes } from './ai/notes.js'
 import { closeDatabase, createNote, getChapter, getChapters, initDatabase, insertBook, listBooks, replaceAiNotes, setProgress } from './db.js'
+import { ensureDailyBackup } from './backup.js'
 import { registerIpc } from './ipc.js'
 import { importBookFile } from './import.js'
 import { parseEpub } from './parsers/epub.js'
@@ -206,6 +208,22 @@ function createWindow(): void {
   })
 }
 
+function setupAutoUpdater(): void {
+  if (!app.isPackaged) return
+  const resources = (process as unknown as { resourcesPath?: string }).resourcesPath
+  if (!resources || !fs.existsSync(path.join(resources, 'app-update.yml'))) return
+  autoUpdater.autoDownload = true
+  autoUpdater.autoInstallOnAppQuit = true
+  autoUpdater.on('error', (error) => {
+    console.warn('[update] check failed', error instanceof Error ? error.message : error)
+  })
+  setTimeout(() => {
+    void autoUpdater.checkForUpdatesAndNotify().catch((error: unknown) => {
+      console.warn('[update] check failed', error instanceof Error ? error.message : error)
+    })
+  }, 8000).unref()
+}
+
 app.whenReady().then(async () => {
   if (writeSampleArg) {
     const target = writeSampleArg.slice('--write-sample='.length)
@@ -237,6 +255,12 @@ app.whenReady().then(async () => {
   const dataDir = app.getPath('userData')
   initDatabase(dataDir)
   initSettings(dataDir)
+  if (listBooks().length > 0) {
+    ensureDailyBackup(dataDir)
+    setInterval(() => {
+      if (listBooks().length > 0) ensureDailyBackup(dataDir)
+    }, 6 * 60 * 60 * 1000).unref()
+  }
 
   if (importArg) {
     try {
@@ -282,6 +306,7 @@ app.whenReady().then(async () => {
   registerIpc(() => mainWindow, dataDir)
   if (isSeed) await seedDemoLibrary()
   createWindow()
+  setupAutoUpdater()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

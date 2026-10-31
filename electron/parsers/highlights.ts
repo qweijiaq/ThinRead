@@ -104,7 +104,11 @@ function parseKindle(text: string, fallbackTitle: string): HighlightEntry[] {
     const lines = block.split('\n').map((line) => line.trim())
     if (lines.length < 2) continue
     const titleLine = lines[0] ?? ''
-    const meta = lines.find((line) => /highlight|note|bookmark|划线|标注|笔记|书签/i.test(line)) ?? ''
+    const meta =
+      lines.find((line) => /highlight|note|bookmark|划线|标注|笔记|书签/i.test(line)) ??
+      lines.find((line) => /位置|location|page|第\s*#?\d/i.test(line)) ??
+      lines[1] ??
+      ''
     const titleMatch = titleLine.match(/^(.*?)\s*\((.*?)\)\s*$/)
     const title = (titleMatch?.[1] ?? titleLine).trim() || fallbackTitle
     const author = titleMatch?.[2]?.trim() ?? ''

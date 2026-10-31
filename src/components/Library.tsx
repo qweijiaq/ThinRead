@@ -1,7 +1,8 @@
-import type { JSX } from 'react'
+import { useMemo, useState, type JSX } from 'react'
 import type { BookSummary } from '../../shared/types.js'
 import { bookGenreLabel } from '../lib/genres.js'
 import { confirmDialog } from './ConfirmDialog.js'
+import { Select } from './Select.js'
 
 interface LibraryProps {
   books: BookSummary[]
@@ -22,7 +23,25 @@ function formatWords(value: number): string {
   return `${value.toLocaleString()} 字`
 }
 
+type LibrarySort = 'recent' | 'title' | 'progress' | 'chars'
+
 export function Library({ books, importing, onOpen, onImport, onDelete, onRename, onCompose, onMerge }: LibraryProps): JSX.Element {
+  const [query, setQuery] = useState('')
+  const [sort, setSort] = useState<LibrarySort>('recent')
+  const visibleBooks = useMemo(() => {
+    const term = query.trim().toLowerCase()
+    const filtered = term
+      ? books.filter((book) => `${book.title} ${book.author}`.toLowerCase().includes(term))
+      : books
+    // SQLite 返回的顺序已经按最近打开时间排序，这里只重排用户明确选择的维度。
+    return [...filtered].sort((a, b) => {
+      if (sort === 'title') return a.title.localeCompare(b.title, 'zh-CN')
+      if (sort === 'progress') return b.progress - a.progress || b.readChars - a.readChars
+      if (sort === 'chars') return b.totalChars - a.totalChars
+      return 0
+    })
+  }, [books, query, sort])
+
   if (books.length === 0) {
     return (
       <main className="welcome">
@@ -74,8 +93,28 @@ export function Library({ books, importing, onOpen, onImport, onDelete, onRename
           </button>
         </div>
       </div>
+      <div className="library-toolbar">
+        <input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="搜索书名或作者…"
+          aria-label="搜索书架"
+        />
+        <Select
+          value={sort}
+          onChange={(value) => setSort(value as LibrarySort)}
+          ariaLabel="书架排序"
+          options={[
+            { value: 'recent', label: '最近阅读' },
+            { value: 'title', label: '书名' },
+            { value: 'progress', label: '阅读进度' },
+            { value: 'chars', label: '总字数' },
+          ]}
+        />
+        <span>{visibleBooks.length} 本</span>
+      </div>
       <div className="book-grid">
-        {books.map((book) => (
+        {visibleBooks.map((book) => (
           <article
             key={book.id}
             className="book-card"
@@ -156,6 +195,7 @@ export function Library({ books, importing, onOpen, onImport, onDelete, onRename
             </div>
           </article>
         ))}
+        {visibleBooks.length === 0 ? <p className="library-filter-empty">没有匹配「{query.trim()}」的书。</p> : null}
       </div>
     </main>
   )

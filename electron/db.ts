@@ -18,6 +18,8 @@ import type {
   NoteKind,
   NotePatch,
   NoteReport,
+  ReaderMark,
+  ReaderMarkStyle,
   ReaderStyle,
   RelatedNote,
   RemovedPart,
@@ -197,6 +199,16 @@ export function initDatabase(dataDir: string): void {
       vector TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS reader_marks (
+      id TEXT PRIMARY KEY,
+      book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+      chapter_id TEXT NOT NULL REFERENCES chapters(id) ON DELETE CASCADE,
+      quote TEXT NOT NULL,
+      style TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_reader_marks_chapter ON reader_marks(chapter_id, created_at);
 
     CREATE TABLE IF NOT EXISTS lab_artifacts (
       tool TEXT NOT NULL,
@@ -950,6 +962,49 @@ export function listNotes(bookId: string, chapterId?: string | null): Note[] {
         .prepare('SELECT * FROM notes WHERE book_id = ? ORDER BY created_at, rowid')
         .all(bookId) as unknown as NoteRow[])
   return rows.map(mapNote)
+}
+
+export function listChapterMarks(chapterId: string): ReaderMark[] {
+  const rows = database()
+    .prepare('SELECT * FROM reader_marks WHERE chapter_id = ? ORDER BY created_at, rowid')
+    .all(chapterId) as unknown as Array<{
+    id: string
+    book_id: string
+    chapter_id: string
+    quote: string
+    style: ReaderMarkStyle
+    created_at: string
+  }>
+  return rows.map((row) => ({
+    id: row.id,
+    bookId: row.book_id,
+    chapterId: row.chapter_id,
+    quote: row.quote,
+    style: row.style,
+    createdAt: row.created_at,
+  }))
+}
+
+export function createChapterMark(input: { chapterId: string; quote: string; style: ReaderMarkStyle }): ReaderMark {
+  const quote = input.quote.replace(/\s+/g, ' ').trim()
+  if (!quote) throw new Error('没有选中文字。')
+  if (quote.length > 4000) throw new Error('选中的文字太长。')
+  const style: ReaderMarkStyle =
+    input.style === 'underline' || input.style === 'strikethrough' ? input.style : 'highlight'
+  const chapter = database().prepare('SELECT book_id FROM chapters WHERE id = ?').get(input.chapterId) as
+    | { book_id: string }
+    | undefined
+  if (!chapter) throw new Error('找不到这一章。')
+  const id = crypto.randomUUID()
+  const now = new Date().toISOString()
+  database()
+    .prepare('INSERT INTO reader_marks (id, book_id, chapter_id, quote, style, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(id, chapter.book_id, input.chapterId, quote, style, now)
+  return { id, bookId: chapter.book_id, chapterId: input.chapterId, quote, style, createdAt: now }
+}
+
+export function deleteChapterMark(id: string): void {
+  database().prepare('DELETE FROM reader_marks WHERE id = ?').run(id)
 }
 
 export function listRelatedNotes(bookId: string, tags: string[], limit = 6): RelatedNote[] {

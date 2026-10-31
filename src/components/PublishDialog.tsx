@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState, type JSX } from 'react'
 
 import type { BookSummary } from '../../shared/types.js'
+import type { PublishCoverStyle } from '../lib/publish-cover.js'
 import { todayStamp } from '../lib/export.js'
 import { Checkbox } from './Checkbox.js'
+import { Select } from './Select.js'
 
 interface PublishDialogProps {
   open: boolean
@@ -38,6 +40,7 @@ export function PublishDialog({ open, book, title, markdown, onClose }: PublishD
   const [description, setDescription] = useState('')
   const [includeCover, setIncludeCover] = useState(true)
   const [includeMarkdown, setIncludeMarkdown] = useState(true)
+  const [coverStyle, setCoverStyle] = useState<PublishCoverStyle>('paper')
   const [cover, setCover] = useState('')
   const [coverError, setCoverError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -51,6 +54,7 @@ export function PublishDialog({ open, book, title, markdown, onClose }: PublishD
     setDescription(summaryOf(markdown, 140))
     setIncludeCover(true)
     setIncludeMarkdown(true)
+    setCoverStyle('paper')
     setError(null)
     setNotice(null)
     setCoverError('')
@@ -67,6 +71,7 @@ export function PublishDialog({ open, book, title, markdown, onClose }: PublishD
             author: book.author,
             date,
             description,
+            style: coverStyle,
           })
           if (!cancelled) {
             setCover(next)
@@ -81,7 +86,7 @@ export function PublishDialog({ open, book, title, markdown, onClose }: PublishD
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [open, includeCover, displayTitle, description, book.title, book.author, date])
+  }, [open, includeCover, displayTitle, description, book.title, book.author, date, coverStyle])
 
   if (!open) return null
 
@@ -102,6 +107,7 @@ export function PublishDialog({ open, book, title, markdown, onClose }: PublishD
         coverDataUrl: cover,
         includeCover,
         includeMarkdown,
+        coverStyle,
       })
       const saved = await window.api.saveBinary(pkg.fileName, bytesToBase64(pkg.archive))
       if (saved.saved) setNotice(`发布包已导出到 ${saved.path}`)
@@ -157,6 +163,19 @@ export function PublishDialog({ open, book, title, markdown, onClose }: PublishD
                 onChange={(event) => setDescription(event.target.value)}
                 rows={3}
                 placeholder="用于页面描述和社交分享"
+              />
+            </label>
+            <label className="import-field">
+              封面样式
+              <Select
+                value={coverStyle}
+                onChange={(value) => setCoverStyle(value as PublishCoverStyle)}
+                ariaLabel="封面样式"
+                options={[
+                  { value: 'paper', label: '纸色 · 页边' },
+                  { value: 'ink', label: '墨色 · 夜读' },
+                  { value: 'minimal', label: '极简 · 蓝' },
+                ]}
               />
             </label>
             <div className="publish-checks">

@@ -16,6 +16,8 @@ import type {
   Note,
   NoteDraft,
   NotePatch,
+  ReaderMark,
+  ReaderMarkStyle,
   ReaderStyle,
   RelatedNote,
   SearchResult,
@@ -57,6 +59,7 @@ function messageOf(error: unknown): string {
 }
 
 const THEME_KEY = 'reading-notes-theme'
+const TASKS_KEY = 'reading-notes-background-tasks'
 
 type RenameTarget =
   | { kind: 'book'; bookId: string; value: string }
@@ -76,6 +79,23 @@ function loadStoredTheme(): ReaderStyle['theme'] {
 }
 
 
+function loadBackgroundTasks(): BackgroundTask[] {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(TASKS_KEY) ?? '[]') as unknown
+    if (!Array.isArray(parsed)) return []
+    return parsed
+      .filter((item): item is BackgroundTask => Boolean(item && typeof item === 'object' && typeof item.id === 'string'))
+      .slice(0, 6)
+      .map((task) =>
+        task.status === 'running'
+          ? { ...task, status: 'cancelled' as const, detail: '应用重启，任务已中断' }
+          : task,
+      )
+  } catch {
+    return []
+  }
+}
+
 export function App(): JSX.Element {
   const [books, setBooks] = useState<BookSummary[]>([])
   const [book, setBook] = useState<BookSummary | null>(null)
@@ -83,8 +103,9 @@ export function App(): JSX.Element {
   const [chapter, setChapter] = useState<ChapterContent | null>(null)
   const [notes, setNotes] = useState<Note[]>([])
   const [allNotes, setAllNotes] = useState<Note[]>([])
+  const [readerMarks, setReaderMarks] = useState<ReaderMark[]>([])
   const [settings, setSettings] = useState<SettingsView | null>(null)
-  const [backgroundTasks, setBackgroundTasks] = useState<BackgroundTask[]>([])
+  const [backgroundTasks, setBackgroundTasks] = useState<BackgroundTask[]>(loadBackgroundTasks)
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null)
   const [loadingChapter, setLoadingChapter] = useState(false)
   const [importing, setImporting] = useState(false)
@@ -118,6 +139,7 @@ export function App(): JSX.Element {
   const [classifyError, setClassifyError] = useState<string | null>(null)
   const [classifying, setClassifying] = useState(false)
   const [sideTab, setSideTab] = useState<'notes' | 'chat' | 'feynman' | 'format'>('notes')
+  const [chatSeed, setChatSeed] = useState<{ text: string; key: number } | null>(null)
   const [appTheme, setAppTheme] = useState<ReaderStyle['theme']>(loadStoredTheme)
   const [readerStyle, setReaderStyle] = useState<ReaderStyle>(DEFAULT_READER_STYLE)
   const [formatBusy, setFormatBusy] = useState(false)
@@ -264,6 +286,14 @@ export function App(): JSX.Element {
     }
   }, [])
 
+  useEffect(() => {
+    try {
+      localStorage.setItem(TASKS_KEY, JSON.stringify(backgroundTasks.slice(0, 6)))
+    } catch {
+      // 本地任务历史只是辅助信息，存储失败不影响当前任务。
+    }
+  }, [backgroundTasks])
+
   const refreshNotes = useCallback(async (bookId: string, chapterId: string | null) => {
     const [chapterNotes, all] = await Promise.all([
       chapterId ? window.api.listNotes(bookId, chapterId) : Promise.resolve([]),
@@ -286,9 +316,14 @@ export function App(): JSX.Element {
       setFormatNote(null)
       setFormatMessages([])
       setExpandingNoteId(null)
+      setReaderMarks([])
       try {
-        const content = await window.api.getChapter(meta.id)
+        const [content, marks] = await Promise.all([
+          window.api.getChapter(meta.id),
+          window.api.listChapterMarks(meta.id),
+        ])
         setChapter(content)
+        setReaderMarks(marks)
         await refreshNotes(bookId, meta.id)
         await window.api.setProgress(bookId, meta.id)
         const visibleChapters = chapterList.filter((item) => !item.hidden)
@@ -754,25 +789,55 @@ export function App(): JSX.Element {
     }
   }, [])
 
-  const handleQuote = useCallback(
-    async (quote: string) => {
-      if (!book || !chapter) return
+  const createReaderMark = useCallback(
+    async (style: ReaderMarkStyle, text: string): Promise<void> => {
+      if (!chapter) return
       try {
-        const created = await window.api.createNote({
-          bookId: book.id,
-          chapterId: chapter.id,
-          kind: 'highlight',
-          content: '',
-          quote,
-        })
-        await refreshNotes(book.id, chapter.id)
-        setFocusNote({ id: created.id, key: Date.now() })
+        const mark = await window.api.createChapterMark({ chapterId: chapter.id, quote: text, style })
+        setReaderMarks((current) => [...current, mark])
       } catch (err) {
         setToast({ kind: 'error', text: messageOf(err) })
       }
     },
-    [book, chapter, refreshNotes],
+    [chapter],
   )
+
+  const clearReaderMarks = useCallback(async (ids: string[]): Promise<void> => {
+    try {
+      await Promise.all(ids.map((id) => window.api.deleteChapterMark(id)))
+      setReaderMarks((current) => current.filter((mark) => !ids.includes(mark.id)))
+    } catch (err) {
+      setToast({ kind: 'error', text: messageOf(err) })
+    }
+  }, [])
+
+  const askAboutSelection = useCallback((text: string): void => {
+    setChatSeed({ text, key: Date.now() })
+    setSideTab('chat')
+  }, [])
+
+  const shareQuote = useCallback(
+    (text: string): void => {
+      if (!book || !chapter) return
+      setShareTarget({
+        note: {
+          id: `quote:${Date.now()}`,
+          title: '原文摘录',
+          content: text,
+          quote: text,
+          tags: [],
+          bookTitle: book.title,
+          chapterTitle: chapter.title,
+          kind: 'highlight',
+        },
+      })
+    },
+    [book, chapter],
+  )
+
+  const listenSelection = useCallback((text: string): void => {
+    setListen({ title: '朗读 · 选中文本', text })
+  }, [])
 
   const formatCurrentChapter = useCallback(
     async (instruction?: string) => {
@@ -1303,7 +1368,9 @@ export function App(): JSX.Element {
             scrollTarget={scrollTarget}
             echoes={crossBookNotes}
             excerpt={echoExcerpt}
-            onQuote={(quote) => void handleQuote(quote)}
+            marks={readerMarks}
+            onCreateMark={(style, text) => void createReaderMark(style, text)}
+            onClearMarks={(ids) => void clearReaderMarks(ids)}
             onOpenFormat={() => setSideTab('format')}
             onOpenEcho={(echo) => void openRelatedNote(echo)}
             onListen={() => {
@@ -1313,6 +1380,9 @@ export function App(): JSX.Element {
               if (chapter) startRenameChapter(chapter)
             }}
             onMarginNote={(quote) => setMarginQuote(quote)}
+            onAsk={askAboutSelection}
+            onShareQuote={shareQuote}
+            onListenSelection={listenSelection}
           />
           <aside className="side-panel">
             <div className="side-tabs">
@@ -1358,6 +1428,7 @@ export function App(): JSX.Element {
                 error={error}
                 report={chapter?.noteReport ?? null}
                 generationMode={settings?.generationMode ?? 'standard'}
+                marks={readerMarks}
                 crossBookNotes={crossBookNotes}
                 onOpenRelated={(note) => void openRelatedNote(note)}
                 focusNoteId={focusNote?.id ?? null}
@@ -1373,12 +1444,15 @@ export function App(): JSX.Element {
                 onOpenNote={(note) => void openNote(note)}
                 onListen={(text) => setListen({ title: `朗读 · ${chapter?.title ?? ''}`, text })}
                 onShare={shareNote}
+                onDeleteMark={(id) => void clearReaderMarks([id])}
+                onRevealMark={(quote) => setScrollTarget({ quote, key: Date.now() })}
               />
             ) : sideTab === 'chat' ? (
               <ChatPanel
                 key={chapter?.id ?? 'no-chapter'}
                 chapter={chapter}
                 bookTitle={book?.title ?? ''}
+                seed={chatSeed}
                 onJumpQuote={(quote) => setScrollTarget({ quote, key: Date.now() })}
                 onSave={(text) => saveTutorNote(`问答 · ${chapter?.title ?? ''}`, text)}
               />

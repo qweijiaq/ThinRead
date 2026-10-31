@@ -6,6 +6,7 @@ import { Markdown } from './Markdown.js'
 interface ChatPanelProps {
   chapter: ChapterContent | null
   bookTitle: string
+  seed?: { text: string; key: number } | null
   onJumpQuote(quote: string): void
   onSave(text: string): Promise<void>
 }
@@ -19,7 +20,7 @@ interface Turn {
 const ANSWER_SUGGESTIONS = ['这一章最重要的三个观点是什么？', '作者反对了什么？', '这些结论在什么条件下会失效？']
 const SOCRATIC_SUGGESTIONS = ['我觉得这一章主要在讲……', '这一章最容易被误解的地方是什么？', '作者最反对哪种做法？']
 
-export function ChatPanel({ chapter, bookTitle, onJumpQuote, onSave }: ChatPanelProps): JSX.Element {
+export function ChatPanel({ chapter, bookTitle, seed, onJumpQuote, onSave }: ChatPanelProps): JSX.Element {
   const [mode, setMode] = useState<ChatMode>('answer')
   const [turns, setTurns] = useState<Turn[]>([])
   const [input, setInput] = useState('')
@@ -54,6 +55,11 @@ export function ChatPanel({ chapter, bookTitle, onJumpQuote, onSave }: ChatPanel
       cancelled = true
     }
   }, [chapter?.id, refreshTick])
+
+  useEffect(() => {
+    if (!seed?.text.trim()) return
+    setInput(`请解释这段原文：\n\n> ${seed.text.replace(/\n/g, '\n> ')}\n\n`)
+  }, [seed?.key, chapter?.id])
 
   useEffect(
     () =>

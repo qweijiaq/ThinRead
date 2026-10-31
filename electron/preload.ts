@@ -50,6 +50,8 @@ import type {
   OcrErrorEvent,
   OcrImportStarted,
   OcrProgress,
+  ReaderMark,
+  ReaderMarkStyle,
   ReaderStyle,
   RelatedNote,
   ReadingApi,
@@ -105,6 +107,10 @@ const api: ReadingApi = {
   saveStyle: (bookId, style) => ipcRenderer.invoke('books:saveStyle', bookId, style) as Promise<ReaderStyle>,
   getChapter: (chapterId) => ipcRenderer.invoke('chapters:get', chapterId) as Promise<ChapterContent>,
   setProgress: (bookId, chapterId) => ipcRenderer.invoke('books:progress', bookId, chapterId) as Promise<void>,
+  listChapterMarks: (chapterId: string) => ipcRenderer.invoke('marks:list', chapterId) as Promise<ReaderMark[]>,
+  createChapterMark: (input: { chapterId: string; quote: string; style: ReaderMarkStyle }) =>
+    ipcRenderer.invoke('marks:create', input) as Promise<ReaderMark>,
+  deleteChapterMark: (id: string) => ipcRenderer.invoke('marks:delete', id) as Promise<void>,
   classifyChapters: (bookId) => ipcRenderer.invoke('chapters:classify', bookId) as Promise<ClassifyResult>,
   applyChapterFlags: (flags: ChapterFlag[]) => ipcRenderer.invoke('chapters:flags', flags) as Promise<void>,
   deleteChapters: (chapterIds) => ipcRenderer.invoke('chapters:delete', chapterIds) as Promise<void>,
@@ -132,6 +138,7 @@ const api: ReadingApi = {
   restoreBackup: (id: string) => ipcRenderer.invoke('backup:restore', id) as Promise<void>,
   deleteBackup: (id: string) => ipcRenderer.invoke('backup:delete', id) as Promise<void>,
   openBackupsDir: () => ipcRenderer.invoke('backup:open-dir') as Promise<void>,
+  exportBackup: (id: string) => ipcRenderer.invoke('backup:export', id) as Promise<SaveFileResult>,
   copyText: (text: string) => ipcRenderer.invoke('app:copy-text', text) as Promise<void>,
   saveMarkdown: (defaultName: string, content: string) =>
     ipcRenderer.invoke('app:save-markdown', defaultName, content) as Promise<SaveFileResult>,
@@ -141,6 +148,7 @@ const api: ReadingApi = {
     ipcRenderer.invoke('app:save-binary', defaultName, base64) as Promise<SaveFileResult>,
   copyImage: (dataUrl: string) => ipcRenderer.invoke('app:copy-image', dataUrl) as Promise<void>,
   search: (query: string) => ipcRenderer.invoke('library:search', query) as Promise<SearchResult[]>,
+  searchSemantic: (query: string) => ipcRenderer.invoke('library:search-semantic', query) as Promise<SearchResult[]>,
   listLibraryNotes: (filter?: LibraryFilter) =>
     ipcRenderer.invoke('library:notes', filter) as Promise<LibraryNote[]>,
   listLibraryTags: (bookId) => ipcRenderer.invoke('library:tags', bookId) as Promise<TagCount[]>,

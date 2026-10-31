@@ -61,6 +61,8 @@ function parseComposeArtifact(artifact: LabArtifact | null): BookComposeResult |
         sourceChars: Number(parsed.sourceChars) || 0,
         outputChars: Number(parsed.outputChars) || parsed.markdown.length,
         durationMs: Number(parsed.durationMs) || 0,
+        usage: parsed.usage,
+        promptVersion: typeof parsed.promptVersion === 'string' ? parsed.promptVersion : undefined,
         model: typeof parsed.model === 'string' ? parsed.model : '',
         createdAt: typeof parsed.createdAt === 'string' ? parsed.createdAt : artifact.createdAt,
         options: parsed.options ?? { length: 'tight', voice: 'calm' },
@@ -795,6 +797,7 @@ export function BookCompose({
                   <span>
                     {result.sourceChapters} 章 · {result.sourceChars.toLocaleString()} → {result.outputChars.toLocaleString()} 字
                     {result.durationMs > 0 ? ` · ${Math.round(result.durationMs / 1000)}s` : ''}
+                    {result.usage?.totalTokens ? ` · ${result.usage.totalTokens.toLocaleString()} tokens` : ''}
                   </span>
                 </div>
                 <div className="compose-result-actions">

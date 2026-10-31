@@ -71,8 +71,8 @@ export function contentToMarkdown(item: ContentItem): string {
         genre?: string
         summary?: string
         plot?: string
-        nodes?: Array<{ label?: string; kind?: string; role?: string; importance?: number; identity?: string; rank?: string; affiliation?: string; aliases?: string[]; realWorld?: boolean; encyclopedia?: string; description?: string }>
-        edges?: Array<{ source?: string; target?: string; label?: string; description?: string }>
+        nodes?: Array<{ label?: string; kind?: string; role?: string; importance?: number; identity?: string; rank?: string; affiliation?: string; aliases?: string[]; realWorld?: boolean; encyclopedia?: string; description?: string; chapters?: string[] }>
+        edges?: Array<{ source?: string; target?: string; label?: string; description?: string; chapters?: string[] }>
       }
       if (Array.isArray(parsed.nodes)) {
         const lines = [
@@ -84,10 +84,11 @@ export function contentToMarkdown(item: ContentItem): string {
           ...parsed.nodes.map((node) => {
             const facts = [node.identity, node.rank, node.affiliation].filter(Boolean).join(' / ')
             const wiki = node.encyclopedia ? `\n  百科：${node.encyclopedia}` : ''
-            return `- ${node.label ?? '未命名'}（${node.kind ?? 'other'}${node.role ? ` · ${node.role}` : ''}${node.importance ? ` · 重要度 ${node.importance}` : ''}${facts ? ` · ${facts}` : ''}）：${node.description ?? ''}${wiki}`
+            const chapters = node.chapters?.length ? `\n  出处：${node.chapters.join('、')}` : ''
+            return `- ${node.label ?? '未命名'}（${node.kind ?? 'other'}${node.role ? ` · ${node.role}` : ''}${node.importance ? ` · 重要度 ${node.importance}` : ''}${facts ? ` · ${facts}` : ''}）：${node.description ?? ''}${wiki}${chapters}`
           }),
           '## 关系',
-          ...(parsed.edges ?? []).map((edge) => `- ${edge.source ?? ''} — ${edge.label ?? '关系'} — ${edge.target ?? ''}${edge.description ? `：${edge.description}` : ''}`),
+          ...(parsed.edges ?? []).map((edge) => `- ${edge.source ?? ''} — ${edge.label ?? '关系'} — ${edge.target ?? ''}${edge.description ? `：${edge.description}` : ''}${edge.chapters?.length ? `（出处：${edge.chapters.join('、')}）` : ''}`),
         ].filter(Boolean)
         return lines.join('\n')
       }

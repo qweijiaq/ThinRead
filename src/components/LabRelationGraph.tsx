@@ -367,6 +367,9 @@ export function LabRelationGraph({ bookId, bookTitle }: LabRelationGraphProps): 
                     {selected.rank ? <span><b>官阶/职位</b>{selected.rank}</span> : null}
                     {selected.affiliation ? <span><b>阵营/归属</b>{selected.affiliation}</span> : null}
                   </div>
+                  {selected.chapters?.length ? (
+                    <p className="relation-chapters">出现章节：{selected.chapters.join('、')}</p>
+                  ) : null}
                   {selected.encyclopedia ? (
                     <div className="relation-encyclopedia">
                       <strong>百科背景</strong>
@@ -386,6 +389,7 @@ export function LabRelationGraph({ bookId, bookTitle }: LabRelationGraphProps): 
                         <strong>{label}</strong>
                         <span>{other?.label ?? '未知节点'}</span>
                         {edge.description ? <em>{edge.description}</em> : null}
+                        {edge.chapters?.length ? <small>出处：{edge.chapters.join('、')}</small> : null}
                       </button>
                     ))}
                   </div>

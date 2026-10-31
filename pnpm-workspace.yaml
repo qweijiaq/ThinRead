@@ -3,3 +3,4 @@ allowBuilds:
   electron: true
   onnxruntime-node: true
   protobufjs: true
+  electron-winstaller: false

@@ -2,6 +2,7 @@ import { strToU8, zipSync } from 'fflate'
 
 import { bookDescription, buildBookBlogHtml } from './blog-export.js'
 import { coverBase64 } from './publish-cover.js'
+import type { PublishCoverStyle } from './publish-cover.js'
 
 export interface PublishPackageInput {
   bookTitle: string
@@ -13,6 +14,7 @@ export interface PublishPackageInput {
   coverDataUrl: string
   includeCover: boolean
   includeMarkdown: boolean
+  coverStyle?: PublishCoverStyle
 }
 
 export interface PublishPackage {
@@ -68,6 +70,7 @@ export function buildPublishPackage(input: PublishPackageInput): PublishPackage 
           date: input.date,
           source: '页边 ThinRead',
           cover: coverSrc ?? null,
+          coverStyle: input.coverStyle ?? 'paper',
         },
         null,
         2,
