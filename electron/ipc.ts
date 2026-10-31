@@ -378,11 +378,34 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     activeOcr?.controller.abort()
   })
 
+  ipcMain.handle('readwise:test', async (_event, inputToken?: string): Promise<TestResult> => {
+    const token = typeof inputToken === 'string' && inputToken.trim() ? inputToken.trim() : getReadwiseToken()
+    if (!token) return { ok: false, message: '还没有配置 Readwise API Token。' }
+    const results: string[] = []
+    for (const scheme of ['Token', 'Bearer']) {
+      try {
+        const response = await fetch('https://readwise.io/api/v2/auth/', {
+          headers: { Authorization: `${scheme} ${token}`, Accept: 'application/json' },
+          signal: AbortSignal.timeout(20_000),
+        })
+        results.push(`${scheme}: HTTP ${response.status}`)
+        if (response.status === 204 || response.status === 200) {
+          return { ok: true, message: `Readwise 连接成功（${scheme}）` }
+        }
+      } catch (error) {
+        results.push(`${scheme}: ${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+    return { ok: false, message: `Readwise 连接失败：${results.join('；')}` }
+  })
+
   ipcMain.handle('readwise:sync', async (): Promise<HighlightImportResult> => {
     const token = getReadwiseToken()
     if (!token) throw new Error('还没有配置 Readwise API Token。请先在设置里填写。')
     const entries = await fetchReadwiseEntries(token)
-    if (entries.length === 0) throw new Error('Readwise 没有返回任何划线。')
+    if (entries.length === 0) {
+      throw new Error('Readwise 账号没有返回任何划线。请确认划线和笔记确实保存在 Readwise（不是只在 Reader 的独立书库），或改用 Readwise 的 CSV 导出后手动导入。')
+    }
     return importHighlightEntries(entries, dataDir, { mergeExisting: true })
   })
 

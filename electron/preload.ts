@@ -84,6 +84,7 @@ const api: ReadingApi = {
   listOcrJobs: () => ipcRenderer.invoke('ocr:jobs') as Promise<OcrJob[]>,
   resumeOcrJob: (id: string) => ipcRenderer.invoke('ocr:resume', id) as Promise<OcrImportStarted | null>,
   syncReadwise: () => ipcRenderer.invoke('readwise:sync') as Promise<HighlightImportResult>,
+  testReadwise: (token?: string) => ipcRenderer.invoke('readwise:test', token) as Promise<TestResult>,
   importHighlights: (options?: HighlightImportOptions) =>
     ipcRenderer.invoke('books:import-highlights', options) as Promise<HighlightImportResult | null>,
   openBook: (bookId) =>

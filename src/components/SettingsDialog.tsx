@@ -73,6 +73,7 @@ export function SettingsDialog({
   const [composeModel, setComposeModel] = useState(settings.composeModel)
   const [labModel, setLabModel] = useState(settings.labModel)
   const [readwiseToken, setReadwiseToken] = useState('')
+  const [readwiseTest, setReadwiseTest] = useState<TestResult | null>(null)
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
   const [result, setResult] = useState<TestResult | null>(null)
@@ -92,6 +93,7 @@ export function SettingsDialog({
     setComposeModel(settings.composeModel)
     setLabModel(settings.labModel)
     setReadwiseToken('')
+    setReadwiseTest(null)
     setResult(null)
     setBackupError(null)
     setBackupNotice(null)
@@ -169,6 +171,15 @@ export function SettingsDialog({
       setBackupError(error instanceof Error ? error.message : String(error))
     } finally {
       setBackupBusy(null)
+    }
+  }
+
+  async function testReadwiseToken(): Promise<void> {
+    setReadwiseTest(null)
+    try {
+      setReadwiseTest(await window.api.testReadwise(readwiseToken.trim() || undefined))
+    } catch (error) {
+      setReadwiseTest({ ok: false, message: error instanceof Error ? error.message : String(error) })
     }
   }
 
@@ -326,6 +337,14 @@ export function SettingsDialog({
                 spellCheck={false}
               />
               <p className="field-hint">在 readwise.io/access_token 获取；Token 用系统钥匙串加密保存在本机。</p>
+              <div className="backup-actions">
+                <button type="button" className="ghost-button small" onClick={() => void testReadwiseToken()}>
+                  测试 Readwise
+                </button>
+              </div>
+              {readwiseTest ? (
+                <div className={`test-result ${readwiseTest.ok ? 'ok' : 'fail'}`}>{readwiseTest.message}</div>
+              ) : null}
             </div>
           </>
         ) : (

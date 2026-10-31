@@ -7609,3 +7609,64 @@ html.theme-plain .primary-button.is-danger:hover {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Bookshelf covers use a fixed 3:4 frame instead of stretching into the spine strip. */
+.book-card {
+  align-items: stretch;
+}
+.book-cover-frame {
+  flex: 0 0 112px;
+  width: 112px;
+  height: 149px;
+  align-self: flex-start;
+  margin: 16px 0 16px 16px;
+  overflow: hidden;
+  border-radius: 9px;
+  background: linear-gradient(160deg, #a9502f, #7f351c);
+  box-shadow: 0 7px 16px rgba(43, 39, 32, 0.12);
+}
+.book-cover-frame.pdf,
+.book-cover-frame.pdf-ocr {
+  background: linear-gradient(160deg, #3e6e63, #294c44);
+}
+.book-cover-frame.mobi,
+.book-cover-frame.url {
+  background: linear-gradient(160deg, #4d6f86, #334b5c);
+}
+.book-cover-frame.text {
+  background: linear-gradient(160deg, #7e6a45, #57482c);
+}
+.book-cover-frame img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+}
+.book-cover-placeholder {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 9px;
+  color: #fdf3e9;
+  text-align: center;
+}
+.book-cover-placeholder span {
+  display: -webkit-box;
+  overflow: hidden;
+  font-family: 'Songti SC', 'Noto Serif SC', Georgia, serif;
+  font-size: 15px;
+  letter-spacing: 0.08em;
+  line-height: 1.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 5;
+}
+.book-cover-placeholder em {
+  color: rgba(253, 243, 233, 0.7);
+  font-size: 9px;
+  font-style: normal;
+}

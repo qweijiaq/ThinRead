@@ -825,6 +825,7 @@ export interface ReadingApi {
   listOcrJobs(): Promise<OcrJob[]>
   resumeOcrJob(id: string): Promise<OcrImportStarted | null>
   syncReadwise(): Promise<HighlightImportResult>
+  testReadwise(token?: string): Promise<TestResult>
   importHighlights(options?: HighlightImportOptions): Promise<HighlightImportResult | null>
   openBook(bookId: string): Promise<{ book: BookSummary; chapters: ChapterMeta[]; style: ReaderStyle }>
   renameBook(bookId: string, title: string): Promise<BookSummary>

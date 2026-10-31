@@ -148,11 +148,14 @@ export function Library({ books, importing, onOpen, onImport, onDelete, onRename
               }
             }}
           >
-            <div className={`book-spine ${book.format}${covers[book.id] ? ' has-cover' : ''}`}>
+            <div className={`book-cover-frame ${book.format}`}>
               {covers[book.id] ? (
                 <img src={covers[book.id]} alt={`${book.title} 封面`} />
               ) : (
-                <span>{book.title.slice(0, 12)}</span>
+                <div className="book-cover-placeholder">
+                  <span>{book.title.slice(0, 14)}</span>
+                  <em>{book.author || '页边'}</em>
+                </div>
               )}
             </div>
             <div className="book-body">
