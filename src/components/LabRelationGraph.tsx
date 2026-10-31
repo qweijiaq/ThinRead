@@ -185,6 +185,46 @@ export function LabRelationGraph({ bookId, bookTitle }: LabRelationGraphProps): 
     })
   }
 
+  async function exportGraph(): Promise<void> {
+    if (!graph) return
+    setError(null)
+    const byId = new Map(graph.nodes.map((node) => [node.id, node]))
+    const kindLabel: Record<RelationNode['kind'], string> = {
+      person: '人物',
+      organization: '组织',
+      place: '地点',
+      event: '事件',
+      concept: '概念',
+    }
+    const markdown = [
+      `# ${graph.title}`,
+      graph.genre ? `体裁：${graph.genre}` : '',
+      graph.summary ? `\n${graph.summary}` : '',
+      graph.plot ? `\n## 情节梗概（含剧透）\n\n${graph.plot}` : '',
+      '\n## 节点\n',
+      ...graph.nodes.map((node) => {
+        const facts = [node.identity, node.rank, node.affiliation].filter(Boolean).join(' / ')
+        const chapters = node.chapters?.length ? ` · 出处：${node.chapters.join('、')}` : ''
+        return `- **${node.label}**（${kindLabel[node.kind]}${node.role !== 'other' ? ` · ${node.role}` : ''}${facts ? ` · ${facts}` : ''}）${node.description ? `：${node.description}` : ''}${chapters}`
+      }),
+      '\n## 关系\n',
+      ...graph.edges.map((edge) => {
+        const source = byId.get(edge.source)?.label ?? edge.source
+        const target = byId.get(edge.target)?.label ?? edge.target
+        const chapters = edge.chapters?.length ? `（出处：${edge.chapters.join('、')}）` : ''
+        return `- ${source} — ${edge.label} — ${target}${edge.description ? `：${edge.description}` : ''}${chapters}`
+      }),
+    ]
+      .filter(Boolean)
+      .join('\n')
+    try {
+      const filename = `${graph.title.replace(/[\\/:*?"<>|#%{}]/g, ' ').replace(/\s+/g, ' ').trim() || '关系图'}.md`
+      await window.api.saveMarkdown(filename, markdown)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
   async function generate(): Promise<void> {
     if (!bookId || busy) return
     setBusy(true)
@@ -213,9 +253,14 @@ export function LabRelationGraph({ bookId, bookTitle }: LabRelationGraphProps): 
         </div>
         <div className="relation-head-actions">
           {graph ? (
-            <button type="button" className="ghost-button small" onClick={() => setFullscreen((value) => !value)}>
-              {fullscreen ? '退出全屏' : '全屏'}
-            </button>
+            <>
+              <button type="button" className="ghost-button small" onClick={() => void exportGraph()}>
+                导出
+              </button>
+              <button type="button" className="ghost-button small" onClick={() => setFullscreen((value) => !value)}>
+                {fullscreen ? '退出全屏' : '全屏'}
+              </button>
+            </>
           ) : null}
           <button type="button" className="primary-button small" onClick={() => void generate()} disabled={busy}>
             {busy ? '抽取中…' : graph ? '重新生成' : '生成关系图'}

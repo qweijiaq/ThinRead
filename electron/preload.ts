@@ -30,6 +30,7 @@ import type {
   GenerationDoneEvent,
   GenerationErrorEvent,
   GenerationPartialEvent,
+  HighlightImportOptions,
   HighlightImportResult,
   KnowledgeMapData,
   LabAnswerCheck,
@@ -48,6 +49,7 @@ import type {
   NotePatch,
   OcrDoneEvent,
   OcrErrorEvent,
+  OcrImportOptions,
   OcrImportStarted,
   OcrProgress,
   ReaderMark,
@@ -75,9 +77,11 @@ const api: ReadingApi = {
   importBook: () => ipcRenderer.invoke('books:import') as Promise<BookSummary | null>,
   importText: (input: TextImportInput) => ipcRenderer.invoke('books:import-text', input) as Promise<BookSummary>,
   importUrl: (url: string) => ipcRenderer.invoke('books:import-url', url) as Promise<BookSummary>,
-  importScannedPdf: () => ipcRenderer.invoke('books:import-ocr') as Promise<OcrImportStarted | null>,
+  importScannedPdf: (options?: OcrImportOptions) =>
+    ipcRenderer.invoke('books:import-ocr', options) as Promise<OcrImportStarted | null>,
   cancelOcrImport: () => ipcRenderer.invoke('books:import-ocr-cancel') as Promise<void>,
-  importHighlights: () => ipcRenderer.invoke('books:import-highlights') as Promise<HighlightImportResult | null>,
+  importHighlights: (options?: HighlightImportOptions) =>
+    ipcRenderer.invoke('books:import-highlights', options) as Promise<HighlightImportResult | null>,
   openBook: (bookId) =>
     ipcRenderer.invoke('books:open', bookId) as Promise<{
       book: BookSummary

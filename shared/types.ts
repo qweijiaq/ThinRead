@@ -606,6 +606,11 @@ export interface TextImportInput {
   text: string
 }
 
+export interface OcrImportOptions {
+  startPage?: number
+  endPage?: number
+}
+
 export interface OcrProgress {
   current: number
   total: number
@@ -630,6 +635,10 @@ export interface OcrErrorEvent {
 export interface HighlightImportResult {
   books: BookSummary[]
   highlights: number
+}
+
+export interface HighlightImportOptions {
+  mergeExisting?: boolean
 }
 
 export interface SaveFileResult {
@@ -788,9 +797,9 @@ export interface ReadingApi {
   importBook(): Promise<BookSummary | null>
   importText(input: TextImportInput): Promise<BookSummary>
   importUrl(url: string): Promise<BookSummary>
-  importScannedPdf(): Promise<OcrImportStarted | null>
+  importScannedPdf(options?: OcrImportOptions): Promise<OcrImportStarted | null>
   cancelOcrImport(): Promise<void>
-  importHighlights(): Promise<HighlightImportResult | null>
+  importHighlights(options?: HighlightImportOptions): Promise<HighlightImportResult | null>
   openBook(bookId: string): Promise<{ book: BookSummary; chapters: ChapterMeta[]; style: ReaderStyle }>
   renameBook(bookId: string, title: string): Promise<BookSummary>
   setBookGenre(bookId: string, genre: BookGenre): Promise<BookSummary>

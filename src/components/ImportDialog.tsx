@@ -1,6 +1,7 @@
 import { useEffect, useState, type JSX } from 'react'
 
 import type { BookSummary, HighlightImportResult } from '../../shared/types.js'
+import { Checkbox } from './Checkbox.js'
 
 interface ImportDialogProps {
   open: boolean
@@ -26,6 +27,9 @@ export function ImportDialog({
   const [author, setAuthor] = useState('')
   const [text, setText] = useState('')
   const [url, setUrl] = useState('')
+  const [ocrStart, setOcrStart] = useState('')
+  const [ocrEnd, setOcrEnd] = useState('')
+  const [mergeHighlights, setMergeHighlights] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -36,6 +40,9 @@ export function ImportDialog({
     setAuthor('')
     setText('')
     setUrl('')
+    setOcrStart('')
+    setOcrEnd('')
+    setMergeHighlights(false)
     setError(null)
   }, [open])
 
@@ -64,10 +71,27 @@ export function ImportDialog({
   }
 
   async function chooseScannedPdf(): Promise<void> {
+    const startPage = ocrStart.trim() ? Number(ocrStart) : 0
+    const endPage = ocrEnd.trim() ? Number(ocrEnd) : 0
+    if (
+      (startPage && (!Number.isFinite(startPage) || startPage < 1)) ||
+      (endPage && (!Number.isFinite(endPage) || endPage < 1)) ||
+      (startPage > 0 && endPage > 0 && startPage > endPage)
+    ) {
+      setError('页码范围无效：起始页不能大于结束页。')
+      return
+    }
     setBusy(true)
     setError(null)
     try {
-      const result = await window.api.importScannedPdf()
+      const result = await window.api.importScannedPdf(
+        startPage > 0 || endPage > 0
+          ? {
+              ...(startPage > 0 ? { startPage } : {}),
+              ...(endPage > 0 ? { endPage } : {}),
+            }
+          : undefined,
+      )
       if (result?.started) {
         onOcrStarted(result.fileName)
         onClose()
@@ -83,7 +107,7 @@ export function ImportDialog({
     setBusy(true)
     setError(null)
     try {
-      const result = await window.api.importHighlights()
+      const result = await window.api.importHighlights({ mergeExisting: mergeHighlights })
       if (result) onHighlightsImported(result)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -157,6 +181,28 @@ export function ImportDialog({
         {mode === 'file' ? (
           <section className="import-pane">
             <p className="import-hint">支持 EPUB、PDF、MOBI、AZW3、DOCX、HTML、Markdown 和 TXT。DRM 加密的电子书无法导入。</p>
+            <div className="import-field-row">
+              <label className="import-field">
+                扫描版起始页
+                <input
+                  type="number"
+                  min={1}
+                  value={ocrStart}
+                  onChange={(event) => setOcrStart(event.target.value)}
+                  placeholder="留空为第 1 页"
+                />
+              </label>
+              <label className="import-field">
+                结束页
+                <input
+                  type="number"
+                  min={1}
+                  value={ocrEnd}
+                  onChange={(event) => setOcrEnd(event.target.value)}
+                  placeholder="留空为最后一页"
+                />
+              </label>
+            </div>
             <div className="import-actions">
               <button type="button" className="primary-button" onClick={() => void chooseFile()} disabled={busy}>
                 {busy ? '正在解析…' : '选择电子书文件'}
@@ -165,7 +211,7 @@ export function ImportDialog({
                 扫描版 PDF（OCR）
               </button>
             </div>
-            <p className="import-foot">普通 PDF 会优先读取文字层；扫描版请用 OCR 入口（仅 macOS，最多 300 页）。选完文件后会转到右下角任务中心，导入过程中可以离开这个页面或取消。Markdown / HTML / DOCX 会保留标题层级并切成章节。</p>
+            <p className="import-foot">普通 PDF 会优先读取文字层；扫描版请用 OCR 入口（仅 macOS，最多 300 页）。选完文件后会转到右下角任务中心，导入过程中可以离开这个页面或取消。页码范围只对扫描版 OCR 生效，留空表示整本；单次最多 300 页。Markdown / HTML / DOCX 会保留标题层级并切成章节。</p>
           </section>
         ) : mode === 'text' ? (
           <section className="import-pane">
@@ -195,10 +241,15 @@ export function ImportDialog({
             <p className="import-hint">
               支持 Readwise 的 CSV 导出和 Kindle 的 My Clippings.txt。每本书会建立一本独立书籍，每条划线保存为可编辑的高亮笔记。
             </p>
+            <Checkbox
+              checked={mergeHighlights}
+              onChange={setMergeHighlights}
+              label="合并到同名书（书名和作者都匹配时追加划线）"
+            />
             <button type="button" className="primary-button" onClick={() => void chooseHighlights()} disabled={busy}>
               {busy ? '正在整理划线…' : '选择划线文件'}
             </button>
-            <p className="import-foot">Readwise 请选择 readwise.csv；Kindle 请选择 My Clippings.txt。重复划线会自动去重。</p>
+            <p className="import-foot">Readwise 请选择 readwise.csv；Kindle 请选择 My Clippings.txt。重复划线会自动去重；不勾选合并时会为每本书建立新书。</p>
           </section>
         ) : (
           <section className="import-pane">

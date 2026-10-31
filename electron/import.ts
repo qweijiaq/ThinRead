@@ -6,11 +6,12 @@ import type {
   BookFormat,
   BookSummary,
   HighlightImportResult,
+  OcrImportOptions,
   OcrProgress,
   TextImportInput,
 } from '../shared/types.js'
 import { judgeChapter, shouldAutoHideChapter } from './ai/classify.js'
-import { createNote, deleteBook as deleteBookRow, getBookSummary, getChapters, insertBook } from './db.js'
+import { appendChapter, createNote, deleteBook as deleteBookRow, getBookSummary, getChapters, insertBook, listBooks } from './db.js'
 import type { NewChapter } from './db.js'
 import { parseDocx, parseHtmlDocument, parseMarkdownDocument } from './parsers/document.js'
 import { parseEpub } from './parsers/epub.js'
@@ -141,7 +142,11 @@ export async function reparseBookFile(record: {
   }
 }
 
-export async function importHighlightsFile(sourcePath: string, dataDir: string): Promise<HighlightImportResult> {
+export async function importHighlightsFile(
+  sourcePath: string,
+  dataDir: string,
+  options: { mergeExisting?: boolean } = {},
+): Promise<HighlightImportResult> {
   const text = await fs.readFile(sourcePath, 'utf8')
   const entries = parseHighlightsFile(text, path.basename(sourcePath))
   if (entries.length === 0) {
@@ -150,11 +155,41 @@ export async function importHighlightsFile(sourcePath: string, dataDir: string):
   const groups = groupHighlights(entries)
   const books: BookSummary[] = []
   let highlights = 0
-  for (const group of groups) {
-    const bookId = crypto.randomUUID()
-    const bookDir = path.join(dataDir, 'books', bookId)
-    await fs.mkdir(bookDir, { recursive: true })
-    const body = group.entries
+  const existingBooks = options.mergeExisting ? listBooks() : []
+  const titleKey = (value: string): string =>
+    value.toLowerCase().replace(/\s+/g, '').replace(/[“”"'‘’「」『』（）()【】\[\]…—–\-·、，,。.；;：:！!？?《》<>]/g, '')
+  const findExisting = (title: string, author: string): BookSummary | null => {
+    const wanted = titleKey(title)
+    const candidates = existingBooks.filter((book) => titleKey(book.title) === wanted)
+    if (candidates.length === 0) return null
+    if (!author.trim()) return candidates[0] ?? null
+    const wantedAuthor = titleKey(author)
+    return candidates.find((book) => titleKey(book.author) === wantedAuthor) ?? null
+  }
+
+  const addNotes = (bookId: string, chapterId: string | null, groupEntries: typeof entries): number => {
+    let added = 0
+    for (const entry of groupEntries) {
+      const content = entry.text
+        ? `${entry.text}${entry.note ? `\n\n笔记：${entry.note}` : ''}`
+        : entry.note
+      if (!content.trim()) continue
+      createNote({
+        bookId,
+        chapterId,
+        kind: 'highlight',
+        title: (entry.text || entry.note).replace(/\s+/g, ' ').trim().slice(0, 56),
+        content,
+        quote: entry.text || null,
+        tags: entry.tags,
+      })
+      added++
+    }
+    return added
+  }
+
+  const bodyFor = (group: (typeof groups)[number]): string =>
+    group.entries
       .map((entry, index) => {
         const parts = [`## 划线 ${index + 1}`]
         if (entry.location) parts.push(`位置：${entry.location}`)
@@ -163,6 +198,25 @@ export async function importHighlightsFile(sourcePath: string, dataDir: string):
         return parts.join('\n\n')
       })
       .join('\n\n')
+
+  for (const group of groups) {
+    const body = bodyFor(group)
+    const existing = findExisting(group.title, group.author)
+    if (existing) {
+      try {
+        const chapterId = appendChapter(existing.id, { title: '划线摘录', text: body, html: null })
+        highlights += addNotes(existing.id, chapterId, group.entries)
+        const summary = getBookSummary(existing.id)
+        if (summary) books.push(summary)
+      } catch (error) {
+        throw error
+      }
+      continue
+    }
+
+    const bookId = crypto.randomUUID()
+    const bookDir = path.join(dataDir, 'books', bookId)
+    await fs.mkdir(bookDir, { recursive: true })
     const sourceText = `# ${group.title}\n\n${group.author ? `作者：${group.author}\n\n` : ''}${body}`
     const storedPath = path.join(bookDir, 'source-highlights.txt')
     await fs.writeFile(storedPath, sourceText, 'utf8')
@@ -178,22 +232,7 @@ export async function importHighlightsFile(sourcePath: string, dataDir: string):
         bookId,
       )
       const chapterId = getChapters(book.id)[0]?.id ?? null
-      for (const entry of group.entries) {
-        const content = entry.text
-          ? `${entry.text}${entry.note ? `\n\n笔记：${entry.note}` : ''}`
-          : entry.note
-        if (!content.trim()) continue
-        createNote({
-          bookId: book.id,
-          chapterId,
-          kind: 'highlight',
-          title: (entry.text || entry.note).replace(/\s+/g, ' ').trim().slice(0, 56),
-          content,
-          quote: entry.text || null,
-          tags: entry.tags,
-        })
-        highlights++
-      }
+      highlights += addNotes(book.id, chapterId, group.entries)
       const summary = getBookSummary(book.id)
       if (summary) books.push(summary)
     } catch (error) {
@@ -210,9 +249,10 @@ export async function importScannedPdf(
   dataDir: string,
   onProgress?: (progress: OcrProgress) => void,
   signal?: AbortSignal,
+  options: OcrImportOptions = {},
 ): Promise<BookSummary> {
   const buffer = await fs.readFile(sourcePath)
-  const parsed = await parseScannedPdf(sourcePath, onProgress, signal)
+  const parsed = await parseScannedPdf(sourcePath, onProgress, signal, options)
   const bookId = crypto.randomUUID()
   const bookDir = path.join(dataDir, 'books', bookId)
   await fs.mkdir(bookDir, { recursive: true })

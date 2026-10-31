@@ -31,6 +31,10 @@ let totalPages = document.pageCount
 let attributes = document.documentAttributes ?? [:]
 let title = (attributes[PDFDocumentAttribute.titleAttribute] as? String) ?? ""
 let author = (attributes[PDFDocumentAttribute.authorAttribute] as? String) ?? ""
+let startPage = args.count >= 4 ? max(1, Int(args[3]) ?? 1) : 1
+let requestedEnd = args.count >= 5 ? (Int(args[4]) ?? 0) : 0
+let endPage = requestedEnd > 0 ? min(requestedEnd, totalPages) : totalPages
+let rangePages = startPage <= endPage ? endPage - startPage + 1 : 0
 
 func outlineRows(_ node: PDFOutline?, _ depth: Int) -> [[String: Any]] {
     guard let node else { return [] }
@@ -54,6 +58,9 @@ let meta: [String: Any] = [
     "title": title,
     "author": author,
     "maxPages": maxPages,
+    "startPage": startPage,
+    "endPage": endPage,
+    "rangePages": rangePages,
     "outline": outlineRows(document.outlineRoot, 0)
 ]
 if let metaData = try? JSONSerialization.data(withJSONObject: ["meta": meta]),
@@ -61,16 +68,16 @@ if let metaData = try? JSONSerialization.data(withJSONObject: ["meta": meta]),
     print(metaLine)
     fflush(stdout)
 }
-if totalPages > maxPages {
-    FileHandle.standardError.write("page count exceeds limit\n".data(using: .utf8)!)
+if rangePages > maxPages {
+    FileHandle.standardError.write("page range exceeds limit\n".data(using: .utf8)!)
     exit(3)
 }
-if totalPages == 0 {
-    FileHandle.standardError.write("empty pdf\n".data(using: .utf8)!)
+if totalPages == 0 || rangePages == 0 || startPage > totalPages {
+    FileHandle.standardError.write("invalid page range\n".data(using: .utf8)!)
     exit(1)
 }
 
-for pageNumber in 1...totalPages {
+for pageNumber in startPage...endPage {
     autoreleasepool {
         guard let page = document.page(at: pageNumber - 1) else {
             return

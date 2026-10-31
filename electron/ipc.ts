@@ -106,6 +106,7 @@ import type {
   NoteReport,
   OcrDoneEvent,
   OcrErrorEvent,
+  OcrImportOptions,
   OcrImportStarted,
   ReaderStyle,
   SaveFileResult,
@@ -290,7 +291,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     return importUrlBook(url, dataDir)
   })
 
-  ipcMain.handle('books:import-highlights', async (): Promise<HighlightImportResult | null> => {
+  ipcMain.handle('books:import-highlights', async (_event, importOptions?: { mergeExisting?: boolean }): Promise<HighlightImportResult | null> => {
     const win = getWindow()
     const options: OpenDialogOptions = {
       title: '导入划线',
@@ -299,10 +300,10 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     }
     const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options)
     if (result.canceled || result.filePaths.length === 0) return null
-    return importHighlightsFile(result.filePaths[0]!, dataDir)
+    return importHighlightsFile(result.filePaths[0]!, dataDir, { mergeExisting: importOptions?.mergeExisting === true })
   })
 
-  ipcMain.handle('books:import-ocr', async (event): Promise<OcrImportStarted | null> => {
+  ipcMain.handle('books:import-ocr', async (event, range?: OcrImportOptions): Promise<OcrImportStarted | null> => {
     const win = getWindow()
     const options: OpenDialogOptions = {
       title: '导入扫描版 PDF',
@@ -328,6 +329,10 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
           dataDir,
           (progress) => send('ocr:progress', progress),
           controller.signal,
+          {
+            startPage: typeof range?.startPage === 'number' ? range.startPage : undefined,
+            endPage: typeof range?.endPage === 'number' ? range.endPage : undefined,
+          },
         )
         if (controller.signal.aborted) return
         send('ocr:done', { book, durationMs: Date.now() - startedAt } satisfies OcrDoneEvent)

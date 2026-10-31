@@ -944,6 +944,34 @@ export function replaceBookChapters(
   return summary
 }
 
+/** 在已有书末尾追加一章，用于合并 Readwise/Kindle 划线。 */
+export function appendChapter(bookId: string, chapter: NewChapter): string {
+  const book = database().prepare('SELECT id FROM books WHERE id = ?').get(bookId) as { id: string } | undefined
+  if (!book) throw new Error('找不到这本书。')
+  const nextIdx =
+    (database().prepare('SELECT COALESCE(MAX(idx), -1) AS max_idx FROM chapters WHERE book_id = ?').get(bookId) as {
+      max_idx: number
+    }).max_idx + 1
+  const id = crypto.randomUUID()
+  database()
+    .prepare(
+      'INSERT INTO chapters (id, book_id, idx, title, text, html, chars, hidden, kind, reason, classified_by, part_title, part_index, is_part) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, NULL, ?, NULL, NULL, 0)',
+    )
+    .run(
+      id,
+      bookId,
+      nextIdx,
+      chapter.title,
+      chapter.text,
+      chapter.html,
+      chapter.text.length,
+      chapter.kind ?? 'content',
+      chapter.classifiedBy ?? 'user',
+    )
+  database().prepare('UPDATE books SET last_opened_at = ? WHERE id = ?').run(new Date().toISOString(), bookId)
+  return id
+}
+
 export function deleteBook(bookId: string): string | null {
   const row = database().prepare('SELECT file_path FROM books WHERE id = ?').get(bookId) as
     | { file_path: string }

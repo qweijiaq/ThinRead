@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import readline from 'node:readline'
 
-import type { OcrProgress } from '../../shared/types.js'
+import type { OcrImportOptions, OcrProgress } from '../../shared/types.js'
 import type { NewChapter } from '../db.js'
 
 const MAX_OCR_PAGES = 300
@@ -102,16 +102,22 @@ export async function parseScannedPdf(
   sourcePath: string,
   onProgress?: (progress: OcrProgress) => void,
   signal?: AbortSignal,
+  options: OcrImportOptions = {},
 ): Promise<ScannedPdfResult> {
   if (process.platform !== 'darwin') throw new Error('扫描版 PDF 的 OCR 目前只支持 macOS。')
   if (signal?.aborted) throw new Error('OCR 已取消')
   const script = findOcrScript()
   const pages: Array<{ page: number; text: string }> = []
   let pageCount = 0
+  let rangeStart = 1
+  let rangeEnd = 0
+  let rangePages = 0
   let title = ''
   let author = ''
   let outline: OutlineEntry[] = []
-  const child = spawn('swift', [script, sourcePath, String(MAX_OCR_PAGES)], {
+  const startPage = Math.max(1, Math.floor(options.startPage ?? 1))
+  const endPage = Math.max(0, Math.floor(options.endPage ?? 0))
+  const child = spawn('swift', [script, sourcePath, String(MAX_OCR_PAGES), String(startPage), String(endPage)], {
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   let stderr = ''
@@ -130,12 +136,15 @@ export async function parseScannedPdf(
         if (!line.trim()) return
         try {
           const parsed = JSON.parse(line) as {
-            meta?: { pages?: unknown; title?: unknown; author?: unknown; outline?: unknown }
+            meta?: { pages?: unknown; title?: unknown; author?: unknown; outline?: unknown; startPage?: unknown; endPage?: unknown; rangePages?: unknown }
             page?: unknown
             text?: unknown
           }
           if (parsed.meta) {
             pageCount = typeof parsed.meta.pages === 'number' ? parsed.meta.pages : 0
+            rangeStart = typeof parsed.meta.startPage === 'number' ? parsed.meta.startPage : 1
+            rangeEnd = typeof parsed.meta.endPage === 'number' ? parsed.meta.endPage : pageCount
+            rangePages = typeof parsed.meta.rangePages === 'number' ? parsed.meta.rangePages : rangeEnd - rangeStart + 1
             title = typeof parsed.meta.title === 'string' ? parsed.meta.title : ''
             author = typeof parsed.meta.author === 'string' ? parsed.meta.author : ''
             if (Array.isArray(parsed.meta.outline)) {
@@ -153,14 +162,14 @@ export async function parseScannedPdf(
                 })
                 .filter((entry): entry is OutlineEntry => Boolean(entry))
             }
-            if (pageCount > MAX_OCR_PAGES) {
-              reject(new Error(`扫描版 PDF 有 ${pageCount} 页，超过 ${MAX_OCR_PAGES} 页上限，请先拆分后再导入。`))
+            if (rangePages > MAX_OCR_PAGES) {
+              reject(new Error(`这次 OCR 有 ${rangePages} 页，超过 ${MAX_OCR_PAGES} 页上限，请缩小页码范围或先拆分后再导入。`))
             }
             return
           }
           if (typeof parsed.page !== 'number' || typeof parsed.text !== 'string') return
           pages.push({ page: parsed.page, text: parsed.text })
-          onProgress?.({ current: pages.length, total: pageCount, page: parsed.page })
+          onProgress?.({ current: pages.length, total: rangePages, page: parsed.page })
         } catch {
           // 忽略 Swift 的调试输出，只解析逐页 JSON。
         }
@@ -187,7 +196,8 @@ export async function parseScannedPdf(
   if (usable.length === 0) throw new Error('扫描版 PDF 没有识别出可阅读的正文，请换一份清晰度更高的文件。')
   const sourceText = usable.map((page) => `[第 ${page.page} 页]\n${page.text}`).join('\n\n').trim()
   const chapters: NewChapter[] = []
-  const chapterFromOutline = buildOutlineChapters(usable, outline, pageCount)
+  const fullDocument = rangeStart <= 1 && rangeEnd >= pageCount
+  const chapterFromOutline = fullDocument ? buildOutlineChapters(usable, outline, pageCount) : []
   if (chapterFromOutline.length > 0) {
     chapters.push(...chapterFromOutline)
   } else {
