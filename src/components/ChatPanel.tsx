@@ -25,6 +25,7 @@ export function ChatPanel({ chapter, bookTitle, seed, onJumpQuote, onSave }: Cha
   const [turns, setTurns] = useState<Turn[]>([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
+  const [streamingAnswer, setStreamingAnswer] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState<number | null>(null)
   const [artifactId, setArtifactId] = useState<string | null>(null)
@@ -127,8 +128,11 @@ export function ChatPanel({ chapter, bookTitle, seed, onJumpQuote, onSave }: Cha
     setTurns((current) => [...current, { role: 'user', content: text }])
     setInput('')
     setBusy(true)
+    setStreamingAnswer('')
     try {
-      const result = await window.api.askChapter(chapter.id, text, history, mode)
+      const result = await window.api.askChapterStream(chapter.id, text, history, mode, (delta) => {
+        if (session === sessionRef.current) setStreamingAnswer(delta)
+      })
       if (session === sessionRef.current) {
         const finalTurns: Turn[] = [
           ...turns,
@@ -141,6 +145,7 @@ export function ChatPanel({ chapter, bookTitle, seed, onJumpQuote, onSave }: Cha
     } catch (err) {
       if (session === sessionRef.current) setError(err instanceof Error ? err.message : String(err))
     } finally {
+      if (session === sessionRef.current) setStreamingAnswer('')
       setBusy(false)
     }
   }
@@ -161,8 +166,11 @@ export function ChatPanel({ chapter, bookTitle, seed, onJumpQuote, onSave }: Cha
     const session = ++sessionRef.current
     setBusy(true)
     setError(null)
+    setStreamingAnswer('')
     try {
-      const result = await window.api.askChapter(chapter.id, question, history, mode)
+      const result = await window.api.askChapterStream(chapter.id, question, history, mode, (delta) => {
+        if (session === sessionRef.current) setStreamingAnswer(delta)
+      })
       if (session !== sessionRef.current) return
       const finalTurns: Turn[] = [
         ...before,
@@ -174,6 +182,7 @@ export function ChatPanel({ chapter, bookTitle, seed, onJumpQuote, onSave }: Cha
     } catch (err) {
       if (session === sessionRef.current) setError(err instanceof Error ? err.message : String(err))
     } finally {
+      if (session === sessionRef.current) setStreamingAnswer('')
       setBusy(false)
     }
   }
@@ -274,15 +283,15 @@ export function ChatPanel({ chapter, bookTitle, seed, onJumpQuote, onSave }: Cha
         {busy ? (
           <div className="qa-turn assistant">
             <span className="qa-role">{mode === 'socratic' ? '教练' : '页边'}</span>
-            <div className="qa-bubble qa-thinking">
-              <span className="spinner" />
-              正在读这一章…
+            <div className={`qa-bubble${streamingAnswer ? '' : ' qa-thinking'}`}>
+              {streamingAnswer ? <Markdown text={streamingAnswer} /> : <span className="spinner" />}
+              {streamingAnswer ? null : '正在读这一章…'}
             </div>
           </div>
         ) : null}
       </div>
 
-      {error ? <div className="inline-error">{error}</div> : null}
+      {error ? <div className="inline-error" role="alert">{error}</div> : null}
 
       <div className="qa-input-row">
         <textarea

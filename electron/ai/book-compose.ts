@@ -96,7 +96,7 @@ export async function composeBook(args: ComposeArgs): Promise<BookComposeResult>
   }
 
   const model = createLanguageModel(args.config)
-  const usage: TokenUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 }
+  const usage: TokenUsage = args.usage ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 }
   args.usage = usage
   let draft = ''
   const fastTrack = args.mode === 'fast' && sourceChars <= FINAL_EDITOR_CHARS

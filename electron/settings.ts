@@ -22,6 +22,7 @@ interface StoredSettings {
   composeModel: string
   labModel: string
   readwise?: StoredKey
+  beatra?: StoredKey
   keys: Partial<Record<ProviderId, StoredKey>>
 }
 
@@ -63,6 +64,7 @@ function readFile(): StoredSettings {
       composeModel: typeof raw.composeModel === 'string' ? raw.composeModel : '',
       labModel: typeof raw.labModel === 'string' ? raw.labModel : '',
       readwise: raw.readwise,
+      beatra: raw.beatra,
       keys: raw.keys ?? {},
     }
   } catch {
@@ -121,6 +123,15 @@ export function getReadwiseToken(): string | null {
   return readStoredKey(settings().readwise)
 }
 
+export function getBeatraToken(): string | null {
+  return readStoredKey(settings().beatra)
+}
+
+export function saveBeatraToken(token: string): void {
+  settings().beatra = encodeKey(token.trim())
+  persist()
+}
+
 function encodeKey(apiKey: string): StoredKey {
   const hint = apiKey.length <= 8 ? '****' : `••••${apiKey.slice(-4)}`
   if (safeStorage.isEncryptionAvailable()) {
@@ -145,6 +156,7 @@ export function getSettingsView(): SettingsView {
     composeModel: current.composeModel,
     labModel: current.labModel,
     readwiseConfigured: readStoredKey(current.readwise) !== null,
+    beatraConfigured: readStoredKey(current.beatra) !== null,
   }
 }
 
@@ -170,6 +182,9 @@ export function saveSettings(patch: SettingsPatch): SettingsView {
   if (patch.labModel !== undefined) current.labModel = patch.labModel.trim()
   if (patch.readwiseToken && patch.readwiseToken.trim()) {
     current.readwise = encodeKey(patch.readwiseToken.trim())
+  }
+  if (patch.beatraToken && patch.beatraToken.trim()) {
+    current.beatra = encodeKey(patch.beatraToken.trim())
   }
   if (patch.apiKey && patch.apiKey.trim()) {
     current.keys[patch.provider] = encodeKey(patch.apiKey.trim())

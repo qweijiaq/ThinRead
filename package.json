@@ -2,6 +2,7 @@
   "name": "reading-notes",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "description": "页边 · ThinRead — 本地优先的 AI 读书笔记应用",
   "type": "module",
   "main": "dist-electron/main.cjs",
@@ -15,10 +16,15 @@
     "screenshot": "pnpm build && electron . --screenshot=./screenshot.png",
     "test": "node scripts/run-tests.mjs",
     "test:ui": "pnpm build && node scripts/test-ui.mjs",
-    "pack": "pnpm build && electron-builder --dir",
-    "dist:mac": "pnpm build && electron-builder --mac",
-    "dist:win": "pnpm build && electron-builder --win",
-    "dist:linux": "pnpm build && electron-builder --linux"
+    "pack": "pnpm fetch:kokoro && pnpm build && electron-builder --dir",
+    "dist:mac": "pnpm fetch:kokoro && pnpm build && electron-builder --mac",
+    "test:e2e": "pnpm build && node scripts/test-e2e-real.mjs",
+    "eval:real": "pnpm build && node scripts/eval-real.mjs",
+    "test:ui:pdf": "pnpm build && node scripts/test-ui-pdf.mjs",
+    "fetch:kokoro": "node scripts/fetch-kokoro.mjs",
+    "storybook": "storybook dev -p 6006",
+    "build-storybook": "storybook build",
+    "capture:storybook": "node scripts/capture-storybook.mjs"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.0",
@@ -26,11 +32,16 @@
     "@huggingface/transformers": "^4.3.2",
     "@lingo-reader/mobi-parser": "0.4.6",
     "@napi-rs/canvas": "^1.0.13",
+    "@uzen/kokoro-js": "^1.2.4",
+    "@xyflow/react": "^12.12.0",
     "ai": "^7.0.0",
     "cheerio": "^1.0.0",
     "d3-force": "^3.0.0",
     "electron-updater": "^6.8.11",
     "fflate": "^0.8.2",
+    "html-to-image": "1.11.13",
+    "mermaid": "^12.2.0",
+    "node-edge-tts": "^1.2.12",
     "pdfjs-dist": "^5.0.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
@@ -40,15 +51,20 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@storybook/addon-a11y": "10.6.5",
+    "@storybook/addon-docs": "10.6.5",
+    "@storybook/react-vite": "10.6.5",
     "@types/d3-force": "^3.0.10",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@types/sanitize-html": "^2.13.0",
     "@vitejs/plugin-react": "^6.1.2",
+    "axe-core": "4.14.0",
     "electron": "^44.0.0",
     "electron-builder": "^26.18.0",
     "esbuild": "^0.27.0",
+    "storybook": "10.6.5",
     "typescript": "^5.7.0",
     "vite": "^8.3.5"
   },
@@ -76,6 +92,13 @@
         "to": "scripts",
         "filter": [
           "*.swift"
+        ]
+      },
+      {
+        "from": "resources/kokoro",
+        "to": "kokoro",
+        "filter": [
+          "**/*"
         ]
       }
     ],

@@ -1,6 +1,5 @@
 import * as cheerio from 'cheerio'
-import { generateObject } from 'ai'
-import { z } from 'zod'
+import { generateText } from 'ai'
 
 import type { ReaderStyle, RemovedPart } from '../../shared/types.js'
 import { htmlToText, normalizeForMatch, restoreDataImages, sanitizeChapterHtml, extractDataImages } from '../html.js'
@@ -14,27 +13,6 @@ const SEGMENT_CHARS = 14_000
 const SEGMENT_CONCURRENCY = 2
 const FORMAT_TIMEOUT_MS = 180_000
 
-const styleSchema = z.object({
-  fontFamily: z.enum(['serif', 'sans']).optional(),
-  fontSize: z.number().optional(),
-  lineHeight: z.number().optional(),
-  paragraphSpacing: z.number().optional(),
-  indent: z.boolean().optional(),
-})
-
-const formatSchema = z.object({
-  html: z.string(),
-  removed: z
-    .array(
-      z.object({
-        reason: z.string().max(80),
-        text: z.string().max(400),
-      }),
-    )
-    .max(50),
-  style: styleSchema.optional(),
-  note: z.string().max(300),
-})
 
 export interface FormatArgs {
   chapterTitle: string
@@ -52,6 +30,13 @@ export interface FormatOutput {
   html: string
   removed: RemovedPart[]
   style: ReaderStyle
+  note: string
+}
+
+interface FormatPayload {
+  html: string
+  removed: Array<{ reason: string; text: string }>
+  style?: Partial<ReaderStyle>
   note: string
 }
 
@@ -115,25 +100,97 @@ async function formatSegment(
   includeContext: boolean,
 ): Promise<FormatOutput> {
   const prompt = buildPrompt(args, preparedHtml, includeContext)
-  const response = await generateObject({
+  // 不依赖 provider 的 structured output：DeepSeek 等 OpenAI-compatible 模型
+  // 在 note/removed 长度等细节上经常超出 schema，直接从文本 JSON 归一化更稳定。
+  const response = await generateText({
     model,
-    schema: formatSchema,
     prompt,
     temperature: 0.15,
     maxRetries: 1,
     abortSignal: formatSignal(args.signal),
   })
-  const sanitized = sanitizeChapterHtml(response.object.html)
+  let payload = parseFormatPayload(response.text)
+  if (!payload) {
+    const retry = await generateText({
+      model,
+      prompt: `${prompt}\n\n上一次输出没有通过 JSON 解析。请只输出一个合法 JSON 对象，html、removed、style、note 都必须符合要求，不要输出解释或 Markdown 代码块。`,
+      temperature: 0.1,
+      maxRetries: 1,
+      abortSignal: formatSignal(args.signal),
+    })
+    payload = parseFormatPayload(retry.text)
+  }
+  if (!payload) throw new Error('AI 排版返回的 JSON 不完整，已保留原文。')
+  const sanitized = sanitizeChapterHtml(payload.html)
   if (!sanitized.trim()) throw new Error('AI 返回了空内容，已保留原文。')
   const withImages = restoreDataImages(sanitized, images)
-  const removed = verifyRemovals(response.object.removed, args.originalText)
+  const removed = verifyRemovals(payload.removed, args.originalText)
   verifyIntegrity(originalText, withImages, removed)
   return {
     html: withImages,
     removed,
-    style: normalizeReaderStyle({ ...args.style, ...(response.object.style ?? {}) }),
-    note: response.object.note.trim() || '已整理这一章。',
+    style: normalizeReaderStyle({ ...args.style, ...(payload.style ?? {}) }),
+    note: payload.note.trim() || '已整理这一章。',
   }
+}
+
+function parseJsonObject(text: string): unknown | null {
+  const trimmed = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim()
+  const attempts = [trimmed]
+  const start = trimmed.indexOf('{')
+  const end = trimmed.lastIndexOf('}')
+  if (start >= 0 && end > start) attempts.push(trimmed.slice(start, end + 1))
+  for (const attempt of attempts) {
+    try {
+      return JSON.parse(attempt) as unknown
+    } catch {
+      // 继续尝试去掉代码块后的 JSON。
+    }
+  }
+  return null
+}
+
+function normalizeFormatPayload(value: unknown): FormatPayload | null {
+  if (!value || typeof value !== 'object') return null
+  const object = value as Record<string, unknown>
+  const html = typeof object.html === 'string' ? object.html : ''
+  if (!html.trim()) return null
+  const removed = Array.isArray(object.removed)
+    ? object.removed
+        .map((item) => {
+          if (typeof item === 'string') return { reason: '无关内容', text: item }
+          if (!item || typeof item !== 'object') return null
+          const row = item as Record<string, unknown>
+          const text = typeof row.text === 'string' ? row.text : ''
+          if (!text.trim()) return null
+          return {
+            reason: typeof row.reason === 'string' ? row.reason.slice(0, 80) : '无关内容',
+            text: text.slice(0, 400),
+          }
+        })
+        .filter((item): item is { reason: string; text: string } => Boolean(item))
+        .slice(0, 50)
+    : []
+  const style =
+    object.style && typeof object.style === 'object' && !Array.isArray(object.style)
+      ? (object.style as Record<string, unknown>)
+      : null
+  const normalizedStyle: Partial<ReaderStyle> = {}
+  if (style) {
+    if (style.fontFamily === 'serif' || style.fontFamily === 'sans') normalizedStyle.fontFamily = style.fontFamily
+    if (typeof style.fontSize === 'number') normalizedStyle.fontSize = Math.min(24, Math.max(14, style.fontSize))
+    if (typeof style.lineHeight === 'number') normalizedStyle.lineHeight = Math.min(2.6, Math.max(1.4, style.lineHeight))
+    if (typeof style.paragraphSpacing === 'number') {
+      normalizedStyle.paragraphSpacing = Math.min(2, Math.max(0.2, style.paragraphSpacing))
+    }
+    if (typeof style.indent === 'boolean') normalizedStyle.indent = style.indent
+  }
+  const note = typeof object.note === 'string' ? object.note.slice(0, 300) : ''
+  return { html, removed, style: Object.keys(normalizedStyle).length > 0 ? normalizedStyle : undefined, note }
+}
+
+export function parseFormatPayload(text: string): FormatPayload | null {
+  return normalizeFormatPayload(parseJsonObject(text))
 }
 
 function splitFormatHtml(html: string, maxChars: number, depth = 0): string[] {

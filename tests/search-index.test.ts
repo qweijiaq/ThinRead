@@ -4,8 +4,8 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 
-import { closeDatabase, createNote, initDatabase, insertBook, updateNote } from '../electron/db.js'
-import { clearSearchIndex, searchIndex, tokenize } from '../electron/search-index.js'
+import { closeDatabase, createNote, initDatabase, insertBook, saveLabArtifact, updateNote } from '../electron/db.js'
+import { clearSearchIndex, initSearchIndex, searchIndex, searchIndexAsync, searchIndexIds, tokenize, warmSearchIndex } from '../electron/search-index.js'
 
 test('tokenizes Chinese bigrams and Latin words', () => {
   const tokens = tokenize('阅读的艺术 habit')
@@ -21,10 +21,11 @@ test('tokenizes Chinese bigrams and Latin words', () => {
   assert.ok(hyphenated.includes('being'))
 })
 
-test('builds a local index over chapters, books and notes', () => {
+test('builds a local index over chapters, books and notes', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'reading-notes-search-'))
   try {
     initDatabase(dir)
+    initSearchIndex(dir)
     const book = insertBook(
       { title: '深度工作', author: 'Cal Newport', format: 'text', filePath: path.join(dir, 'source.txt') },
       [{ title: '专注力', text: '专注不是意志力，而是环境设计。', html: null }],
@@ -45,10 +46,26 @@ test('builds a local index over chapters, books and notes', () => {
     updateNote(created.id, { content: '把通知关掉，注意力才回得来。' })
     assert.ok(searchIndex('通知')?.some((result) => result.id === created.id))
 
+    const artifact = saveLabArtifact({
+      tool: 'book-club',
+      scope: 'latest',
+      title: '生成内容测试',
+      content: '这是生成内容里的专注和环境讨论。',
+      bookId: book.id,
+    })
+    assert.deepEqual(await searchIndexIds('专注', 'content'), [artifact.id])
+
     assert.deepEqual(searchIndex('不存在的词'), [])
     assert.equal(searchIndex('专'), null)
+    const cacheFile = path.join(dir, 'search-index.json.gz')
+    for (let attempt = 0; attempt < 40 && !fs.existsSync(cacheFile); attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 25))
+    }
+    assert.ok(fs.existsSync(cacheFile))
+    assert.ok(fs.statSync(cacheFile).size > 0)
     clearSearchIndex()
-    assert.ok(searchIndex('专注')?.length)
+    await warmSearchIndex()
+    assert.ok((await searchIndexAsync('专注'))?.length)
   } finally {
     clearSearchIndex()
     closeDatabase()

@@ -6,6 +6,9 @@ import { chaptersFromHtml, splitTextIntoChapters } from './text-book.js'
 
 const MAX_BYTES = 8 * 1024 * 1024
 const TIMEOUT_MS = 25_000
+const MAX_IMAGES = 20
+const MAX_IMAGE_BYTES = 3 * 1024 * 1024
+const MAX_IMAGE_TOTAL = 12 * 1024 * 1024
 
 function assertFetchableUrl(raw: string): URL {
   let url: URL
@@ -40,7 +43,67 @@ function metaContent($: cheerio.CheerioAPI, selectors: string[]): string {
   return ''
 }
 
-/** 抓取网页正文，去掉导航、广告和脚本；保留图片链接，不下载远程资源。 */
+const ALLOWED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/avif'])
+
+/**
+ * 把正文里的远程图片下载成 data URL，避免 Reader 的 CSP 拦截外链。
+ * 单张和总量都有限制；失败的图片直接移除，不留坏图。
+ */
+export async function inlineRemoteImages(html: string, baseUrl: string): Promise<string> {
+  const $ = cheerio.load(`<div id="__content">${html}</div>`)
+  const root = $('#__content')
+  const images = root.find('img').toArray().slice(0, MAX_IMAGES)
+  let totalBytes = 0
+  let next = 0
+
+  const worker = async (): Promise<void> => {
+    while (true) {
+      const index = next++
+      if (index >= images.length) return
+      const node = $(images[index]!)
+      const source = node.attr('src')?.trim() ?? ''
+      node.removeAttr('srcset')
+      if (!source || source.startsWith('data:')) {
+        if (!source) node.remove()
+        continue
+      }
+      const width = Number(node.attr('width') ?? 0)
+      const height = Number(node.attr('height') ?? 0)
+      if ((width > 0 && width <= 2) || (height > 0 && height <= 2)) {
+        node.remove()
+        continue
+      }
+      try {
+        const target = assertFetchableUrl(new URL(source, baseUrl).toString())
+        const response = await fetch(target, {
+          redirect: 'follow',
+          signal: AbortSignal.timeout(15_000),
+          headers: { Accept: 'image/png,image/jpeg,image/gif,image/webp,image/avif,image/*;q=0.8' },
+        })
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        assertFetchableUrl(response.url || target.toString())
+        const type = (response.headers.get('content-type') ?? '').split(';')[0]!.trim().toLowerCase()
+        if (!ALLOWED_IMAGE_TYPES.has(type)) throw new Error('unsupported image')
+        const declared = Number(response.headers.get('content-length') ?? 0)
+        if (declared > MAX_IMAGE_BYTES) throw new Error('image too large')
+        const bytes = Buffer.from(await response.arrayBuffer())
+        if (bytes.length === 0 || bytes.length > MAX_IMAGE_BYTES || totalBytes + bytes.length > MAX_IMAGE_TOTAL) {
+          throw new Error('image too large')
+        }
+        totalBytes += bytes.length
+        node.attr('src', `data:${type};base64,${bytes.toString('base64')}`)
+        node.removeAttr('loading')
+      } catch {
+        node.remove()
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(4, images.length) }, worker))
+  return root.html() ?? ''
+}
+
+/** 抓取网页正文，去掉导航、广告和脚本，并把正文图片内联到本地。 */
 export async function parseUrl(rawUrl: string): Promise<{ title: string; author: string; chapters: NewChapter[]; html: string }> {
   const url = assertFetchableUrl(rawUrl)
   const response = await fetch(url, {
@@ -91,6 +154,7 @@ export async function parseUrl(rawUrl: string): Promise<{ title: string; author:
     })
   }
   if (!contentHtml) contentHtml = $('body').html() ?? ''
+  if (!/text\/plain/i.test(contentType)) contentHtml = await inlineRemoteImages(contentHtml, url.toString())
   const chapters = /text\/plain/i.test(contentType)
     ? splitTextIntoChapters(htmlToText(html), title)
     : chaptersFromHtml(contentHtml, title)

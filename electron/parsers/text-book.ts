@@ -1,7 +1,7 @@
 import * as cheerio from 'cheerio'
 
 import type { NewChapter } from '../db.js'
-import { htmlToText } from '../html.js'
+import { htmlToText, sanitizeChapterHtml } from '../html.js'
 
 const HEADING_PATTERN =
   /^(?:#{1,4}\s+.+|第\s*[0-9一二三四五六七八九十百千零两]+\s*[章回卷部篇节](?:\s+.*)?|[上下中]篇(?:\s+.*)?|序言|序|前言|引言|后记|尾声|结语|附录(?:\s+.*)?|Chapter\s+[0-9ivxlcdm]+(?:\s+.*)?|Part\s+[0-9ivxlcdm]+(?:\s+.*)?)$/i
@@ -52,16 +52,56 @@ export function splitTextIntoChapters(text: string, fallbackTitle: string): NewC
   return chapters
 }
 
-/** 从网页正文 HTML 中提取文本章节：先把标题变成 Markdown 标记，再复用纯文本切分。 */
+function sectionHtml($: cheerio.CheerioAPI, nodes: unknown[]): { html: string; text: string } {
+  const container = $('<div></div>')
+  for (const node of nodes) container.append($(node as never).clone())
+  const html = container.html() ?? ''
+  return { html: sanitizeChapterHtml(html), text: htmlToText(html) }
+}
+
+/** 从网页/HTML 正文中切章，同时保留每章的图片和结构。 */
 export function chaptersFromHtml(html: string, fallbackTitle: string): NewChapter[] {
-  const $ = cheerio.load(html)
-  $('script, style, noscript, svg, canvas, form, iframe').remove()
-  $('h1, h2, h3').each((_, element) => {
-    const node = $(element)
-    const text = node.text().replace(/\s+/g, ' ').trim()
-    if (!text || text.length > 90) return
-    node.replaceWith(`\n\n## ${text}\n\n`)
-  })
-  const text = htmlToText($('body').html() ?? $.html())
-  return splitTextIntoChapters(text, fallbackTitle)
+  const $ = cheerio.load(`<div id="__reading-content">${html}</div>`)
+  const root = $('#__reading-content')
+  root.find('script, style, noscript, svg, canvas, form, iframe').remove()
+
+  const chapters: NewChapter[] = []
+  let title = fallbackTitle.trim() || '未命名'
+  let nodes: unknown[] = []
+
+  const flush = (): void => {
+    if (nodes.length === 0) return
+    const section = sectionHtml($, nodes)
+    const hasImage = /<img\b/i.test(section.html)
+    if (section.text.trim().length >= 20 || hasImage) {
+      chapters.push({ title, text: section.text, html: section.html })
+    }
+    nodes = []
+  }
+
+  for (const node of root.contents().toArray()) {
+    const tag = String((node as { tagName?: string }).tagName ?? '').toLowerCase()
+    if (tag === 'h1' || tag === 'h2' || tag === 'h3') {
+      const heading = $(node).text().replace(/\s+/g, ' ').trim()
+      if (!heading || heading.length > 90) {
+        nodes.push(node)
+        continue
+      }
+      const current = nodes.length > 0 ? sectionHtml($, nodes) : null
+      if (current && (current.text.trim().length >= 20 || /<img\b/i.test(current.html))) flush()
+      else nodes = []
+      title = heading
+      continue
+    }
+    nodes.push(node)
+  }
+  flush()
+
+  if (chapters.length === 0) {
+    const text = htmlToText(root.html() ?? '')
+    if (text.trim().length >= 20) {
+      chapters.push({ title: fallbackTitle.trim() || '正文', text, html: sanitizeChapterHtml(root.html() ?? '') })
+    }
+  }
+  return chapters
 }

@@ -1,5 +1,17 @@
 import { useState, type JSX } from 'react'
 
+export interface TaskFailure {
+  chapterId: string
+  title: string
+  message: string
+}
+
+export interface TaskRetry {
+  kind: 'notes' | 'format'
+  bookId: string
+  chapterIds: string[]
+}
+
 export interface BackgroundTask {
   id: string
   kind: 'notes' | 'format' | 'import'
@@ -8,11 +20,14 @@ export interface BackgroundTask {
   done: number
   total: number
   status: 'running' | 'done' | 'error' | 'cancelled'
+  failures?: TaskFailure[]
+  retry?: TaskRetry
 }
 
 interface TaskCenterProps {
   tasks: BackgroundTask[]
   onCancel(task: BackgroundTask): void
+  onRetry(task: BackgroundTask): void
   onDismiss(id: string): void
 }
 
@@ -23,7 +38,7 @@ const STATUS_LABEL: Record<BackgroundTask['status'], string> = {
   cancelled: '已取消',
 }
 
-export function TaskCenter({ tasks, onCancel, onDismiss }: TaskCenterProps): JSX.Element | null {
+export function TaskCenter({ tasks, onCancel, onRetry, onDismiss }: TaskCenterProps): JSX.Element | null {
   const [open, setOpen] = useState(false)
   if (tasks.length === 0) return null
   const running = tasks.filter((task) => task.status === 'running').length
@@ -64,6 +79,16 @@ export function TaskCenter({ tasks, onCancel, onDismiss }: TaskCenterProps): JSX
                   <em>{STATUS_LABEL[task.status]}</em>
                 </div>
                 {task.detail ? <p>{task.detail}</p> : null}
+                {task.failures && task.failures.length > 0 ? (
+                  <ul className="task-failures">
+                    {task.failures.map((failure) => (
+                      <li key={failure.chapterId}>
+                        <strong>{failure.title}</strong>
+                        <span>{failure.message}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
                 {task.status === 'running' && task.total > 0 ? (
                   <div className="progress-track">
                     <div className="progress-fill" style={{ width: `${Math.max(4, percent)}%` }} />
@@ -80,9 +105,16 @@ export function TaskCenter({ tasks, onCancel, onDismiss }: TaskCenterProps): JSX
                       取消
                     </button>
                   ) : (
-                    <button type="button" className="text-button muted" onClick={() => onDismiss(task.id)}>
-                      移除
-                    </button>
+                    <span className="task-row-buttons">
+                      {task.status === 'error' && task.retry && task.retry.chapterIds.length > 0 ? (
+                        <button type="button" className="text-button" onClick={() => onRetry(task)}>
+                          重试失败章节
+                        </button>
+                      ) : null}
+                      <button type="button" className="text-button muted" onClick={() => onDismiss(task.id)}>
+                        移除
+                      </button>
+                    </span>
                   )}
                 </div>
               </div>

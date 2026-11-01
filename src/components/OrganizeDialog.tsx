@@ -163,7 +163,7 @@ export function OrganizeDialog({
           </span>
         </div>
 
-        {error ? <div className="inline-error">{error}</div> : null}
+        {error ? <div className="inline-error" role="alert">{error}</div> : null}
 
         <div className="organize-list">
           <div className="organize-row organize-row-head" onClick={toggleAll}>

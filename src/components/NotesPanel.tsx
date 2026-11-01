@@ -265,7 +265,7 @@ export function NotesPanel({
         AI 会把这一章重写成可直接发博客的读薄稿：只保留断言，并列改列表，删掉铺垫；压缩幅度由内容密度决定，保留断言优先。
       </p>
 
-      {error ? <div className="inline-error">{error}</div> : null}
+      {error ? <div className="inline-error" role="alert">{error}</div> : null}
 
       {generating ? <StreamingCard partial={partial} onCancel={onCancel} /> : null}
 
@@ -358,7 +358,7 @@ export function NotesPanel({
               </button>
             </div>
           </div>
-          {exportError ? <div className="inline-error">{exportError}</div> : null}
+          {exportError ? <div className="inline-error" role="alert">{exportError}</div> : null}
           {renderCard(condensedNote, true)}
         </section>
       ) : null}

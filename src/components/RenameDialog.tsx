@@ -79,7 +79,7 @@ export function RenameDialog({ open, title, label, value, onSave, onClose }: Ren
             aria-label={label}
           />
         </div>
-        {error ? <div className="inline-error">{error}</div> : null}
+        {error ? <div className="inline-error" role="alert">{error}</div> : null}
         <div className="modal-footer">
           <span className="modal-meta">最多 200 个字</span>
           <div className="modal-footer-actions">

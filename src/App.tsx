@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 
 import { DEFAULT_READER_STYLE } from '../shared/types.js'
 import type {
@@ -23,23 +23,18 @@ import type {
   SearchResult,
   SettingsView,
 } from '../shared/types.js'
-import { BookCompose } from './components/BookCompose.js'
 import { ConfirmHost, confirmDialog } from './components/ConfirmDialog.js'
 import { ChapterList } from './components/ChapterList.js'
-import { ContentView } from './components/ContentView.js'
 import { ChatPanel } from './components/ChatPanel.js'
 import { FeynmanPanel } from './components/FeynmanPanel.js'
 import { FormatPanel } from './components/FormatPanel.js'
 import { ImportDialog } from './components/ImportDialog.js'
 import { MergeBooksDialog } from './components/MergeBooksDialog.js'
 import type { FormatMessage } from './components/FormatPanel.js'
-import { KnowledgeMap } from './components/KnowledgeMap.js'
-import { LabView } from './components/LabView.js'
 import { Library } from './components/Library.js'
 import { ListenPanel } from './components/ListenPanel.js'
 import { MarginNoteDialog } from './components/MarginNoteDialog.js'
 import { NotesPanel } from './components/NotesPanel.js'
-import { NotesLibrary } from './components/NotesLibrary.js'
 import { OrganizeDialog } from './components/OrganizeDialog.js'
 import { Reader } from './components/Reader.js'
 import { RenameDialog } from './components/RenameDialog.js'
@@ -48,18 +43,32 @@ import { ShareDialog } from './components/ShareDialog.js'
 import { SettingsDialog } from './components/SettingsDialog.js'
 import { SplitBookDialog } from './components/SplitBookDialog.js'
 import { TaskCenter } from './components/TaskCenter.js'
-import type { BackgroundTask } from './components/TaskCenter.js'
+import type { BackgroundTask, TaskFailure } from './components/TaskCenter.js'
 import { TopBar } from './components/TopBar.js'
+import type { BookmarkDraft, BookmarkView } from './lib/bookmarks.js'
 import { noteDisplayTitle, titleRepeatsContent } from './lib/note-display.js'
 import type { ShareBook, ShareNote, ShareTemplate } from './lib/share-card.js'
+import type { XhsScope } from './lib/xhs-carousel.js'
 
 function messageOf(error: unknown): string {
   const raw = error instanceof Error ? error.message : String(error)
   return raw.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 }
 
+const BookCompose = lazy(async () => ({ default: (await import('./components/BookCompose.js')).BookCompose }))
+const ContentView = lazy(async () => ({ default: (await import('./components/ContentView.js')).ContentView }))
+const KnowledgeMap = lazy(async () => ({ default: (await import('./components/KnowledgeMap.js')).KnowledgeMap }))
+const LabView = lazy(async () => ({ default: (await import('./components/LabView.js')).LabView }))
+const NotesLibrary = lazy(async () => ({ default: (await import('./components/NotesLibrary.js')).NotesLibrary }))
+const XhsCarouselDialog = lazy(async () => ({ default: (await import('./components/XhsCarouselDialog.js')).XhsCarouselDialog }))
+
 const THEME_KEY = 'reading-notes-theme'
 const TASKS_KEY = 'reading-notes-background-tasks'
+
+function failureSummary(failures: TaskFailure[]): string {
+  const titles = failures.slice(0, 3).map((failure) => `「${failure.title}」`)
+  return `失败 ${failures.length} 节：${titles.join('、')}${failures.length > titles.length ? ' 等' : ''}`
+}
 
 type RenameTarget =
   | { kind: 'book'; bookId: string; value: string }
@@ -115,7 +124,11 @@ export function App(): JSX.Element {
   const [generating, setGenerating] = useState(false)
   const [partial, setPartial] = useState<GeneratePartial | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [toast, setToast] = useState<{ kind: 'error' | 'info'; text: string } | null>(null)
+  const [toast, setToast] = useState<{
+    kind: 'error' | 'info'
+    text: string
+    action?: { label: string; onClick(): void }
+  } | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [mainView, setMainView] = useState<'reader' | 'notes' | 'map' | 'lab' | 'compose' | 'content'>('reader')
@@ -127,6 +140,9 @@ export function App(): JSX.Element {
     notes?: ShareNote[]
     initialTemplate?: ShareTemplate
   } | null>(null)
+  const [xhsTarget, setXhsTarget] = useState<{ scope: XhsScope; chapterId?: string | null } | null>(null)
+  const [bookmarks, setBookmarks] = useState<BookmarkView[]>([])
+  const [positionTarget, setPositionTarget] = useState<{ chapterId: string; ratio: number; key: number } | null>(null)
   const [listen, setListen] = useState<{ title: string; text: string } | null>(null)
   const [marginQuote, setMarginQuote] = useState<string | null>(null)
   const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null)
@@ -186,7 +202,7 @@ export function App(): JSX.Element {
 
   useEffect(() => {
     if (!toast) return
-    const timer = window.setTimeout(() => setToast(null), 5200)
+    const timer = window.setTimeout(() => setToast(null), toast.action ? 9000 : 5200)
     return () => window.clearTimeout(timer)
   }, [toast])
 
@@ -218,7 +234,11 @@ export function App(): JSX.Element {
         done: event.generated + event.skipped + event.failed.length,
         detail: event.cancelled
           ? '已取消'
-          : `新生成 ${event.generated} 节${event.skipped > 0 ? ` · 跳过 ${event.skipped} 节` : ''}${event.failed.length > 0 ? ` · 失败 ${event.failed.length} 节` : ''}`,
+          : `新生成 ${event.generated} 节${event.skipped > 0 ? ` · 跳过 ${event.skipped} 节` : ''}${event.failed.length > 0 ? ` · ${failureSummary(event.failed)}` : ''}`,
+        failures: event.failed,
+        retry: event.failed.length > 0
+          ? { kind: 'notes', bookId: event.bookId, chapterIds: event.failed.map((failure) => failure.chapterId) }
+          : undefined,
       })
     })
     const offFormatProgress = window.api.onBookFormatProgress((event) => {
@@ -238,7 +258,11 @@ export function App(): JSX.Element {
         done: event.formatted + event.skipped + event.failed.length,
         detail: event.cancelled
           ? '已取消'
-          : `完成 ${event.formatted} 节${event.skipped > 0 ? ` · 跳过 ${event.skipped} 节` : ''}${event.failed.length > 0 ? ` · 失败 ${event.failed.length} 节` : ''}`,
+          : `完成 ${event.formatted} 节${event.skipped > 0 ? ` · 跳过 ${event.skipped} 节` : ''}${event.failed.length > 0 ? ` · ${failureSummary(event.failed)}` : ''}`,
+        failures: event.failed,
+        retry: event.failed.length > 0
+          ? { kind: 'format', bookId: event.bookId, chapterIds: event.failed.map((failure) => failure.chapterId) }
+          : undefined,
       })
     })
     const offOcrProgress = window.api.onOcrProgress((event) => {
@@ -303,6 +327,14 @@ export function App(): JSX.Element {
     setAllNotes(all)
   }, [])
 
+  const refreshBookmarks = useCallback(async (bookId: string) => {
+    try {
+      setBookmarks(await window.api.listBookmarks(bookId))
+    } catch {
+      setBookmarks([])
+    }
+  }, [])
+
   const openChapter = useCallback(
     async (bookId: string, meta: ChapterMeta, chapterList: ChapterMeta[]) => {
       void window.api.cancelGeneration()
@@ -317,6 +349,7 @@ export function App(): JSX.Element {
       setFormatMessages([])
       setExpandingNoteId(null)
       setReaderMarks([])
+      setPositionTarget(null)
       try {
         const [content, marks] = await Promise.all([
           window.api.getChapter(meta.id),
@@ -354,6 +387,7 @@ export function App(): JSX.Element {
         const opened = await window.api.openBook(bookId)
         setBook(opened.book)
         setChapters(opened.chapters)
+        void refreshBookmarks(opened.book.id)
         setReaderStyle({ ...opened.style, theme: appTheme })
         setSuggestions([])
         setClassifyMode(null)
@@ -390,6 +424,7 @@ export function App(): JSX.Element {
       const opened = await window.api.openBook(bookId)
       setBook(opened.book)
       setChapters(opened.chapters)
+      void refreshBookmarks(bookId)
       setBooks((current) => current.map((item) => (item.id === bookId ? opened.book : item)))
       const visible = opened.chapters.filter((item) => !item.hidden)
       const currentIdx = chapter?.idx ?? -1
@@ -409,7 +444,7 @@ export function App(): JSX.Element {
       if (target.id !== chapter?.id) await openChapter(bookId, target, opened.chapters)
       else await refreshNotes(bookId, target.id)
     },
-    [chapter?.id, openChapter, refreshNotes],
+    [chapter?.id, openChapter, refreshBookmarks, refreshNotes],
   )
 
   const reparseBook = useCallback(async () => {
@@ -761,6 +796,24 @@ export function App(): JSX.Element {
     async (noteId: string) => {
       await window.api.deleteNote(noteId)
       if (book) await refreshNotes(book.id, chapter?.id ?? null)
+      setToast({
+        kind: 'info',
+        text: '笔记已删除，可撤销。',
+        action: {
+          label: '撤销',
+          onClick: () => {
+            void window.api
+              .restoreNote(noteId)
+              .then((restored) => {
+                if (!restored) throw new Error('笔记所在的书或章节已经不存在，无法恢复。')
+                if (book) return refreshNotes(book.id, chapter?.id ?? null)
+                return undefined
+              })
+              .then(() => setToast({ kind: 'info', text: '笔记已恢复。' }))
+              .catch((err: unknown) => setToast({ kind: 'error', text: messageOf(err) }))
+          },
+        },
+      })
     },
     [book, chapter?.id, refreshNotes],
   )
@@ -1247,6 +1300,46 @@ export function App(): JSX.Element {
     }
   }
 
+  async function createReaderBookmark(draft: BookmarkDraft): Promise<void> {
+    try {
+      await window.api.createBookmark(draft)
+      if (book) await refreshBookmarks(book.id)
+      setToast({ kind: 'info', text: '已添加书签。' })
+    } catch (err) {
+      setToast({ kind: 'error', text: messageOf(err) })
+    }
+  }
+
+  async function deleteReaderBookmark(id: string): Promise<void> {
+    try {
+      await window.api.deleteBookmark(id)
+      if (book) await refreshBookmarks(book.id)
+    } catch (err) {
+      setToast({ kind: 'error', text: messageOf(err) })
+    }
+  }
+
+  async function openBookmark(bookmark: BookmarkView): Promise<void> {
+    if (!book) return
+    const meta = chapters.find((item) => item.id === bookmark.chapterId)
+    if (!meta) {
+      setToast({ kind: 'error', text: '这个书签对应的章节已经不存在。' })
+      return
+    }
+    await openChapter(book.id, meta, chapters)
+    setPositionTarget({ chapterId: bookmark.chapterId, ratio: bookmark.scrollRatio, key: Date.now() })
+  }
+
+  function openChapterXhs(): void {
+    if (!book || !chapter) return
+    setXhsTarget({ scope: 'chapter', chapterId: chapter.id })
+  }
+
+  function openBookXhs(): void {
+    if (!book) return
+    setXhsTarget({ scope: 'book' })
+  }
+
   return (
     <div className="app">
       <TopBar
@@ -1276,6 +1369,38 @@ export function App(): JSX.Element {
 
       <TaskCenter
         tasks={backgroundTasks}
+        onRetry={(task) => {
+          const retry = task.retry
+          if (!retry) return
+          setBackgroundTasks((current) =>
+            current.map((item) =>
+              item.id === task.id
+                ? {
+                    ...item,
+                    status: 'running',
+                    detail: '正在重试失败章节',
+                    done: 0,
+                    total: retry.chapterIds.length,
+                    failures: [],
+                    retry: undefined,
+                  }
+                : item,
+            ),
+          )
+          const run =
+            retry.kind === 'notes'
+              ? window.api.generateBookNotes(retry.bookId, { onlyMissing: false, chapterIds: retry.chapterIds })
+              : window.api.formatBook(retry.bookId, { onlyMissing: false, chapterIds: retry.chapterIds })
+          void run.catch((err: unknown) => {
+            const message = messageOf(err)
+            setBackgroundTasks((current) =>
+              current.map((item) =>
+                item.id === task.id ? { ...item, status: 'error', detail: `重试失败：${message}` } : item,
+              ),
+            )
+            setToast({ kind: 'error', text: message })
+          })
+        }}
         onCancel={(task) => {
           if (task.kind === 'notes') void window.api.cancelGeneration()
           else if (task.kind === 'format') void window.api.cancelFormat()
@@ -1287,6 +1412,18 @@ export function App(): JSX.Element {
       {toast ? (
         <div className={`toast ${toast.kind}`} role="status" aria-live="polite">
           <span>{toast.text}</span>
+          {toast.action ? (
+            <button
+              type="button"
+              className="toast-action"
+              onClick={() => {
+                toast.action?.onClick()
+                setToast(null)
+              }}
+            >
+              {toast.action.label}
+            </button>
+          ) : null}
           <button type="button" onClick={() => setToast(null)} aria-label="关闭提示">
             ×
           </button>
@@ -1294,59 +1431,68 @@ export function App(): JSX.Element {
       ) : null}
 
       {mainView === 'lab' ? null : mainView === 'notes' ? (
-        <NotesLibrary
-          books={books}
-          onBack={() => setMainView('reader')}
-          onOpen={(note) => void openLibraryNote(note)}
-          onShare={shareLibraryNote}
-          onShareDeck={shareDeck}
-        />
+        <Suspense fallback={<div className="view-loading-shell"><p className="view-loading">正在加载笔记库…</p></div>}>
+          <NotesLibrary
+            books={books}
+            onBack={() => setMainView('reader')}
+            onOpen={(note) => void openLibraryNote(note)}
+            onShare={shareLibraryNote}
+            onShareDeck={shareDeck}
+          />
+        </Suspense>
       ) : mainView === 'map' ? (
-        <KnowledgeMap
-          books={books}
-          onBack={() => setMainView('reader')}
-          onOpenNote={(node) => void openMapNote(node)}
-          onOpenBook={(bookId) => void openMapBook(bookId)}
-        />
+        <Suspense fallback={<div className="view-loading-shell"><p className="view-loading">正在加载知识地图…</p></div>}>
+          <KnowledgeMap
+            books={books}
+            onBack={() => setMainView('reader')}
+            onOpenNote={(node) => void openMapNote(node)}
+            onOpenBook={(bookId) => void openMapBook(bookId)}
+          />
+        </Suspense>
       ) : mainView === 'content' ? (
-        <ContentView
-          books={books}
-          initialItemId={contentFocusId}
-          onBack={() => setMainView('reader')}
-          onOpenSource={(bookId, chapterId) => {
-            setMainView('reader')
-            void openSearchResult({
-              type: chapterId ? 'chapter' : 'book',
-              id: chapterId ?? bookId,
-              bookId,
-              bookTitle: '',
-              chapterId,
-              chapterTitle: null,
-              title: '',
-              snippet: '',
-              updatedAt: null,
-            })
-          }}
-          onAppliedSource={(bookId, chapterId) => {
-            if (book?.id !== bookId) return
-            const meta = chapters.find((item) => item.id === chapterId)
-            if (meta) void openChapter(book.id, meta, chapters)
-          }}
-        />
+        <Suspense fallback={<div className="view-loading-shell"><p className="view-loading">正在加载内容库…</p></div>}>
+          <ContentView
+            books={books}
+            initialItemId={contentFocusId}
+            onBack={() => setMainView('reader')}
+            onOpenSource={(bookId, chapterId) => {
+              setMainView('reader')
+              void openSearchResult({
+                type: chapterId ? 'chapter' : 'book',
+                id: chapterId ?? bookId,
+                bookId,
+                bookTitle: '',
+                chapterId,
+                chapterTitle: null,
+                title: '',
+                snippet: '',
+                updatedAt: null,
+              })
+            }}
+            onAppliedSource={(bookId, chapterId) => {
+              if (book?.id !== bookId) return
+              const meta = chapters.find((item) => item.id === chapterId)
+              if (meta) void openChapter(book.id, meta, chapters)
+            }}
+          />
+        </Suspense>
       ) : mainView === 'compose' && book ? (
-        <BookCompose
-          key={book.id}
-          book={book}
-          chapters={chapters}
-          onBack={() => setMainView('reader')}
-          onOpenChapter={(chapterId) => {
-            const meta = chapters.find((item) => item.id === chapterId)
-            setMainView('reader')
-            if (meta) void openChapter(book.id, meta, chapters)
-          }}
-          onShareBook={() => void shareCurrentBook()}
-          onSplitBook={() => setSplitOpen(true)}
-        />
+        <Suspense fallback={<div className="view-loading-shell"><p className="view-loading">正在加载成书页…</p></div>}>
+          <BookCompose
+            key={book.id}
+            book={book}
+            chapters={chapters}
+            onBack={() => setMainView('reader')}
+            onOpenChapter={(chapterId) => {
+              const meta = chapters.find((item) => item.id === chapterId)
+              setMainView('reader')
+              if (meta) void openChapter(book.id, meta, chapters)
+            }}
+            onShareBook={() => void shareCurrentBook()}
+            onOpenXhsBook={openBookXhs}
+            onSplitBook={() => setSplitOpen(true)}
+          />
+        </Suspense>
       ) : book ? (
         <div className="workspace">
           <ChapterList
@@ -1359,6 +1505,9 @@ export function App(): JSX.Element {
             onDelete={(meta) => void deleteChapterList([meta.id])}
             onRename={startRenameChapter}
             onRenamePart={startRenamePart}
+            bookmarks={bookmarks}
+            onOpenBookmark={(bookmark) => void openBookmark(bookmark)}
+            onDeleteBookmark={(id) => void deleteReaderBookmark(id)}
           />
           <Reader
             chapter={chapter}
@@ -1383,6 +1532,11 @@ export function App(): JSX.Element {
             onAsk={askAboutSelection}
             onShareQuote={shareQuote}
             onListenSelection={listenSelection}
+            onOpenXhs={openChapterXhs}
+            positionTarget={positionTarget}
+            onCreateBookmark={(input) => void createReaderBookmark(input)}
+            pdfBookId={book.format === 'pdf' || book.format === 'pdf-ocr' ? book.id : undefined}
+            pdfBookTitle={book.title}
           />
           <aside className="side-panel">
             <div className="side-tabs">
@@ -1492,17 +1646,21 @@ export function App(): JSX.Element {
           onRename={startRenameBook}
           onCompose={(bookId) => void openCompose(bookId)}
           onMerge={() => setMergeOpen(true)}
+          onSettings={() => setSettingsOpen(true)}
+          demo={settings?.demo ?? false}
         />
       )}
 
       {labMounted ? (
         <div className={`lab-shell${mainView === 'lab' ? ' is-active' : ''}`}>
-          <LabView
-            books={books}
-            onBack={() => setMainView('reader')}
-            onSaveReport={saveLabReport}
-            onListen={(title, text) => setListen({ title, text })}
-          />
+          <Suspense fallback={<div className="view-loading-shell"><p className="view-loading">正在加载工作台…</p></div>}>
+            <LabView
+              books={books}
+              onBack={() => setMainView('reader')}
+              onSaveReport={saveLabReport}
+              onListen={(title, text) => setListen({ title, text })}
+            />
+          </Suspense>
         </div>
       ) : null}
 
@@ -1563,6 +1721,21 @@ export function App(): JSX.Element {
           initialTemplate={shareTarget.initialTemplate}
           onClose={() => setShareTarget(null)}
         />
+      ) : null}
+
+      {xhsTarget && book ? (
+        <Suspense fallback={null}>
+          <XhsCarouselDialog
+            bookId={book.id}
+            bookTitle={book.title}
+            author={book.author}
+            chapters={chapters}
+            chapterId={xhsTarget.chapterId ?? null}
+            chapterTitle={xhsTarget.chapterId ? chapterTitles[xhsTarget.chapterId] ?? null : null}
+            initialScope={xhsTarget.scope}
+            onClose={() => setXhsTarget(null)}
+          />
+        </Suspense>
       ) : null}
 
       <OrganizeDialog

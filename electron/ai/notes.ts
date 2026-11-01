@@ -1,19 +1,20 @@
 import * as cheerio from 'cheerio'
-import { generateText } from 'ai'
 
 import type {
   BookGenre,
   DivergenceType,
+  GeneratedNote,
   GeneratePartial,
   GenerationMode,
   NoteDivergence,
   NoteReport,
   TokenUsage,
 } from '../../shared/types.js'
-import type { GeneratedNote } from '../db.js'
+import { generatedNoteListSchema } from '../../shared/schemas.js'
 import { deriveTitle } from '../db.js'
 import { genreRule } from './genre.js'
 import { createLanguageModel } from './provider.js'
+import { traceAiStep, tracedGenerateText } from './trace.js'
 import type { ModelConfig } from './provider.js'
 
 const MAX_CHAPTER_CHARS = 60_000
@@ -21,6 +22,8 @@ const MAX_SECTION_CHARS = 6_000
 const MAX_OMITTED = 30
 const CONCURRENCY = 4
 const MAX_DIVERGENCES = 3
+const NOTES_PROMPT_VERSION = 'notes-v5'
+const EVIDENCE_SOURCE_CHARS = 12_000
 
 function recordUsage(target: TokenUsage | undefined, usage: unknown): void {
   if (!target || !usage || typeof usage !== 'object') return
@@ -104,6 +107,40 @@ export async function generateChapterNotes(
   onPartial: (partial: GeneratePartial) => void,
   signal: AbortSignal,
 ): Promise<GenerateResult> {
+  const startedAt = Date.now()
+  const scope = `${args.bookTitle} / ${args.chapterTitle}`
+  try {
+    const result = await generateChapterNotesInner(args, onPartial, signal)
+    traceAiStep({
+      step: 'chapter-notes',
+      scope,
+      model: result.report.model,
+      promptVersion: result.report.promptVersion,
+      durationMs: Date.now() - startedAt,
+      inputTokens: result.report.usage?.inputTokens,
+      outputTokens: result.report.usage?.outputTokens,
+      totalTokens: result.report.usage?.totalTokens,
+      ok: true,
+    })
+    return result
+  } catch (error) {
+    traceAiStep({
+      step: 'chapter-notes',
+      scope,
+      model: args.config.model,
+      durationMs: Date.now() - startedAt,
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    })
+    throw error
+  }
+}
+
+async function generateChapterNotesInner(
+  args: GenerateArgs,
+  onPartial: (partial: GeneratePartial) => void,
+  signal: AbortSignal,
+): Promise<GenerateResult> {
   if (args.demo) return demoGeneration(args, onPartial, signal)
   if (!args.config.apiKey && args.config.provider !== 'ollama') {
     throw new Error('还没有配置 API Key，无法生成读书笔记。')
@@ -112,7 +149,7 @@ export async function generateChapterNotes(
   const startedAt = Date.now()
   const mode = args.mode ?? 'standard'
   const model = createLanguageModel(args.config)
-  const usage: TokenUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 }
+  const usage: TokenUsage = args.usage ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 }
   args.usage = usage
   const sections = buildSections(args.chapterHtml, args.chapterText)
   if (sections.length === 0) throw new Error('这一章没有可读的正文。')
@@ -219,14 +256,19 @@ export async function generateChapterNotes(
     durationMs: Date.now() - startedAt,
     mode,
     usage: { ...usage },
-    promptVersion: 'notes-v4',
+    promptVersion: NOTES_PROMPT_VERSION,
     model: args.config.model,
     createdAt: new Date().toISOString(),
   }
-  return { notes, report }
+  return { notes: validatedNotes(notes), report }
 }
 
-// ─── 分段 ─────────────────────────────────────────────────────────────────
+function validatedNotes(notes: GeneratedNote[]): GeneratedNote[] {
+  const parsed = generatedNoteListSchema.safeParse(notes)
+  if (parsed.success) return parsed.data
+  const issue = parsed.error.issues[0]
+  throw new Error(`生成结果格式异常${issue ? `：${issue.path.join('.') || 'notes'} ${issue.message}` : ''}`)
+}
 
 function buildSections(chapterHtml: string, chapterText: string): Section[] {
   const sections: Section[] = []
@@ -368,7 +410,7 @@ async function condenseChunk(
 
   for (let attempt = 0; attempt < 2; attempt++) {
     if (signal.aborted) throw new Error('生成已取消')
-    const response = await generateText({
+    const response = await tracedGenerateText({ step: 'condense', model: args.config.model, promptVersion: NOTES_PROMPT_VERSION }, {
       model,
       prompt:
         attempt === 0
@@ -504,7 +546,7 @@ async function auditFidelity(
   ].join('\n')
 
   try {
-    const response = await generateText({
+    const response = await tracedGenerateText({ step: 'audit-fidelity', model: args.config.model, promptVersion: NOTES_PROMPT_VERSION }, {
       model,
       prompt,
       temperature: 0.2,
@@ -544,7 +586,7 @@ async function auditDetails(
     .join('\n')
 
   try {
-    const response = await generateText({
+    const response = await tracedGenerateText({ step: 'audit-details', model: args.config.model, promptVersion: NOTES_PROMPT_VERSION }, {
       model,
       prompt,
       temperature: 0.25,
@@ -613,13 +655,16 @@ async function extractCards(
     ...(hint ? [hint] : []),
     compressed.slice(0, 26_000),
     '',
-    '请只从这份读薄稿里提炼知识点卡片，不要回到原文找素材。',
+    '请只从这份读薄稿里提炼知识点卡片；下面的原文只用于填写 evidence，不要从原文新增卡片。',
     `卡片数量：根据读薄稿字数，只保留 ${range.min}-${range.max} 张（读薄稿约 ${countChars(compressed)} 字）。`,
     '什么样才算知识点：用一句话测试——不知道它，会影响对全文的理解吗？会，才收；不会但有意思，留在读薄稿里；原文的每个案例细节不是知识点，是索引。',
+    '本章原文（只用于 evidence 逐字引用）：',
+    args.chapterText.slice(0, EVIDENCE_SOURCE_CHARS),
+    '',
     '每张卡片必须填满：',
     '1. point：一句话知识点（用作者的语言或自己的话，选更准确的）。',
     '2. role：它在全文中的作用——支撑什么结论、处于论证链的哪一环。',
-    '3. evidence：原文依据（逐字引用或位置/段落号）。',
+    '3. evidence：从上面原文中逐字复制一句能支撑 point 的话，必须与原文一致；可省略首尾标点，不要改写，不要只写段落号；找不到就留空。',
     '4. section：所属小节。',
     '5. concepts：术语数组。',
     '6. importance：1-5。',
@@ -628,7 +673,7 @@ async function extractCards(
   ].join('\n')
 
   try {
-    const response = await generateText({
+    const response = await tracedGenerateText({ step: 'extract-cards', model: args.config.model, promptVersion: NOTES_PROMPT_VERSION }, {
       model,
       prompt,
       temperature: 0.2,
@@ -667,7 +712,7 @@ async function refilterCards(
   ].join('\n')
 
   try {
-    const response = await generateText({
+    const response = await tracedGenerateText({ step: 'refilter-cards', model: args.config.model, promptVersion: NOTES_PROMPT_VERSION }, {
       model,
       prompt,
       temperature: 0.15,
@@ -785,7 +830,7 @@ async function expandCards(
   ].join('\n')
 
   try {
-    const response = await generateText({
+    const response = await tracedGenerateText({ step: 'expand-cards', model: args.config.model, promptVersion: NOTES_PROMPT_VERSION }, {
       model,
       prompt,
       temperature: 0.5,
@@ -827,7 +872,7 @@ export async function expandPoint(args: {
     .filter(Boolean)
     .join('\n')
 
-  const response = await generateText({
+  const response = await tracedGenerateText({ step: 'expand-point', model: args.config.model, promptVersion: NOTES_PROMPT_VERSION }, {
     model,
     prompt,
     temperature: 0.6,
@@ -1045,7 +1090,7 @@ async function demoGeneration(
     model: 'demo',
     createdAt: new Date().toISOString(),
   }
-  return { notes, report }
+  return { notes: validatedNotes(notes), report }
 }
 
 function demoDivergences(point: string, related: RelatedContext[]): NoteDivergence[] {

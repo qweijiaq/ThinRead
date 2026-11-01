@@ -90,7 +90,7 @@ export function SplitBookDialog({ open, book, chapters, onClose, onSplit }: Spli
             </div>
           </>
         )}
-        {error ? <div className="inline-error">{error}</div> : null}
+        {error ? <div className="inline-error" role="alert">{error}</div> : null}
       </div>
     </div>
   )

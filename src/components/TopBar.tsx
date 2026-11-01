@@ -164,10 +164,15 @@ export function TopBar({
           搜索
         </button>
         <span className="topbar-divider" />
-        <span className={`model-pill${settings?.demo ? ' demo' : ''}`} title="当前模型">
+        <button
+          type="button"
+          className={`model-pill${settings?.demo ? ' demo' : ''}`}
+          title={settings?.demo ? '当前是演示模式，点击配置真实模型' : '当前模型，点击配置'}
+          onClick={onSettings}
+        >
           <span className="model-dot" />
           <span className="model-label">{modelLabel}</span>
-        </span>
+        </button>
         <button type="button" className="ghost-button" onClick={onImport} disabled={importing}>
           {importing ? '导入中…' : '导入'}
         </button>

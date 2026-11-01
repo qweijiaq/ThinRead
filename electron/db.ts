@@ -12,6 +12,7 @@ import type {
   ChapterFlagSource,
   ChapterKind,
   ChapterMeta,
+  GeneratedNote,
   Note,
   NoteDivergence,
   NoteDraft,
@@ -29,7 +30,9 @@ import type {
   LibraryFilter,
   LibraryNote,
   LabArtifact,
+  PageResult,
   TagCount,
+  TrashedNote,
   ContentApplyAction,
   ContentApplyResult,
   ContentFilter,
@@ -38,6 +41,14 @@ import type {
   ContentStatus,
 } from '../shared/types.js'
 
+import {
+  formatArtifactSchema,
+  generatedNoteListSchema,
+  noteKindSchema,
+  noteSchema,
+  notesArtifactSchema,
+  tagListSchema,
+} from '../shared/schemas.js'
 import { normalizeReaderStyle, parseStyleJson } from './reader-style.js'
 
 let db: DatabaseSync | null = null
@@ -218,6 +229,38 @@ export function initDatabase(dataDir: string): void {
     );
     CREATE INDEX IF NOT EXISTS idx_ocr_jobs_updated ON ocr_jobs(updated_at DESC);
 
+    CREATE TABLE IF NOT EXISTS reading_positions (
+      chapter_id TEXT PRIMARY KEY REFERENCES chapters(id) ON DELETE CASCADE,
+      book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+      scroll_ratio REAL NOT NULL DEFAULT 0,
+      scroll_top REAL NOT NULL DEFAULT 0,
+      page INTEGER,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_reading_positions_book ON reading_positions(book_id);
+
+    CREATE TABLE IF NOT EXISTS bookmarks (
+      id TEXT PRIMARY KEY,
+      book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+      chapter_id TEXT NOT NULL REFERENCES chapters(id) ON DELETE CASCADE,
+      scroll_ratio REAL NOT NULL DEFAULT 0,
+      scroll_top REAL NOT NULL DEFAULT 0,
+      page INTEGER,
+      label TEXT NOT NULL,
+      quote TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_bookmarks_book ON bookmarks(book_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_bookmarks_chapter ON bookmarks(chapter_id, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS note_trash (
+      id TEXT PRIMARY KEY,
+      payload TEXT NOT NULL,
+      book_id TEXT,
+      chapter_id TEXT,
+      deleted_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS reader_marks (
       id TEXT PRIMARY KEY,
       book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
@@ -255,12 +298,58 @@ export function initDatabase(dataDir: string): void {
       value TEXT NOT NULL
     );
   `)
-  migrateBooks(db)
-  migrateChapters(db)
-  migrateNotes(db)
-  migrateLabArtifacts(db)
-  migrateLabArtifactMetadata(db)
-  backfillChapterNoteSnapshots(db)
+  runMigrations(db)
+  pruneNoteTrash()
+  pruneDeletedContent()
+  optimizeDatabase()
+}
+
+export const SCHEMA_VERSION = 1
+
+interface SchemaMigration {
+  version: number
+  run(conn: DatabaseSync): void
+}
+
+/** 旧库（user_version=0）一次性补齐当前 schema；以后每次结构变化追加新版本。 */
+const MIGRATIONS: SchemaMigration[] = [
+  {
+    version: 1,
+    run(conn) {
+      migrateBooks(conn)
+      migrateChapters(conn)
+      migrateNotes(conn)
+      migrateLabArtifacts(conn)
+      migrateLabArtifactMetadata(conn)
+      backfillChapterNoteSnapshots(conn)
+    },
+  },
+]
+
+function readSchemaVersion(conn: DatabaseSync): number {
+  const row = conn.prepare('PRAGMA user_version').get() as { user_version?: number } | undefined
+  return Number(row?.user_version ?? 0)
+}
+
+export function getSchemaVersion(): number {
+  return readSchemaVersion(database())
+}
+
+function runMigrations(conn: DatabaseSync): void {
+  let current = readSchemaVersion(conn)
+  for (const migration of [...MIGRATIONS].sort((a, b) => a.version - b.version)) {
+    if (migration.version <= current) continue
+    conn.exec('BEGIN')
+    try {
+      migration.run(conn)
+      conn.exec(`PRAGMA user_version = ${migration.version}`)
+      conn.exec('COMMIT')
+      current = migration.version
+    } catch (error) {
+      conn.exec('ROLLBACK')
+      throw error
+    }
+  }
 }
 
 function migrateNotes(conn: DatabaseSync): void {
@@ -514,6 +603,7 @@ export function mergeBooks(
         conn.prepare('UPDATE notes SET book_id = ? WHERE chapter_id = ?').run(target.id, chapter.id)
       }
       conn.prepare('UPDATE notes SET book_id = ? WHERE book_id = ?').run(target.id, sourceId)
+      conn.prepare('UPDATE note_trash SET book_id = ? WHERE book_id = ?').run(target.id, sourceId)
       conn.prepare('DELETE FROM books WHERE id = ?').run(sourceId)
     }
     conn
@@ -559,6 +649,7 @@ export function splitBook(
     moved.forEach((chapter, index) => {
       conn.prepare('UPDATE chapters SET book_id = ?, idx = ? WHERE id = ?').run(newBookId, index, chapter.id)
       conn.prepare('UPDATE notes SET book_id = ? WHERE chapter_id = ?').run(newBookId, chapter.id)
+      conn.prepare('UPDATE note_trash SET book_id = ? WHERE chapter_id = ?').run(newBookId, chapter.id)
     })
     conn
       .prepare('UPDATE books SET current_chapter_id = NULL, last_opened_at = ? WHERE id = ?')
@@ -695,6 +786,298 @@ function mapBook(row: BookRow): BookSummary {
     currentChapterId: row.current_chapter_id,
     currentChapterIdx: currentIdx,
     progress: chapterCount === 0 ? 0 : Math.min(1, readCount / chapterCount),
+  }
+}
+
+export interface ReadingPositionRecord {
+  chapterId: string
+  bookId: string
+  scrollRatio: number
+  scrollTop: number
+  page: number | null
+  updatedAt: string
+}
+
+export interface BookmarkRecord {
+  id: string
+  bookId: string
+  chapterId: string
+  chapterTitle: string
+  scrollRatio: number
+  scrollTop: number
+  page: number | null
+  label: string
+  quote: string | null
+  createdAt: string
+}
+
+export function getReadingPosition(chapterId: string): ReadingPositionRecord | null {
+  const row = database()
+    .prepare('SELECT * FROM reading_positions WHERE chapter_id = ?')
+    .get(chapterId) as
+    | {
+        chapter_id: string
+        book_id: string
+        scroll_ratio: number
+        scroll_top: number
+        page: number | null
+        updated_at: string
+      }
+    | undefined
+  if (!row) return null
+  return {
+    chapterId: row.chapter_id,
+    bookId: row.book_id,
+    scrollRatio: Number(row.scroll_ratio) || 0,
+    scrollTop: Number(row.scroll_top) || 0,
+    page: row.page == null ? null : Number(row.page),
+    updatedAt: row.updated_at,
+  }
+}
+
+export function saveReadingPosition(input: {
+  bookId: string
+  chapterId: string
+  scrollRatio: number
+  scrollTop: number
+  page?: number | null
+}): void {
+  const now = new Date().toISOString()
+  database()
+    .prepare(
+      `INSERT INTO reading_positions (chapter_id, book_id, scroll_ratio, scroll_top, page, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(chapter_id) DO UPDATE SET
+         book_id = excluded.book_id,
+         scroll_ratio = excluded.scroll_ratio,
+         scroll_top = excluded.scroll_top,
+         page = excluded.page,
+         updated_at = excluded.updated_at`,
+    )
+    .run(
+      input.chapterId,
+      input.bookId,
+      Math.min(1, Math.max(0, Number(input.scrollRatio) || 0)),
+      Math.max(0, Number(input.scrollTop) || 0),
+      input.page == null ? null : Math.max(1, Math.round(input.page)),
+      now,
+    )
+}
+
+/** PDF 原版查看只更新页码，保留章节滚动位置。 */
+export function saveReadingPage(chapterId: string, bookId: string, page: number): void {
+  const now = new Date().toISOString()
+  database()
+    .prepare(
+      `INSERT INTO reading_positions (chapter_id, book_id, scroll_ratio, scroll_top, page, updated_at)
+       VALUES (?, ?, 0, 0, ?, ?)
+       ON CONFLICT(chapter_id) DO UPDATE SET
+         page = excluded.page,
+         updated_at = excluded.updated_at`,
+    )
+    .run(chapterId, bookId, Math.max(1, Math.round(page)), now)
+}
+
+export function listBookmarks(bookId: string): BookmarkRecord[] {
+  const rows = database()
+    .prepare(
+      `SELECT b.id, b.book_id, b.chapter_id, c.title AS chapter_title, b.scroll_ratio,
+              b.scroll_top, b.page, b.label, b.quote, b.created_at
+       FROM bookmarks b
+       JOIN chapters c ON c.id = b.chapter_id
+       WHERE b.book_id = ?
+       ORDER BY b.created_at DESC`,
+    )
+    .all(bookId) as unknown as Array<{
+    id: string
+    book_id: string
+    chapter_id: string
+    chapter_title: string
+    scroll_ratio: number
+    scroll_top: number
+    page: number | null
+    label: string
+    quote: string | null
+    created_at: string
+  }>
+  return rows.map((row) => ({
+    id: row.id,
+    bookId: row.book_id,
+    chapterId: row.chapter_id,
+    chapterTitle: row.chapter_title,
+    scrollRatio: Number(row.scroll_ratio) || 0,
+    scrollTop: Number(row.scroll_top) || 0,
+    page: row.page == null ? null : Number(row.page),
+    label: row.label,
+    quote: row.quote,
+    createdAt: row.created_at,
+  }))
+}
+
+export function createBookmark(input: {
+  bookId: string
+  chapterId: string
+  scrollRatio: number
+  scrollTop: number
+  page?: number | null
+  label: string
+  quote?: string | null
+}): BookmarkRecord {
+  const id = crypto.randomUUID()
+  const now = new Date().toISOString()
+  database()
+    .prepare(
+      `INSERT INTO bookmarks (id, book_id, chapter_id, scroll_ratio, scroll_top, page, label, quote, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      id,
+      input.bookId,
+      input.chapterId,
+      Math.min(1, Math.max(0, Number(input.scrollRatio) || 0)),
+      Math.max(0, Number(input.scrollTop) || 0),
+      input.page == null ? null : Math.max(1, Math.round(input.page)),
+      input.label.trim() || '书签',
+      input.quote?.trim() || null,
+      now,
+    )
+  return listBookmarks(input.bookId).find((item) => item.id === id)!
+}
+
+export function deleteBookmark(id: string): void {
+  database().prepare('DELETE FROM bookmarks WHERE id = ?').run(id)
+}
+
+export function trashNote(noteId: string): Note | null {
+  const note = getNote(noteId)
+  if (!note) return null
+  database()
+    .prepare('INSERT OR REPLACE INTO note_trash (id, payload, book_id, chapter_id, deleted_at) VALUES (?, ?, ?, ?, ?)')
+    .run(note.id, JSON.stringify(note), note.bookId, note.chapterId, new Date().toISOString())
+  deleteNote(noteId)
+  return note
+}
+
+export function restoreTrashedNote(noteId: string): Note | null {
+  const row = database().prepare('SELECT payload, book_id, chapter_id FROM note_trash WHERE id = ?').get(noteId) as
+    | { payload: string; book_id: string | null; chapter_id: string | null }
+    | undefined
+  if (!row || !row.book_id) return null
+  try {
+    const parsed = noteSchema.safeParse(JSON.parse(row.payload) as unknown)
+    if (!parsed.success) return null
+    const note: Note = { ...parsed.data, bookId: row.book_id, chapterId: row.chapter_id }
+    const bookExists = database().prepare('SELECT 1 FROM books WHERE id = ?').get(note.bookId)
+    if (!bookExists) return null
+    if (note.chapterId) {
+      const chapterExists = database().prepare('SELECT 1 FROM chapters WHERE id = ?').get(note.chapterId)
+      if (!chapterExists) note.chapterId = null
+    }
+    const conn = database()
+    conn
+      .prepare(
+        `INSERT OR REPLACE INTO notes
+         (id, book_id, chapter_id, kind, title, content, quote, quote_verified, author, edited, tags, section, importance, role, expansion, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        note.id,
+        note.bookId,
+        note.chapterId,
+        note.kind,
+        note.title,
+        note.content,
+        note.quote,
+        note.quoteVerified ? 1 : 0,
+        note.author,
+        note.edited ? 1 : 0,
+        JSON.stringify(note.tags),
+        note.section,
+        note.importance,
+        note.role,
+        JSON.stringify(note.divergences ?? []),
+        note.createdAt,
+        new Date().toISOString(),
+      )
+    conn.prepare('DELETE FROM note_trash WHERE id = ?').run(noteId)
+    return getNote(noteId)
+  } catch {
+    return null
+  }
+}
+
+export const NOTE_TRASH_RETENTION_DAYS = 30
+
+/** 删除超过保留期的回收站笔记；在应用启动时执行，避免 note_trash 无限增长。 */
+export function pruneNoteTrash(days = NOTE_TRASH_RETENTION_DAYS): number {
+  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
+  const result = database().prepare('DELETE FROM note_trash WHERE deleted_at < ?').run(cutoff)
+  return Number(result.changes ?? 0)
+}
+
+export function listTrashedNotes(): TrashedNote[] {
+  const rows = database()
+    .prepare(
+      `SELECT t.id, t.payload, t.deleted_at, b.title AS book_title, c.title AS chapter_title
+       FROM note_trash t
+       LEFT JOIN books b ON b.id = t.book_id
+       LEFT JOIN chapters c ON c.id = t.chapter_id
+       ORDER BY t.deleted_at DESC`,
+    )
+    .all() as unknown as Array<{
+    id: string
+    payload: string
+    deleted_at: string
+    book_title: string | null
+    chapter_title: string | null
+  }>
+  return rows.map((row) => {
+    let note: Note | null = null
+    try {
+      const parsed = noteSchema.safeParse(JSON.parse(row.payload) as unknown)
+      if (parsed.success) note = parsed.data
+    } catch {
+      // 损坏的回收站数据仍然展示，用户可以彻底删除。
+    }
+    return {
+      id: row.id,
+      title: note?.title || '已删除的笔记',
+      kind: note?.kind ?? 'thought',
+      preview: note?.content.replace(/\s+/g, ' ').trim().slice(0, 180) ?? '',
+      bookTitle: row.book_title?.trim() || '原书已删除',
+      chapterTitle: row.chapter_title,
+      deletedAt: row.deleted_at,
+    }
+  })
+}
+
+export function purgeTrashedNote(noteId: string): void {
+  database().prepare('DELETE FROM note_trash WHERE id = ?').run(noteId)
+}
+
+export function emptyNoteTrash(): number {
+  const result = database().prepare('DELETE FROM note_trash').run()
+  return Number(result.changes ?? 0)
+}
+
+export const DELETED_CONTENT_RETENTION_DAYS = 30
+
+/** 内容库的“已删除”是回收站；超过保留期后清理，已归档内容不受影响。 */
+export function pruneDeletedContent(days = DELETED_CONTENT_RETENTION_DAYS): number {
+  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
+  const result = database()
+    .prepare("DELETE FROM lab_artifact_versions WHERE status = 'deleted' AND COALESCE(updated_at, created_at) < ?")
+    .run(cutoff)
+  return Number(result.changes ?? 0)
+}
+
+/** 轻量维护：更新查询规划器统计并截断 WAL，不自动执行耗时的 VACUUM。 */
+export function optimizeDatabase(): void {
+  try {
+    database().exec('PRAGMA optimize')
+    database().exec('PRAGMA wal_checkpoint(TRUNCATE)')
+  } catch {
+    // 维护失败不影响启动；下次启动会再次尝试。
   }
 }
 
@@ -1019,6 +1402,7 @@ export function deleteBook(bookId: string): string | null {
   const row = database().prepare('SELECT file_path FROM books WHERE id = ?').get(bookId) as
     | { file_path: string }
     | undefined
+  database().prepare('DELETE FROM note_trash WHERE book_id = ?').run(bookId)
   database().prepare('DELETE FROM books WHERE id = ?').run(bookId)
   return row?.file_path ?? null
 }
@@ -1369,6 +1753,8 @@ export function searchIndexSignature(): string {
       `SELECT
         (SELECT GROUP_CONCAT(title || char(31) || author, char(30)) FROM books) AS books,
         (SELECT GROUP_CONCAT(title, char(30)) FROM chapters WHERE hidden = 0) AS chapters,
+        (SELECT COUNT(*) FROM chapters WHERE hidden = 0) AS chapter_count,
+        (SELECT COALESCE(SUM(LENGTH(text)), 0) FROM chapters WHERE hidden = 0) AS chapter_chars,
         (SELECT COUNT(*) FROM notes) AS note_count,
         (SELECT COALESCE(MAX(updated_at), '') FROM notes) AS note_updated,
         (SELECT COALESCE(SUM(LENGTH(title) + LENGTH(content) + LENGTH(tags)), 0) FROM notes) AS note_chars,
@@ -1380,6 +1766,8 @@ export function searchIndexSignature(): string {
     | {
         books: string | null
         chapters: string | null
+        chapter_count: number
+        chapter_chars: number
         note_count: number
         note_updated: string
         note_chars: number
@@ -1575,19 +1963,48 @@ function mapLibraryNote(row: LibraryRow): LibraryNote {
   }
 }
 
+export function listLibraryNotesPage(filter: LibraryFilter = {}): PageResult<LibraryNote> {
+  const where: string[] = []
+  const params: Array<string | number> = []
+  const term = filter.query?.replace(/\s+/g, ' ').trim() ?? ''
+  if (filter.bookId) {
+    where.push('n.book_id = ?')
+    params.push(filter.bookId)
+  }
+  if (filter.kind) {
+    where.push('n.kind = ?')
+    params.push(filter.kind)
+  }
+  if (filter.tag) {
+    const escaped = filter.tag.replace(/[\\%_]/g, (char) => `\\${char}`)
+    where.push("n.tags LIKE ? ESCAPE '\\'")
+    params.push(`%"${escaped}"%`)
+  }
+  if (term) {
+    const escaped = term.replace(/[\\%_]/g, (char) => `\\${char}`)
+    where.push("(n.title LIKE ? ESCAPE '\\' OR n.content LIKE ? ESCAPE '\\')")
+    params.push(`%${escaped}%`, `%${escaped}%`)
+  }
+  const limit = Math.min(Math.max(filter.limit ?? 30, 1), 200)
+  const offset = Math.max(filter.offset ?? 0, 0)
+  const from = `FROM notes n
+    JOIN books b ON b.id = n.book_id
+    LEFT JOIN chapters c ON c.id = n.chapter_id
+    ${where.length ? `WHERE ${where.join(' AND ')}` : ''}`
+  const total = Number(
+    (database().prepare(`SELECT COUNT(*) AS total ${from}`).get(...params) as { total: number } | undefined)?.total ?? 0,
+  )
+  const rows = database()
+    .prepare(
+      `SELECT n.*, b.title AS book_title, c.title AS chapter_title ${from}
+       ORDER BY n.updated_at DESC, n.rowid DESC LIMIT ? OFFSET ?`,
+    )
+    .all(...params, limit, offset) as unknown as LibraryRow[]
+  return { items: rows.map(mapLibraryNote), total }
+}
+
 export function listLibraryNotes(filter: LibraryFilter = {}): LibraryNote[] {
-  const term = filter.query?.replace(/\s+/g, ' ').trim().toLowerCase() ?? ''
-  const limit = Math.min(Math.max(filter.limit ?? 300, 1), 1000)
-  return libraryRows()
-    .map(mapLibraryNote)
-    .filter((note) => {
-      if (filter.bookId && note.bookId !== filter.bookId) return false
-      if (filter.kind && note.kind !== filter.kind) return false
-      if (filter.tag && !note.tags.includes(filter.tag)) return false
-      if (term && !`${note.title}\n${note.content}`.toLowerCase().includes(term)) return false
-      return true
-    })
-    .slice(0, limit)
+  return listLibraryNotesPage({ ...filter, limit: filter.limit ?? 300 }).items
 }
 
 export function listLibraryTags(bookId?: string | null): TagCount[] {
@@ -1845,7 +2262,7 @@ function contentSelect(): string {
           LEFT JOIN books b ON b.id = COALESCE(a.book_id, c.book_id)`
 }
 
-export function listContent(filter: ContentFilter = {}): ContentItem[] {
+export function listContentPage(filter: ContentFilter = {}): PageResult<ContentItem> {
   const where: string[] = []
   const params: Array<string | number | null> = []
   const status = filter.status ?? 'active'
@@ -1871,18 +2288,40 @@ export function listContent(filter: ContentFilter = {}): ContentItem[] {
     where.push('a.chapter_id = ?')
     params.push(filter.chapterId)
   }
+  if (filter.ids) {
+    if (filter.ids.length === 0) return { items: [], total: 0 }
+    where.push(`a.id IN (${filter.ids.map(() => '?').join(',')})`)
+    params.push(...filter.ids)
+  }
   if (filter.query?.trim()) {
     const escaped = filter.query.trim().replace(/[\\%_]/g, (char) => `\\${char}`)
     const like = `%${escaped}%`
     where.push("(a.title LIKE ? ESCAPE '\\' OR a.content LIKE ? ESCAPE '\\')")
     params.push(like, like)
   }
-  const limit = Math.min(Math.max(filter.limit ?? 100, 1), 300)
+  const limit = Math.min(Math.max(filter.limit ?? 30, 1), 300)
+  const offset = Math.max(filter.offset ?? 0, 0)
+  const from = `FROM lab_artifact_versions a
+    LEFT JOIN chapters c ON c.id = a.chapter_id
+    LEFT JOIN books b ON b.id = COALESCE(a.book_id, c.book_id)
+    ${where.length ? `WHERE ${where.join(' AND ')}` : ''}`
+  const total = Number(
+    (database().prepare(`SELECT COUNT(*) AS total ${from}`).get(...params) as { total: number } | undefined)?.total ?? 0,
+  )
   const rows = database()
-    .prepare(`${contentSelect()} ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY a.updated_at DESC, a.created_at DESC LIMIT ?`)
-    .all(...params, limit) as unknown as ContentRow[]
-  return rows.map(mapContentItem)
+    .prepare(
+      `SELECT a.*, b.title AS book_title, c.title AS chapter_title ${from}
+       ORDER BY a.updated_at DESC, a.created_at DESC LIMIT ? OFFSET ?`,
+    )
+    .all(...params, limit, offset) as unknown as ContentRow[]
+  return { items: rows.map(mapContentItem), total }
 }
+
+export function listContent(filter: ContentFilter = {}): ContentItem[] {
+  return listContentPage({ ...filter, limit: filter.limit ?? 100 }).items
+}
+
+
 
 export function getContent(id: string): ContentItem | null {
   const row = database().prepare(`${contentSelect()} WHERE a.id = ?`).get(id) as ContentRow | undefined
@@ -2057,19 +2496,19 @@ export function applyContent(id: string, action: ContentApplyAction): ContentApp
   if (action === 'source') {
     if (!item.chapterId) throw new Error('这份内容没有关联章节。')
     if (item.kind === 'format') {
-      const parsed = JSON.parse(item.content) as { html?: string; removed?: RemovedPart[]; style?: ReaderStyle }
-      if (typeof parsed.html !== 'string' || !parsed.html.trim()) throw new Error('这份排版没有可应用的正文。')
-      saveChapterFormat(item.chapterId, parsed.html, Array.isArray(parsed.removed) ? parsed.removed : [])
-      if (parsed.style && item.bookId) saveBookStyle(item.bookId, parsed.style)
+      const parsed = formatArtifactSchema.safeParse(JSON.parse(item.content))
+      if (!parsed.success) throw new Error('这份排版的格式异常，无法应用。')
+      saveChapterFormat(item.chapterId, parsed.data.html, parsed.data.removed)
+      if (parsed.data.style && item.bookId) saveBookStyle(item.bookId, parsed.data.style)
       database()
         .prepare("UPDATE lab_artifact_versions SET status = 'adopted', updated_at = ? WHERE id = ?")
         .run(new Date().toISOString(), id)
       return { appliedTo: 'chapter', chapterId: item.chapterId, message: '排版已应用到章节。' }
     }
     if (item.kind === 'notes') {
-      const parsed = JSON.parse(item.content) as { notes?: Note[]; report?: NoteReport | null }
-      if (!Array.isArray(parsed.notes) || parsed.notes.length === 0) throw new Error('这份记录没有可恢复的笔记。')
-      const generated: GeneratedNote[] = parsed.notes.map((note) => ({
+      const parsed = notesArtifactSchema.safeParse(JSON.parse(item.content))
+      if (!parsed.success) throw new Error('这份记录的格式异常，无法恢复笔记。')
+      const generated: GeneratedNote[] = parsed.data.notes.map((note) => ({
         kind: note.kind,
         title: note.title,
         content: note.content,
@@ -2082,7 +2521,7 @@ export function applyContent(id: string, action: ContentApplyAction): ContentApp
         divergences: note.divergences,
       }))
       replaceAiNotes(item.chapterId, generated)
-      if (parsed.report) saveNoteReport(item.chapterId, parsed.report)
+      if (parsed.data.report) saveNoteReport(item.chapterId, parsed.data.report)
       database()
         .prepare("UPDATE lab_artifact_versions SET status = 'adopted', updated_at = ? WHERE id = ?")
         .run(new Date().toISOString(), id)
@@ -2386,7 +2825,7 @@ function mapNote(row: NoteRow): Note {
   } catch {
     tags = []
   }
-  return {
+  const note: Note = {
     id: row.id,
     bookId: row.book_id,
     chapterId: row.chapter_id,
@@ -2404,6 +2843,18 @@ function mapNote(row: NoteRow): Note {
     divergences: parseDivergences(row.expansion),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  }
+  const validated = noteSchema.safeParse(note)
+  if (validated.success) return validated.data
+  // 旧库或异常写入可能留下非法枚举/数值；读出来时修复，避免整页笔记无法打开。
+  const kind = noteKindSchema.safeParse(note.kind)
+  const importance = Number.isFinite(note.importance) ? Math.min(5, Math.max(1, Math.round(note.importance!))) : null
+  return {
+    ...note,
+    kind: kind.success ? kind.data : 'point',
+    author: note.author === 'user' ? 'user' : 'ai',
+    tags: tagListSchema.safeParse(note.tags).success ? note.tags : [],
+    importance,
   }
 }
 
@@ -2536,21 +2987,13 @@ export function deleteNote(noteId: string): void {
   database().prepare('DELETE FROM notes WHERE id = ?').run(noteId)
 }
 
-export interface GeneratedNote {
-  kind: NoteKind
-  title: string
-  content: string
-  quote: string | null
-  quoteVerified: boolean
-  tags: string[]
-  section?: string | null
-  importance?: number | null
-  role?: string | null
-  divergences?: NoteDivergence[]
-}
-
 /** 用新生成的 AI 笔记替换同一章节的旧 AI 笔记，用户编辑过的笔记永远保留。 */
 export function replaceAiNotes(chapterId: string, generated: GeneratedNote[]): Note[] {
+  const validated = generatedNoteListSchema.safeParse(generated)
+  if (!validated.success) {
+    const issue = validated.error.issues[0]
+    throw new Error(`笔记格式异常，已停止写入${issue ? `：${issue.path.join('.') || 'notes'} ${issue.message}` : ''}`)
+  }
   const conn = database()
   const now = new Date().toISOString()
   conn.exec('BEGIN')
@@ -2560,7 +3003,7 @@ export function replaceAiNotes(chapterId: string, generated: GeneratedNote[]): N
       `INSERT INTO notes (id, book_id, chapter_id, kind, title, content, quote, quote_verified, author, edited, tags, section, importance, role, expansion, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ai', 0, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    for (const note of generated) {
+    for (const note of validated.data) {
       insert.run(
         crypto.randomUUID(),
         chapterBookId(chapterId),

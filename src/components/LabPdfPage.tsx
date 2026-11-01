@@ -111,9 +111,14 @@ export function LabPdfPage({ books }: LabPdfPageProps): JSX.Element {
         <button type="button" className="primary-button small" onClick={() => void analyze()} disabled={busy || !bookId}>
           {busy ? '识别中…' : result ? '重新识别' : '理解这一页'}
         </button>
+        {busy ? (
+          <button type="button" className="ghost-button small" onClick={() => void window.api.cancelLab()}>
+            取消
+          </button>
+        ) : null}
       </div>
       <p className="lab-run-hint">用 macOS Vision 在本机渲染并识别这一页；图表会按坐标轴、关键数据和趋势解释。</p>
-      {error ? <div className="inline-error">{error}</div> : null}
+      {error ? <div className="inline-error" role="alert">{error}</div> : null}
       {result ? (
         <div className="lab-result">
           <div className="lab-result-head">

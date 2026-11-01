@@ -46,11 +46,11 @@ function readme(input: PublishPackageInput): string {
     .join('\n')
 }
 
-/** 生成可上传的发布包；封面和 HTML 都在本地生成，不访问外部服务。 */
-export function buildPublishPackage(input: PublishPackageInput): PublishPackage {
+/** 生成可上传的发布包；封面和 HTML 都在本地生成，不访问外部服务。Mermaid 图表会内联为 SVG。 */
+export async function buildPublishPackage(input: PublishPackageInput): Promise<PublishPackage> {
   const articleTitle = input.title.trim() || input.bookTitle
   const coverSrc = input.includeCover ? 'cover.png' : undefined
-  const html = buildBookBlogHtml({
+  const html = await buildBookBlogHtml({
     bookTitle: articleTitle,
     author: input.author,
     markdown: input.markdown,

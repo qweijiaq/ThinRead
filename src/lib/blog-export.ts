@@ -3,6 +3,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 
 import { Markdown } from '../components/Markdown.js'
+import { renderMermaidInHtml } from './mermaid-html.js'
 
 export interface BookBlogArgs {
   bookTitle: string
@@ -48,10 +49,13 @@ function withAnchors(body: string): { article: string; toc: Array<{ id: string; 
   return { article: $.html(), toc }
 }
 
-/** 生成一个不依赖外部资源的博客分享页，直接把文件丢到静态托管就能看。 */
-export function buildBookBlogHtml(args: BookBlogArgs): string {
+/**
+ * 生成一个不依赖外部资源的博客分享页，直接把文件丢到静态托管就能看。
+ * Mermaid 图表在导出前渲染成内联 SVG；单个图表失败时保留原始代码块。
+ */
+export async function buildBookBlogHtml(args: BookBlogArgs): Promise<string> {
   const rendered = withAnchors(renderToStaticMarkup(createElement(Markdown, { text: args.markdown })))
-  const body = rendered.article
+  const body = await renderMermaidInHtml(rendered.article)
   const title = escapeHtml(args.bookTitle)
   const author = escapeHtml(args.author || '')
   const description = escapeHtml(args.description?.trim() || bookDescription(args.markdown))
@@ -204,6 +208,20 @@ article pre {
   color: #f6f1e7;
 }
 article pre code { padding: 0; background: none; }
+article .mermaid-diagram {
+  margin: 1.4em 0;
+  padding: 16px;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--sheet);
+}
+article .mermaid-diagram svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+}
 article table {
   width: 100%;
   max-width: 100%;
@@ -266,6 +284,7 @@ footer {
   .page { width: auto; padding: 0; }
   article { border: 0; box-shadow: none; padding: 0; }
   .cover { margin-bottom: 28px; }
+  article .mermaid-diagram { overflow: visible; border: 0; padding: 0; }
 }
 </style>
 </head>
@@ -289,4 +308,8 @@ footer {
 export function bookHtmlFilename(bookTitle: string): string {
   const base = `${bookTitle} 读书笔记`.replace(/[\\/:*?"<>|#%{}]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80)
   return `${base || 'reading-note'}.html`
+}
+
+export function bookPdfFilename(bookTitle: string): string {
+  return bookHtmlFilename(bookTitle).replace(/\.html$/i, '.pdf')
 }

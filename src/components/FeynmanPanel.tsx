@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
 import type { ChapterContent, FeynmanResult } from '../../shared/types.js'
 import { onContentCurrent } from '../lib/content-events.js'
+import { Markdown } from './Markdown.js'
 
 interface FeynmanPanelProps {
   chapter: ChapterContent | null
@@ -13,6 +14,7 @@ export function FeynmanPanel({ chapter, bookTitle, hasNotes, onSave }: FeynmanPa
   const [explanation, setExplanation] = useState('')
   const [result, setResult] = useState<FeynmanResult | null>(null)
   const [busy, setBusy] = useState(false)
+  const [streamingFeedback, setStreamingFeedback] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
   const [hydrated, setHydrated] = useState(false)
@@ -85,8 +87,11 @@ export function FeynmanPanel({ chapter, bookTitle, hasNotes, onSave }: FeynmanPa
     setError(null)
     setSaved(false)
     setBusy(true)
+    setStreamingFeedback('')
     try {
-      const next = await window.api.evaluateExplanation(chapterId, explanation)
+      const next = await window.api.evaluateExplanationStream(chapterId, explanation, (text) => {
+        if (chapterRef.current === chapterId) setStreamingFeedback(text)
+      })
       if (chapterRef.current === chapterId) {
         // 每次评估留一版，旧结果可以在内容库里切回。
         const saved = await window.api
@@ -106,6 +111,7 @@ export function FeynmanPanel({ chapter, bookTitle, hasNotes, onSave }: FeynmanPa
     } catch (err) {
       if (chapterRef.current === chapterId) setError(err instanceof Error ? err.message : String(err))
     } finally {
+      if (chapterRef.current === chapterId) setStreamingFeedback('')
       setBusy(false)
     }
   }
@@ -180,7 +186,15 @@ export function FeynmanPanel({ chapter, bookTitle, hasNotes, onSave }: FeynmanPa
         </button>
       </div>
 
-      {error ? <div className="inline-error">{error}</div> : null}
+      {error ? <div className="inline-error" role="alert">{error}</div> : null}
+
+      {busy && streamingFeedback ? (
+        <div className="feynman-result feynman-streaming">
+          <div className="lab-markdown">
+            <Markdown text={streamingFeedback} />
+          </div>
+        </div>
+      ) : null}
 
       {result ? (
         <div className="feynman-result">

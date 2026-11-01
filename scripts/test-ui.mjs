@@ -13,11 +13,23 @@ if (!fs.existsSync(entry)) {
 }
 
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'reading-notes-ui-'))
+const axePath = path.join(root, 'node_modules', 'axe-core', 'axe.min.js')
+const smokePath = path.join(root, 'tests', 'ui-smoke.js')
+if (!fs.existsSync(axePath)) {
+  console.error('找不到 axe-core，请先运行 pnpm install。')
+  process.exit(1)
+}
+const execFile = path.join(dataDir, 'ui-smoke-with-axe.js')
+fs.writeFileSync(
+  execFile,
+  `${fs.readFileSync(axePath, 'utf8')}\n;\n${fs.readFileSync(smokePath, 'utf8')}`,
+  'utf8',
+)
 const args = [
   '.',
   `--data-dir=${dataDir}`,
   '--seed-demo',
-  `--exec-file=${path.join(root, 'tests', 'ui-smoke.js')}`,
+  `--exec-file=${execFile}`,
   '--dump-dom',
 ]
 if (process.platform === 'linux') args.push('--no-sandbox')

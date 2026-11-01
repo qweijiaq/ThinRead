@@ -1,6 +1,7 @@
-import { generateText } from 'ai'
+import { generateText, Output, streamText } from 'ai'
 
 import type { ChatAnswer, ChatCitation, ChatMode, ChatTurn, FeynmanResult } from '../../shared/types.js'
+import { chatOutputSchema, feynmanResultSchema } from '../../shared/schemas.js'
 import { normalizeForMatch } from '../html.js'
 import type { ModelConfig } from './provider.js'
 import { createLanguageModel } from './provider.js'
@@ -37,17 +38,24 @@ const FEYNMAN_SYSTEM = [
   '不要输出 Markdown 代码块或额外解释。',
 ].join('\n')
 
-export async function askChapter(args: {
-  config: ModelConfig
-  demo: boolean
-  context: TutorContext
-  question: string
-  history: ChatTurn[]
-  mode: ChatMode
-}): Promise<ChatAnswer> {
+export async function askChapter(
+  args: {
+    config: ModelConfig
+    demo: boolean
+    context: TutorContext
+    question: string
+    history: ChatTurn[]
+    mode: ChatMode
+  },
+  onDelta?: (text: string) => void,
+): Promise<ChatAnswer> {
   const question = args.question.trim()
   if (!question) throw new Error('先写一个想问的问题。')
-  if (args.demo) return demoAnswer(args.context, question, args.mode)
+  if (args.demo) {
+    const answer = demoAnswer(args.context, question, args.mode)
+    onDelta?.(answer.answer)
+    return answer
+  }
 
   const model = createLanguageModel(args.config)
   const history = args.history.slice(-8).map((turn) => `${turn.role === 'user' ? '读者' : '助手'}：${turn.content}`)
@@ -61,6 +69,35 @@ export async function askChapter(args: {
   ]
     .filter(Boolean)
     .join('\n\n')
+
+  if (onDelta) {
+    let emitted = false
+    try {
+      const stream = streamText({
+        model,
+        system: args.mode === 'socratic' ? SOCRATIC_SYSTEM : ANSWER_SYSTEM,
+        prompt,
+        temperature: args.mode === 'socratic' ? 0.7 : 0.3,
+        maxRetries: 1,
+        abortSignal: AbortSignal.timeout(90_000),
+        output: Output.object({ schema: chatOutputSchema }),
+      })
+      let last = ''
+      for await (const partial of stream.partialOutputStream) {
+        const text = typeof partial?.answer === 'string' ? partial.answer : ''
+        if (text && text !== last) {
+          last = text
+          emitted = true
+          onDelta(text)
+        }
+      }
+      const final = await stream.output
+      return { answer: final.answer.trim(), citations: normalizeCitations(final.citations, args.context.chapterText) }
+    } catch (error) {
+      // 某些 OpenAI-compatible 服务不支持结构化流式输出；尚未产生增量时回退到普通请求。
+      if (emitted) throw error
+    }
+  }
 
   const response = await generateText({
     model,
@@ -79,15 +116,22 @@ export async function askChapter(args: {
   return { answer, citations }
 }
 
-export async function evaluateExplanation(args: {
-  config: ModelConfig
-  demo: boolean
-  context: TutorContext
-  explanation: string
-}): Promise<FeynmanResult> {
+export async function evaluateExplanation(
+  args: {
+    config: ModelConfig
+    demo: boolean
+    context: TutorContext
+    explanation: string
+  },
+  onDelta?: (text: string) => void,
+): Promise<FeynmanResult> {
   const explanation = args.explanation.trim()
   if (explanation.length < 12) throw new Error('再写长一点：用两三句话讲清楚这一章。')
-  if (args.demo) return demoFeynman(args.context, explanation)
+  if (args.demo) {
+    const result = demoFeynman(args.context, explanation)
+    onDelta?.(result.feedback)
+    return result
+  }
 
   const model = createLanguageModel(args.config)
   const prompt = [
@@ -95,6 +139,33 @@ export async function evaluateExplanation(args: {
     `读者的解释：\n${explanation.slice(0, 4000)}`,
     '请检查这段解释。',
   ].join('\n\n')
+
+  if (onDelta) {
+    let emitted = false
+    try {
+      const stream = streamText({
+        model,
+        system: FEYNMAN_SYSTEM,
+        prompt,
+        temperature: 0.2,
+        maxRetries: 1,
+        abortSignal: AbortSignal.timeout(90_000),
+        output: Output.object({ schema: feynmanResultSchema }),
+      })
+      let last = ''
+      for await (const partial of stream.partialOutputStream) {
+        const text = typeof partial?.feedback === 'string' ? partial.feedback : ''
+        if (text && text !== last) {
+          last = text
+          emitted = true
+          onDelta(text)
+        }
+      }
+      return await stream.output
+    } catch (error) {
+      if (emitted) throw error
+    }
+  }
 
   const response = await generateText({
     model,

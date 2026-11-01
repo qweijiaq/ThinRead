@@ -69,6 +69,7 @@ export function NoteCard({
   const [editing, setEditing] = useState(note.author === 'user' && note.content.trim() === '')
   const [draftTitle, setDraftTitle] = useState(note.title)
   const [draftContent, setDraftContent] = useState(note.content)
+  const [previewOpen, setPreviewOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const rootRef = useRef<HTMLElement>(null)
   const repeatsTitle = titleRepeatsContent(note)
@@ -94,6 +95,7 @@ export function NoteCard({
     try {
       await onUpdate(note.id, { title, content: draftContent })
       setEditing(false)
+      setPreviewOpen(false)
     } finally {
       setSaving(false)
     }
@@ -106,12 +108,19 @@ export function NoteCard({
     }
     setDraftTitle(note.title)
     setDraftContent(note.content)
+    setPreviewOpen(false)
     setEditing(false)
   }
 
   function insertLink(title: string): void {
     if (!title) return
     setDraftContent((current) => `${current}${current && !current.endsWith('\n') ? '\n' : ''}[[${title}]]`)
+  }
+
+  function insertMermaid(): void {
+    const template = '```mermaid\nflowchart LR\n  A[观点] --> B[依据]\n  B --> C[结论]\n```\n'
+    setDraftContent((current) => `${current}${current && !current.endsWith('\n') ? '\n' : ''}${template}`)
+    setPreviewOpen(true)
   }
 
   return (
@@ -151,7 +160,7 @@ export function NoteCard({
                 onClick={() => {
                   void confirmDialog({
                     title: '删除笔记',
-                    message: '删除这条笔记？这个操作无法恢复。',
+                    message: '删除这条笔记？删除后可以在提示条里撤销。',
                     confirmLabel: '删除',
                     danger: true,
                   }).then((confirmed) => {
@@ -184,17 +193,30 @@ export function NoteCard({
             rows={5}
             autoFocus={note.content.trim() === ''}
           />
-          {linkCandidates.length > 0 ? (
-            <Select
-              className="link-select"
-              value=""
-              onChange={(value) => {
-                if (value) insertLink(value)
-              }}
-              placeholder="插入笔记链接…"
-              ariaLabel="插入笔记链接"
-              options={linkCandidates.map((candidate) => ({ value: candidate.title, label: candidate.title }))}
-            />
+          <div className="note-editor-tools">
+            <button type="button" className="text-button" onClick={insertMermaid}>
+              插入 Mermaid
+            </button>
+            <button type="button" className="text-button" onClick={() => setPreviewOpen((value) => !value)}>
+              {previewOpen ? '隐藏预览' : '预览 Markdown'}
+            </button>
+            {linkCandidates.length > 0 ? (
+              <Select
+                className="link-select"
+                value=""
+                onChange={(value) => {
+                  if (value) insertLink(value)
+                }}
+                placeholder="插入笔记链接…"
+                ariaLabel="插入笔记链接"
+                options={linkCandidates.map((candidate) => ({ value: candidate.title, label: candidate.title }))}
+              />
+            ) : null}
+          </div>
+          {previewOpen ? (
+            <div className="note-editor-preview" aria-label="笔记预览">
+              <Markdown text={draftContent} onWikiLink={onWikiLink} />
+            </div>
           ) : null}
         </div>
       ) : (

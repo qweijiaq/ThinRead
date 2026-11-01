@@ -73,7 +73,7 @@ export function MarginNoteDialog({ chapter, quote, onSave, onClose }: MarginNote
         </div>
         <blockquote className="margin-note-quote">“{quote}”</blockquote>
         {loading ? <p className="lab-empty">正在读上下文…</p> : null}
-        {error ? <div className="inline-error">{error}</div> : null}
+        {error ? <div className="inline-error" role="alert">{error}</div> : null}
         {result ? (
           <div className="margin-note-result">
             <Markdown text={result.markdown} />

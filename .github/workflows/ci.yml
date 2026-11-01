@@ -31,6 +31,8 @@ jobs:
         run: pnpm test
       - name: Build
         run: pnpm build
+      - name: Build Storybook
+        run: pnpm build-storybook
 
   ui-smoke:
     runs-on: macos-latest
@@ -46,5 +48,13 @@ jobs:
           cache: pnpm
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+      - name: Build
+        run: pnpm build
+      - name: Build Storybook
+        run: pnpm build-storybook
+      - name: Storybook visual regression
+        run: pnpm capture:storybook -- --check
       - name: UI smoke test
-        run: pnpm test:ui
+        run: node scripts/test-ui.mjs
+      - name: PDF viewer smoke test
+        run: node scripts/test-ui-pdf.mjs

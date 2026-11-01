@@ -144,8 +144,13 @@ export function LabReport({ tool, bookIds, bookId, chapterId, question, sourceLa
         <button type="button" className="primary-button small" onClick={() => void run()} disabled={!ready || busy}>
           {busy ? '生成中…' : '运行'}
         </button>
+        {busy ? (
+          <button type="button" className="ghost-button small" onClick={() => void window.api.cancelLab()}>
+            取消
+          </button>
+        ) : null}
       </div>
-      {error ? <div className="inline-error">{error}</div> : null}
+      {error ? <div className="inline-error" role="alert">{error}</div> : null}
       {result ? (
         <div className="lab-result">
           {history.length > 1 ? (

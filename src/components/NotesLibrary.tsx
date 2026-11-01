@@ -2,6 +2,7 @@ import { useEffect, useState, type JSX } from 'react'
 import type { BookSummary, LibraryNote, NoteKind, TagCount } from '../../shared/types.js'
 import { snippet } from '../lib/links.js'
 import { noteDisplayTitle, titleRepeatsContent } from '../lib/note-display.js'
+import { NoteTrashDialog } from './NoteTrashDialog.js'
 import { Select } from './Select.js'
 
 interface NotesLibraryProps {
@@ -11,6 +12,8 @@ interface NotesLibraryProps {
   onShare(note: LibraryNote): void
   onShareDeck(notes: LibraryNote[]): void
 }
+
+const PAGE_SIZE = 30
 
 const KIND_LABEL: Record<NoteKind, string> = {
   condensed: '读薄稿',
@@ -42,8 +45,12 @@ export function NotesLibrary({ books, onBack, onOpen, onShare, onShareDeck }: No
   const [tag, setTag] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [page, setPage] = useState(0)
+  const [total, setTotal] = useState(0)
   const [selectMode, setSelectMode] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [trashOpen, setTrashOpen] = useState(false)
+  const [refreshTick, setRefreshTick] = useState(0)
 
   useEffect(() => {
     void window.api
@@ -53,22 +60,34 @@ export function NotesLibrary({ books, onBack, onOpen, onShare, onShareDeck }: No
   }, [bookId])
 
   useEffect(() => {
+    setPage(0)
+    setSelected(new Set())
+  }, [bookId, kind, tag, query])
+
+  useEffect(() => {
+    setSelected(new Set())
+  }, [page])
+
+  useEffect(() => {
     let cancelled = false
     setLoading(true)
     const timer = window.setTimeout(() => {
       void window.api
-        .listLibraryNotes({
+        .listLibraryNotesPage({
           bookId: bookId || null,
           kind: kind || null,
           tag,
           query: query.trim() || undefined,
-          limit: 300,
+          limit: PAGE_SIZE,
+          offset: page * PAGE_SIZE,
         })
-        .then((items) => {
-          if (!cancelled) {
-            setNotes(items)
-            setError(null)
-          }
+        .then((result) => {
+          if (cancelled) return
+          setNotes(result.items)
+          setTotal(result.total)
+          setError(null)
+          const lastPage = Math.max(0, Math.ceil(result.total / PAGE_SIZE) - 1)
+          if (page > lastPage) setPage(lastPage)
         })
         .catch((err: unknown) => {
           if (!cancelled) setError(err instanceof Error ? err.message : String(err))
@@ -81,7 +100,7 @@ export function NotesLibrary({ books, onBack, onOpen, onShare, onShareDeck }: No
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [bookId, kind, tag, query])
+  }, [bookId, kind, tag, query, page, refreshTick])
 
   function toggleSelected(id: string): void {
     setSelected((current) => {
@@ -118,7 +137,7 @@ export function NotesLibrary({ books, onBack, onOpen, onShare, onShareDeck }: No
         <div>
           <h1>笔记库</h1>
           <p>
-            {notes.length} 条显示 · {books.length} 本书
+            {total} 条笔记 · {books.length} 本书
           </p>
         </div>
         <div className="notes-library-actions">
@@ -138,6 +157,9 @@ export function NotesLibrary({ books, onBack, onOpen, onShare, onShareDeck }: No
             </>
           ) : (
             <>
+              <button type="button" className="ghost-button" onClick={() => setTrashOpen(true)}>
+                回收站
+              </button>
               <button type="button" className="ghost-button" onClick={() => setSelectMode(true)}>
                 多选
               </button>
@@ -195,10 +217,14 @@ export function NotesLibrary({ books, onBack, onOpen, onShare, onShareDeck }: No
         </div>
       ) : null}
 
-      {error ? <div className="inline-error">{error}</div> : null}
+      {error ? <div className="inline-error" role="alert">{error}</div> : null}
 
       <div className="notes-result-bar">
-        <span>{loading ? '正在筛选…' : `显示 ${notes.length} 条`}</span>
+        <span>
+          {loading
+            ? '正在筛选…'
+            : `第 ${page + 1} / ${Math.max(1, Math.ceil(total / PAGE_SIZE))} 页 · 共 ${total} 条`}
+        </span>
         {hasFilters ? (
           <button type="button" className="text-button muted" onClick={clearFilters}>
             清除筛选
@@ -211,6 +237,7 @@ export function NotesLibrary({ books, onBack, onOpen, onShare, onShareDeck }: No
       ) : notes.length === 0 ? (
         <p className="notes-library-empty">没有符合筛选条件的笔记。换个标签或去读一章生成笔记。</p>
       ) : (
+        <>
         <div className="notes-library-list">
           {notes.map((note) => {
             const statement = titleRepeatsContent(note)
@@ -258,7 +285,30 @@ export function NotesLibrary({ books, onBack, onOpen, onShare, onShareDeck }: No
             )
           })}
         </div>
+        {Math.ceil(total / PAGE_SIZE) > 1 ? (
+          <div className="library-pager">
+            <button type="button" disabled={page === 0} onClick={() => setPage((current) => Math.max(0, current - 1))}>
+              上一页
+            </button>
+            <span>
+              {page + 1} / {Math.ceil(total / PAGE_SIZE)}
+            </span>
+            <button
+              type="button"
+              disabled={page + 1 >= Math.ceil(total / PAGE_SIZE)}
+              onClick={() => setPage((current) => current + 1)}
+            >
+              下一页
+            </button>
+          </div>
+        ) : null}
+        </>
       )}
+      <NoteTrashDialog
+        open={trashOpen}
+        onClose={() => setTrashOpen(false)}
+        onChanged={() => setRefreshTick((value) => value + 1)}
+      />
     </main>
   )
 }

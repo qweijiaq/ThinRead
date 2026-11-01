@@ -91,8 +91,13 @@ export function LabMergeConcepts(): JSX.Element {
         <button type="button" className="ghost-button small" onClick={() => void load()} disabled={loading}>
           {loading ? '分析中…' : '重新分析'}
         </button>
+        {loading ? (
+          <button type="button" className="ghost-button small" onClick={() => void window.api.cancelLab()}>
+            取消
+          </button>
+        ) : null}
       </div>
-      {error ? <div className="inline-error">{error}</div> : null}
+      {error ? <div className="inline-error" role="alert">{error}</div> : null}
       {loading && groups.length === 0 ? <p className="lab-empty">正在找近义标签…</p> : null}
       {!loading && groups.length === 0 ? <p className="lab-empty">没有发现需要合并的标签。</p> : null}
       <div className="lab-merge-list">

@@ -11,6 +11,7 @@ import type {
   TestResult,
 } from '../../shared/types.js'
 import { useDialogFocus } from '../lib/useDialogFocus.js'
+import { BeatraGuideDialog } from './BeatraGuideDialog.js'
 import { confirmDialog } from './ConfirmDialog.js'
 import { Select } from './Select.js'
 
@@ -75,6 +76,8 @@ export function SettingsDialog({
   const [labModel, setLabModel] = useState(settings.labModel)
   const [readwiseToken, setReadwiseToken] = useState('')
   const [readwiseTest, setReadwiseTest] = useState<TestResult | null>(null)
+  const [beatraToken, setBeatraToken] = useState('')
+  const [beatraTest, setBeatraTest] = useState<TestResult | null>(null)
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
   const [result, setResult] = useState<TestResult | null>(null)
@@ -83,6 +86,7 @@ export function SettingsDialog({
   const [backupBusy, setBackupBusy] = useState<string | null>(null)
   const [backupError, setBackupError] = useState<string | null>(null)
   const [backupNotice, setBackupNotice] = useState<string | null>(null)
+  const [guideOpen, setGuideOpen] = useState(false)
 
   useEffect(() => {
     if (!open) return
@@ -96,6 +100,8 @@ export function SettingsDialog({
     setLabModel(settings.labModel)
     setReadwiseToken('')
     setReadwiseTest(null)
+    setBeatraToken('')
+    setBeatraTest(null)
     setResult(null)
     setBackupError(null)
     setBackupNotice(null)
@@ -132,6 +138,7 @@ export function SettingsDialog({
         composeModel,
         labModel,
         ...(readwiseToken.trim() ? { readwiseToken: readwiseToken.trim() } : {}),
+        ...(beatraToken.trim() ? { beatraToken: beatraToken.trim() } : {}),
         ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
       })
       onSaved(saved)
@@ -185,6 +192,26 @@ export function SettingsDialog({
     }
   }
 
+  async function testBeatraToken(): Promise<void> {
+    setBeatraTest(null)
+    try {
+      setBeatraTest(await window.api.testBeatra(beatraToken.trim() || undefined))
+    } catch (error) {
+      setBeatraTest({ ok: false, message: error instanceof Error ? error.message : String(error) })
+    }
+  }
+
+  async function importBeatraCredential(): Promise<void> {
+    setBeatraTest(null)
+    try {
+      const imported = await window.api.importBeatraCredential()
+      setBeatraTest(imported)
+      if (imported.ok) onSaved(await window.api.getSettings())
+    } catch (error) {
+      setBeatraTest({ ok: false, message: error instanceof Error ? error.message : String(error) })
+    }
+  }
+
   async function restoreBackup(item: BackupInfo): Promise<void> {
     const confirmed = await confirmDialog({
       title: '恢复这个备份',
@@ -234,7 +261,8 @@ export function SettingsDialog({
   }
 
   return (
-    <div className="modal-backdrop" onMouseDown={onClose}>
+    <>
+      <div className="modal-backdrop" onMouseDown={onClose}>
       <div
         ref={dialogRef}
         className="modal"
@@ -366,6 +394,47 @@ export function SettingsDialog({
           </div>
         )}
 
+        <div className="form-row">
+          <label>Beatra AI 配音</label>
+          <input
+            type="password"
+            value={beatraToken}
+            onChange={(event) => setBeatraToken(event.target.value)}
+            placeholder={settings.beatraConfigured ? '已保存，留空则不修改' : '可选，填写 Beatra Device Token'}
+            spellCheck={false}
+          />
+          <p className="field-hint">
+            用于付费 AI 配音。已安装 Beatra Skill 的话，先运行它的 authorize.py，再点「导入本机授权」；也可以手动填写 Device Token。Token 用系统钥匙串加密保存在本机，Beatra 按字符计费。
+          </p>
+          <div className="backup-actions">
+            <button type="button" className="ghost-button small" onClick={() => void testBeatraToken()}>
+              测试 Beatra
+            </button>
+            <button type="button" className="ghost-button small" onClick={() => void importBeatraCredential()}>
+              导入本机授权
+            </button>
+            <button type="button" className="ghost-button small" onClick={() => setGuideOpen(true)}>
+              查看教程
+            </button>
+          </div>
+          {beatraTest ? (
+            <div className={`test-result ${beatraTest.ok ? 'ok' : 'fail'}`}>{beatraTest.message}</div>
+          ) : null}
+          <details className="beatra-guide">
+            <summary>Beatra 怎么配置？</summary>
+            <ol>
+              <li>确认 Beatra 账户有额度，并安装 Beatra Skill。</li>
+              <li>
+                在终端运行 <code>python3 ~/.claude/skills/@beatra-ai/ai-podcast-voiceover/scripts/authorize.py</code>
+                ，登录后点 Allow，直到终端显示 Beatra is ready。
+              </li>
+              <li>回到这里点「导入本机授权」，再点「测试 Beatra」。</li>
+              <li>在听读面板选择「Beatra 付费」，选 A/B 中文音色。首次播放会确认计费。</li>
+            </ol>
+            <p>需要 Python 3.10+；没有 Beatra 的话，可以继续使用免费的 Edge 或内置 Kokoro。</p>
+          </details>
+        </div>
+
         <div className="settings-divider" />
 
         <div className="form-row">
@@ -389,8 +458,8 @@ export function SettingsDialog({
           <p className="field-hint">
             备份包含数据库、书籍文件和设置。合并、拆分、重新解析或删除书籍前会自动备份；恢复后会重新加载应用。
           </p>
-          {backupError ? <div className="inline-error">{backupError}</div> : null}
-          {backupNotice ? <div className="inline-notice">{backupNotice}</div> : null}
+          {backupError ? <div className="inline-error" role="alert">{backupError}</div> : null}
+          {backupNotice ? <div className="inline-notice" role="status" aria-live="polite">{backupNotice}</div> : null}
           <div className="backup-list">
             {backups.length === 0 ? (
               <p className="backup-empty">还没有备份。第一次合并、拆分或删除书籍时也会自动生成。</p>
@@ -458,6 +527,8 @@ export function SettingsDialog({
 
         {appInfo ? <p className="modal-meta">页边 v{appInfo.version} · 数据目录 {appInfo.dataDir}</p> : null}
       </div>
-    </div>
+      </div>
+      <BeatraGuideDialog open={guideOpen} onClose={() => setGuideOpen(false)} />
+    </>
   )
 }

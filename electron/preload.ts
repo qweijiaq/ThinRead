@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { IpcRendererEvent } from 'electron'
 
 import type {
   BackupInfo,
@@ -48,9 +49,14 @@ import type {
   NoteDraft,
   NotePatch,
   OcrDoneEvent,
+  PageResult,
   OcrErrorEvent,
   OcrImportOptions,
   OcrImportStarted,
+  TtsAudio,
+  TtsStatus,
+  TtsVoice,
+  TtsSynthesisRequest,
   OcrJob,
   OcrProgress,
   ReaderMark,
@@ -59,10 +65,18 @@ import type {
   RelatedNote,
   ReadingApi,
   SaveFileResult,
+  SaveImagesResult,
+  ReadingBookmark,
+  ReadingBookmarkDraft,
+  ReadingPositionInput,
+  ReadingPositionRecord,
+  XhsCoverageRequest,
+  XhsCoverageAudit,
   SearchResult,
   SettingsPatch,
   SettingsView,
   TagCount,
+  TrashedNote,
   TestResult,
   TextImportInput,
 } from '../shared/types.js'
@@ -71,6 +85,18 @@ function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
   const listener = (_event: Electron.IpcRendererEvent, payload: T): void => cb(payload)
   ipcRenderer.on(channel, listener)
   return () => ipcRenderer.removeListener(channel, listener)
+}
+
+function subscribeStream(channel: string, id: string, onDelta: (text: string) => void): () => void {
+  const listener = (_event: IpcRendererEvent, payload: { id?: unknown; text?: unknown }): void => {
+    if (payload?.id === id && typeof payload.text === 'string') onDelta(payload.text)
+  }
+  ipcRenderer.on(channel, listener)
+  return () => ipcRenderer.removeListener(channel, listener)
+}
+
+function streamId(): string {
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
 const api: ReadingApi = {
@@ -87,6 +113,8 @@ const api: ReadingApi = {
   testReadwise: (token?: string) => ipcRenderer.invoke('readwise:test', token) as Promise<TestResult>,
   importHighlights: (options?: HighlightImportOptions) =>
     ipcRenderer.invoke('books:import-highlights', options) as Promise<HighlightImportResult | null>,
+  importWechatHighlights: (options?: HighlightImportOptions) =>
+    ipcRenderer.invoke('books:import-wechat-highlights', options) as Promise<HighlightImportResult | null>,
   openBook: (bookId) =>
     ipcRenderer.invoke('books:open', bookId) as Promise<{
       book: BookSummary
@@ -154,22 +182,57 @@ const api: ReadingApi = {
     ipcRenderer.invoke('app:save-markdown', defaultName, content) as Promise<SaveFileResult>,
   saveHtml: (defaultName: string, content: string) =>
     ipcRenderer.invoke('app:save-html', defaultName, content) as Promise<SaveFileResult>,
+  savePdf: (defaultName: string, html: string) =>
+    ipcRenderer.invoke('app:save-pdf', defaultName, html) as Promise<SaveFileResult>,
   saveBinary: (defaultName: string, base64: string) =>
     ipcRenderer.invoke('app:save-binary', defaultName, base64) as Promise<SaveFileResult>,
   copyImage: (dataUrl: string) => ipcRenderer.invoke('app:copy-image', dataUrl) as Promise<void>,
+  readBookFile: (bookId: string) =>
+    ipcRenderer.invoke('books:file', bookId).then((bytes: Uint8Array) => new Uint8Array(bytes)),
+  getTtsStatus: () => ipcRenderer.invoke('tts:status') as Promise<TtsStatus>,
+  synthesizeTts: (request: TtsSynthesisRequest) =>
+    ipcRenderer.invoke('tts:synthesize', request) as Promise<TtsAudio>,
+  getBeatraVoices: () => ipcRenderer.invoke('tts:beatra-voices') as Promise<TtsVoice[]>,
+  testBeatra: (token?: string) => ipcRenderer.invoke('tts:test-beatra', token) as Promise<TestResult>,
+  importBeatraCredential: () =>
+    ipcRenderer.invoke('tts:import-beatra-credential') as Promise<TestResult>,
+  openKokoroDir: () => ipcRenderer.invoke('tts:open-kokoro-dir') as Promise<void>,
   search: (query: string) => ipcRenderer.invoke('library:search', query) as Promise<SearchResult[]>,
   searchSemantic: (query: string) => ipcRenderer.invoke('library:search-semantic', query) as Promise<SearchResult[]>,
   listLibraryNotes: (filter?: LibraryFilter) =>
     ipcRenderer.invoke('library:notes', filter) as Promise<LibraryNote[]>,
+  listLibraryNotesPage: (filter?: LibraryFilter) =>
+    ipcRenderer.invoke('library:notes-page', filter) as Promise<PageResult<LibraryNote>>,
   listLibraryTags: (bookId) => ipcRenderer.invoke('library:tags', bookId) as Promise<TagCount[]>,
   askChapter: (chapterId: string, question: string, history: ChatTurn[], mode: ChatMode) =>
     ipcRenderer.invoke('tutor:ask', chapterId, question, history, mode) as Promise<ChatAnswer>,
+  askChapterStream: (chapterId, question, history, mode, onDelta) => {
+    const id = streamId()
+    const unsubscribe = subscribeStream('tutor:ask-delta', id, onDelta)
+    return ipcRenderer
+      .invoke('tutor:ask-stream', chapterId, question, history, mode, id)
+      .finally(unsubscribe) as Promise<ChatAnswer>
+  },
   evaluateExplanation: (chapterId: string, explanation: string) =>
     ipcRenderer.invoke('tutor:evaluate', chapterId, explanation) as Promise<FeynmanResult>,
+  evaluateExplanationStream: (chapterId, explanation, onDelta) => {
+    const id = streamId()
+    const unsubscribe = subscribeStream('tutor:feynman-delta', id, onDelta)
+    return ipcRenderer
+      .invoke('tutor:evaluate-stream', chapterId, explanation, id)
+      .finally(unsubscribe) as Promise<FeynmanResult>
+  },
   getKnowledgeMap: () => ipcRenderer.invoke('map:get') as Promise<KnowledgeMapData>,
   runLab: (request: LabRequest) => ipcRenderer.invoke('lab:run', request) as Promise<LabReport>,
   labChat: (request: LabRequest, history: ChatTurn[]) =>
     ipcRenderer.invoke('lab:chat', request, history) as Promise<LabChatAnswer>,
+  labChatStream: (request, history, onDelta) => {
+    const id = streamId()
+    const unsubscribe = subscribeStream('lab:chat-delta', id, onDelta)
+    return ipcRenderer
+      .invoke('lab:chat-stream', request, history, id)
+      .finally(unsubscribe) as Promise<LabChatAnswer>
+  },
   marginNote: (chapterId: string, quote: string) =>
     ipcRenderer.invoke('lab:margin-note', chapterId, quote) as Promise<LabReport>,
   generateQuiz: (chapterId: string) => ipcRenderer.invoke('lab:quiz', chapterId) as Promise<LabQuiz>,
@@ -183,6 +246,30 @@ const api: ReadingApi = {
     ipcRenderer.invoke('lab:merge-notes', keepId, mergeId) as Promise<Note>,
   saveImage: (dataUrl: string, defaultName: string) =>
     ipcRenderer.invoke('app:save-image', dataUrl, defaultName) as Promise<SaveFileResult>,
+  saveImages: (images: Array<{ dataUrl: string; name: string }>, defaultDirName: string) =>
+    ipcRenderer.invoke('app:save-images', images, defaultDirName) as Promise<SaveImagesResult>,
+  saveAudio: (base64: string, defaultName: string) =>
+    ipcRenderer.invoke('app:save-audio', base64, defaultName) as Promise<SaveFileResult>,
+  getReadingPosition: (chapterId: string) =>
+    ipcRenderer.invoke('reading:position-get', chapterId) as Promise<ReadingPositionRecord | null>,
+  saveReadingPosition: (input: ReadingPositionInput) =>
+    ipcRenderer.invoke('reading:position-save', input) as Promise<void>,
+  saveReadingPage: (chapterId: string, bookId: string, page: number) =>
+    ipcRenderer.invoke('reading:page-save', chapterId, bookId, page) as Promise<void>,
+  listBookmarks: (bookId: string) =>
+    ipcRenderer.invoke('bookmarks:list', bookId) as Promise<ReadingBookmark[]>,
+  createBookmark: (input: ReadingBookmarkDraft) =>
+    ipcRenderer.invoke('bookmarks:create', input) as Promise<ReadingBookmark>,
+  deleteBookmark: (id: string) =>
+    ipcRenderer.invoke('bookmarks:delete', id) as Promise<void>,
+  restoreNote: (noteId: string) =>
+    ipcRenderer.invoke('notes:restore', noteId) as Promise<Note | null>,
+  listTrashedNotes: () => ipcRenderer.invoke('notes:trash-list') as Promise<TrashedNote[]>,
+  purgeTrashedNote: (noteId: string) => ipcRenderer.invoke('notes:trash-purge', noteId) as Promise<void>,
+  emptyNoteTrash: () => ipcRenderer.invoke('notes:trash-empty') as Promise<number>,
+  auditXhsCoverage: (input: XhsCoverageRequest) =>
+    ipcRenderer.invoke('xhs:coverage', input) as Promise<XhsCoverageAudit>,
+  cancelLab: () => ipcRenderer.invoke('lab:cancel') as Promise<void>,
   analyzePdfPage: (bookId: string, page: number) =>
     ipcRenderer.invoke('lab:pdf-page', bookId, page) as Promise<LabReport>,
   generateRelationGraph: (bookId: string) =>
@@ -196,6 +283,8 @@ const api: ReadingApi = {
   updateLabArtifact: (id: string, patch: { title?: string; content?: string; meta?: string | null }) =>
     ipcRenderer.invoke('lab:artifact-update', id, patch) as Promise<LabArtifact>,
   listContent: (filter?: ContentFilter) => ipcRenderer.invoke('content:list', filter) as Promise<ContentItem[]>,
+  listContentPage: (filter?: ContentFilter) =>
+    ipcRenderer.invoke('content:list-page', filter) as Promise<PageResult<ContentItem>>,
   getContent: (id: string) => ipcRenderer.invoke('content:get', id) as Promise<ContentItem | null>,
   setContentFavorite: (id: string, favorite: boolean) =>
     ipcRenderer.invoke('content:favorite', id, favorite) as Promise<ContentItem>,

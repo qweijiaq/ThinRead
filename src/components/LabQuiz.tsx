@@ -147,6 +147,11 @@ export function LabQuiz({ chapterId, bookTitle, chapterTitle }: LabQuizProps): J
         <button type="button" className="primary-button small" onClick={() => void generate()} disabled={busy}>
           {busy ? '出题中…' : quiz ? '重新生成' : '开始出题'}
         </button>
+        {busy ? (
+          <button type="button" className="ghost-button small" onClick={() => void window.api.cancelLab()}>
+            取消
+          </button>
+        ) : null}
       </div>
       {history.length > 1 ? (
         <div className="lab-history">
@@ -190,7 +195,7 @@ export function LabQuiz({ chapterId, bookTitle, chapterTitle }: LabQuizProps): J
           />
         </div>
       ) : null}
-      {error ? <div className="inline-error">{error}</div> : null}
+      {error ? <div className="inline-error" role="alert">{error}</div> : null}
       {!quiz && !busy ? (
         <p className="lab-empty">
           {chapterTitle ? `当前章节：${chapterTitle}。` : '选好章节后点「开始出题」。'}

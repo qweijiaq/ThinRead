@@ -6,6 +6,7 @@ import { app, BrowserWindow, screen, shell } from 'electron'
 import { autoUpdater } from 'electron-updater'
 
 import { generateChapterNotes } from './ai/notes.js'
+import { initAiTrace } from './ai/trace.js'
 import { closeDatabase, createNote, getChapter, getChapters, initDatabase, insertBook, listBooks, markRunningOcrJobsInterrupted, replaceAiNotes, setProgress } from './db.js'
 import { ensureDailyBackup } from './backup.js'
 import { registerIpc } from './ipc.js'
@@ -13,11 +14,16 @@ import { importBookFile } from './import.js'
 import { parseEpub } from './parsers/epub.js'
 import { parseMobi } from './parsers/mobi.js'
 import { initSettings } from './settings.js'
+import { runRealE2e } from './e2e-real.js'
+import { runRealEval } from './eval-real.js'
+import { initSearchIndex, warmSearchIndex } from './search-index.js'
 import { runSmokeTest, sampleEpubBuffer } from './smoke.js'
 
 let mainWindow: BrowserWindow | null = null
 
 const isSmoke = process.argv.includes('--smoke-test')
+const isRealE2e = process.argv.includes('--e2e-real')
+const isRealEval = process.argv.includes('--eval-real')
 const isSeed = process.argv.includes('--seed-demo')
 const openFirst = process.argv.includes('--open-first')
 const dumpDom = process.argv.includes('--dump-dom')
@@ -165,6 +171,7 @@ function createWindow(): void {
     if (!screenshotPath && !dumpDom) return
     setTimeout(() => {
       void (async () => {
+        let failed = false
         try {
           if (openFirst) {
             await window.webContents.executeJavaScript("document.querySelector('.book-card')?.click()")
@@ -196,11 +203,13 @@ function createWindow(): void {
           fs.mkdirSync(path.dirname(screenshotPath), { recursive: true })
           fs.writeFileSync(screenshotPath, image.toPNG())
           console.log(`[screenshot] ${screenshotPath}`)
+          failed = false
         } catch (error) {
           console.error('[screenshot] failed', error)
-          process.exitCode = 1
+          failed = true
         } finally {
-          app.quit()
+          if (failed) app.exit(1)
+          else app.quit()
         }
       })()
     }, 1100)
@@ -256,14 +265,49 @@ app.whenReady().then(async () => {
   }
 
   const dataDir = app.getPath('userData')
+  if (isRealE2e) {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'reading-notes-e2e-real-'))
+    try {
+      initDatabase(tempDir)
+      initSettings(dataDir)
+      await runRealE2e()
+      console.log('[e2e-real] PASSED')
+      app.exit(0)
+    } catch (error) {
+      console.error('[e2e-real] FAILED', error)
+      app.exit(1)
+    } finally {
+      closeDatabase()
+      fs.rmSync(tempDir, { recursive: true, force: true })
+    }
+    return
+  }
+
+  if (isRealEval) {
+    try {
+      initSettings(dataDir)
+      await runRealEval(dataDir)
+      console.log('[eval-real] PASSED')
+      app.exit(0)
+    } catch (error) {
+      console.error('[eval-real] FAILED', error)
+      app.exit(1)
+    }
+    return
+  }
+
   initDatabase(dataDir)
   initSettings(dataDir)
+  initAiTrace(dataDir)
+  initSearchIndex(dataDir)
   markRunningOcrJobsInterrupted()
   if (listBooks().length > 0) {
     ensureDailyBackup(dataDir)
     setInterval(() => {
       if (listBooks().length > 0) ensureDailyBackup(dataDir)
     }, 6 * 60 * 60 * 1000).unref()
+    // 启动后空闲时预热全文索引，避免第一次搜索等待整库构建。
+    setTimeout(() => void warmSearchIndex(), 2_500).unref()
   }
 
   if (importArg) {

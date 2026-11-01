@@ -110,7 +110,7 @@ export function FormatPanel({
         {busy ? 'AI 正在整理这一章…' : hasFormatted ? '✦ 重新整理这一章' : '✦ 整理这一章'}
       </button>
 
-      {error ? <div className="inline-error">{error}</div> : null}
+      {error ? <div className="inline-error" role="alert">{error}</div> : null}
 
       {busy ? (
         <div className="streaming-card format-streaming">

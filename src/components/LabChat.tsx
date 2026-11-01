@@ -35,6 +35,7 @@ export function LabChat({ tool, bookIds, chapterId }: LabChatProps): JSX.Element
   const [turns, setTurns] = useState<Turn[]>([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
+  const [streamingAnswer, setStreamingAnswer] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [speaking, setSpeaking] = useState<number | null>(null)
   const [artifactId, setArtifactId] = useState<string | null>(null)
@@ -75,6 +76,7 @@ export function LabChat({ tool, bookIds, chapterId }: LabChatProps): JSX.Element
     setError(null)
     setSpeaking(null)
     setArtifactId(null)
+    setStreamingAnswer('')
     if ('speechSynthesis' in window) window.speechSynthesis.cancel()
     void saveLabArtifact(tool, '对话', JSON.stringify({ turns: [] }), { sourceKey: scope }, scope)
       .then((artifact) => setArtifactId(artifact.id))
@@ -95,7 +97,7 @@ export function LabChat({ tool, bookIds, chapterId }: LabChatProps): JSX.Element
   useEffect(() => {
     const node = scrollRef.current
     if (node) node.scrollTop = node.scrollHeight
-  }, [turns, busy])
+  }, [turns, busy, streamingAnswer])
 
   function request(question: string) {
     const usesChapter = tool === 'devils-advocate' || tool === 'book-club'
@@ -116,8 +118,9 @@ export function LabChat({ tool, bookIds, chapterId }: LabChatProps): JSX.Element
     setInput('')
     setBusy(true)
     setError(null)
+    setStreamingAnswer('')
     try {
-      const answer = await window.api.labChat(request(text), history)
+      const answer = await window.api.labChatStream(request(text), history, (delta) => setStreamingAnswer(delta))
       const finalTurns: Turn[] = [
         ...turns,
         { role: 'user', content: text },
@@ -128,6 +131,7 @@ export function LabChat({ tool, bookIds, chapterId }: LabChatProps): JSX.Element
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
+      setStreamingAnswer('')
       setBusy(false)
     }
   }
@@ -147,8 +151,9 @@ export function LabChat({ tool, bookIds, chapterId }: LabChatProps): JSX.Element
     const history: ChatTurn[] = before.map((turn) => ({ role: turn.role, content: turn.content }))
     setBusy(true)
     setError(null)
+    setStreamingAnswer('')
     try {
-      const answer = await window.api.labChat(request(question), history)
+      const answer = await window.api.labChatStream(request(question), history, (delta) => setStreamingAnswer(delta))
       const finalTurns: Turn[] = [
         ...before,
         { role: 'user', content: question },
@@ -159,6 +164,7 @@ export function LabChat({ tool, bookIds, chapterId }: LabChatProps): JSX.Element
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
+      setStreamingAnswer('')
       setBusy(false)
     }
   }
@@ -230,14 +236,17 @@ export function LabChat({ tool, bookIds, chapterId }: LabChatProps): JSX.Element
         {busy ? (
           <div className="lab-chat-turn assistant">
             <span className="lab-chat-role">页边</span>
-            <div className="lab-chat-bubble lab-chat-thinking">
-              <span className="spinner" />
-              正在整理…
+            <div className={`lab-chat-bubble${streamingAnswer ? '' : ' lab-chat-thinking'}`}>
+              {streamingAnswer ? <Markdown text={streamingAnswer} /> : <span className="spinner" />}
+              {streamingAnswer ? null : '正在整理…'}
+              <button type="button" className="text-button lab-chat-cancel" onClick={() => void window.api.cancelLab()}>
+                取消
+              </button>
             </div>
           </div>
         ) : null}
       </div>
-      {error ? <div className="inline-error">{error}</div> : null}
+      {error ? <div className="inline-error" role="alert">{error}</div> : null}
       <div className="lab-chat-input">
         <textarea
           value={input}

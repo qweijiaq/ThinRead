@@ -29,6 +29,7 @@ for (const entry of entries) {
     platform: 'node',
     format: 'cjs',
     target: 'node22',
+    external: ['electron', 'node-edge-tts', '@uzen/kokoro-js', '@napi-rs/canvas', 'mermaid'],
     sourcemap: 'inline',
     logLevel: 'warning',
   })

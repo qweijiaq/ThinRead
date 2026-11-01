@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
 
-import { generateText } from 'ai'
+import { generateText, streamText } from 'ai'
 
 import type {
   ChatTurn,
@@ -32,6 +32,7 @@ import {
   listMapNotes,
   listNotes,
 } from '../db.js'
+import { labQuizSchema, relationGraphSchema } from '../../shared/schemas.js'
 import { buildKnowledgeMap } from '../knowledge-map.js'
 import { genreRule } from './genre.js'
 import type { ModelConfig } from './provider.js'
@@ -51,23 +52,30 @@ const REPORT_SYSTEM = [
   '只使用下面提供的书、章节和笔记作为事实来源；需要引用时写清《书名》和章节。',
   '不要编造原文。找不到依据时直接说明「本地库中没有找到依据」。',
   '输出可直接阅读的 Markdown，不要输出 JSON 代码块，除非任务明确要求 JSON。',
+  '需要画图时使用 ```mermaid 代码块，节点文字保持短，边标签简洁；语法必须能被 Mermaid 解析。',
 ].join('\n')
 
 const REPORT_INSTRUCTIONS: Partial<Record<LabRequest['tool'], string>> = {
   'cross-book-synthesis':
     '请围绕用户的问题，综合所选书的读薄稿和卡片，写一份带引用的跨书综述：先给结论，再写共同点、分歧、各自盲点，最后给一个综合判断。',
   'argument-map':
-    '请把这一章拆成一棵论证树：主张 → 前提 → 证据 → 反例/边界。用 Markdown 缩进列表表达层级，每个节点尽量附一句原文依据；最后列出 2–3 个值得追问的问题。',
+    '请把这一章拆成一棵论证树：主张 → 前提 → 证据 → 反例/边界。先输出一个 ```mermaid flowchart TD 代码块，节点用简短文字，边标签分别表示“支撑 / 反例 / 边界”；再在代码块下面用 Markdown 解释每个节点，并附一句原文依据；最后列出 2–3 个值得追问的问题。',
   'weekly-review':
     '请根据最近一周的笔记和概念，写一份安静的每周复盘：本周反复出现的主题、理解上的变化、3 个未解决的问题、下周最值得回看的内容。不要做排行榜。',
   'reading-path':
-    '请根据用户的目标和书库内容，设计一条可执行的阅读路径：按顺序列出章节/主题、每站为什么读、读完后用什么问题检查自己，最后给一个阶段小结任务。',
+    '请根据用户的目标和书库内容，设计一条可执行的阅读路径：先输出一个 ```mermaid flowchart LR 代码块，按顺序表示站点和依赖；再用 Markdown 说明每站为什么读、读完后用什么问题检查自己，最后给一个阶段小结任务。',
   'view-timeline':
-    '请围绕用户指定的概念，按时间整理笔记里的观点变化：早期理解、转折、现在的理解，并指出哪些书/章节推动了变化。用时间线式 Markdown。',
+    '请围绕用户指定的概念，按时间整理笔记里的观点变化：早期理解、转折、现在的理解，并指出哪些书/章节推动了变化。先输出一个 ```mermaid timeline 代码块（时间点用简短标题），再用 Markdown 展开解释。',
   'knowledge-gaps':
     '请分析当前概念图：指出孤立概念、缺少桥接的主题、相互矛盾的观点，以及最值得补充的阅读方向。区分「书库内已有但没连起来」和「书库外可能需要补充」。',
-  podcast:
-    '请写一段 5 分钟的双人播客脚本：主持人 A 负责提问，主持人 B 负责用书中观点回答；有开场、3 个重点、一个反例/边界、结尾。保留原文引用。',
+  podcast: [
+    '把这一章整理成一段 5 分钟的中文双人播客口播稿，不是文章摘要，也不要照搬书面段落。',
+    'A 是主持人，负责开场、追问、串场和收尾；B 是读过这本书的嘉宾，负责用书中观点回答。A 不要替 B 回答，B 不要替 A 提问。',
+    '只输出对话正文。每一行严格以「A：」或「B：」开头；不要标题、Markdown 标题、角色说明、括号动作、旁白或“主持人 A 说”这类提示。',
+    '用自然的中文口语：短句、可以停顿、可以有轻微的语气词；把数字、缩写、外文术语改写成读出来能听懂的形式。',
+    '结构：用一个具体问题开场；展开 3 个重点，每个重点先说结论再用书里的例子或原文支撑；中间有一个反例或边界；结尾落回读者能带走的一句话。',
+    '只使用提供的章节、读薄稿和卡片；引用原文时融入对话，不要编造，也不要把每句话都写成引用。',
+  ].join('\n'),
   'chapter-annotations':
     '请为这一章写 6–10 条页边注。每条包含：原文短引、这条注在解释什么、与前后文/其他书的联系。按段落顺序排列，避免每句都注。',
   'fact-check':
@@ -101,7 +109,13 @@ const CHAT_SYSTEMS: Partial<Record<LabRequest['tool'], string>> = {
   ].join('\n'),
 }
 
+function labTimeout(parent: AbortSignal | undefined, ms: number): AbortSignal {
+  const timeout = AbortSignal.timeout(ms)
+  return parent ? AbortSignal.any([parent, timeout]) : timeout
+}
+
 export async function runLab(args: {
+  signal?: AbortSignal
   config: ModelConfig
   demo: boolean
   request: LabRequest
@@ -125,19 +139,23 @@ export async function runLab(args: {
     prompt,
     temperature: 0.35,
     maxRetries: 1,
-    abortSignal: AbortSignal.timeout(120_000),
+    abortSignal: labTimeout(args.signal, 120_000),
   })
   const markdown = response.text.trim()
   if (!markdown) throw new Error('模型没有返回内容，请重试。')
   return { title: reportTitle(request.tool), markdown }
 }
 
-export async function labChat(args: {
-  config: ModelConfig
-  demo: boolean
-  request: LabRequest
-  history: ChatTurn[]
-}): Promise<LabChatAnswer> {
+export async function labChat(
+  args: {
+    signal?: AbortSignal
+    config: ModelConfig
+    demo: boolean
+    request: LabRequest
+    history: ChatTurn[]
+  },
+  onDelta?: (text: string) => void,
+): Promise<LabChatAnswer> {
   const request = args.request
   const system = CHAT_SYSTEMS[request.tool]
   if (!system) throw new Error('这个对话任务暂不支持。')
@@ -145,23 +163,53 @@ export async function labChat(args: {
   if (!question) throw new Error('先写一个问题。')
   const context = buildContext(request)
   if (args.demo) {
-    return {
-      answer: `演示模式：${context.label}。\n\n如果正式模型在这里，它会引用原文回答「${question.slice(0, 40)}」，并区分书中立场和书中未表态的部分。`,
-    }
+    const answer = `演示模式：${context.label}。\n\n如果正式模型在这里，它会引用原文回答「${question.slice(0, 40)}」，并区分书中立场和书中未表态的部分。`
+    onDelta?.(answer)
+    return { answer }
   }
   const history = args.history
     .slice(-8)
     .map((turn) => `${turn.role === 'user' ? '读者' : '助手'}：${turn.content}`)
   const model = createLanguageModel(args.config)
+  const prompt = [context.text, history.length ? `对话记录：\n${history.join('\n')}` : '', `读者：${question}`]
+    .filter(Boolean)
+    .join('\n\n')
+  const signal = labTimeout(args.signal, 120_000)
+
+  if (onDelta) {
+    let emitted = false
+    try {
+      const stream = streamText({
+        model,
+        system,
+        prompt,
+        temperature: 0.65,
+        maxRetries: 1,
+        abortSignal: signal,
+      })
+      let text = ''
+      for await (const chunk of stream.textStream) {
+        text += chunk
+        if (text) {
+          emitted = true
+          onDelta(text)
+        }
+      }
+      const answer = text.trim()
+      if (!answer) throw new Error('模型没有返回内容，请重试。')
+      return { answer }
+    } catch (error) {
+      if (emitted) throw error
+    }
+  }
+
   const response = await generateText({
     model,
     system,
-    prompt: [context.text, history.length ? `对话记录：\n${history.join('\n')}` : '', `读者：${question}`]
-      .filter(Boolean)
-      .join('\n\n'),
+    prompt,
     temperature: 0.65,
     maxRetries: 1,
-    abortSignal: AbortSignal.timeout(120_000),
+    abortSignal: signal,
   })
   const answer = response.text.trim()
   if (!answer) throw new Error('模型没有返回内容，请重试。')
@@ -169,6 +217,7 @@ export async function labChat(args: {
 }
 
 export async function marginNote(args: {
+  signal?: AbortSignal
   config: ModelConfig
   demo: boolean
   chapterId: string
@@ -194,7 +243,7 @@ export async function marginNote(args: {
     ].join('\n\n'),
     temperature: 0.4,
     maxRetries: 1,
-    abortSignal: AbortSignal.timeout(60_000),
+    abortSignal: labTimeout(args.signal, 60_000),
   })
   return { title: 'AI 边注', markdown: response.text.trim() }
 }
@@ -205,6 +254,7 @@ function anchorChapterName(text: string, chapterName: string): string {
 }
 
 export async function generateQuiz(args: {
+  signal?: AbortSignal
   config: ModelConfig
   demo: boolean
   chapterId: string
@@ -212,7 +262,7 @@ export async function generateQuiz(args: {
   const context = buildChapterContext(args.chapterId)
   const chapterName = context.chapterTitle
   if (args.demo) {
-    return {
+    return labQuizSchema.parse({
       questions: [
         {
           question: `「${chapterName}」最主要的主张是什么？`,
@@ -227,7 +277,7 @@ export async function generateQuiz(args: {
           source: `「${chapterName}」卡片`,
         },
       ],
-    }
+    })
   }
   const model = createLanguageModel(args.config)
   const response = await generateText({
@@ -244,7 +294,7 @@ export async function generateQuiz(args: {
     ].join('\n\n'),
     temperature: 0.4,
     maxRetries: 1,
-    abortSignal: AbortSignal.timeout(90_000),
+    abortSignal: labTimeout(args.signal, 90_000),
   })
   const parsed = parseJsonObject(response.text)
   const raw = Array.isArray(parsed?.questions) ? parsed.questions : []
@@ -259,10 +309,11 @@ export async function generateQuiz(args: {
     .filter((item) => item.question && item.answer)
     .slice(0, 8)
   if (questions.length === 0) throw new Error('这组题目没有生成成功，请重试。')
-  return { questions }
+  return labQuizSchema.parse({ questions })
 }
 
 export async function checkQuizAnswer(args: {
+  signal?: AbortSignal
   config: ModelConfig
   demo: boolean
   chapterId: string
@@ -293,7 +344,7 @@ export async function checkQuizAnswer(args: {
     ].join('\n\n'),
     temperature: 0.2,
     maxRetries: 1,
-    abortSignal: AbortSignal.timeout(60_000),
+    abortSignal: labTimeout(args.signal, 60_000),
   })
   const parsed = parseJsonObject(response.text)
   const verdict = parsed?.verdict === 'good' || parsed?.verdict === 'partial' || parsed?.verdict === 'off'
@@ -312,6 +363,7 @@ export async function checkQuizAnswer(args: {
 }
 
 export async function suggestConceptMerges(args: {
+  signal?: AbortSignal
   config: ModelConfig
   demo: boolean
 }): Promise<LabMergeGroup[]> {
@@ -340,7 +392,7 @@ export async function suggestConceptMerges(args: {
     ].join('\n\n'),
     temperature: 0.2,
     maxRetries: 1,
-    abortSignal: AbortSignal.timeout(60_000),
+    abortSignal: labTimeout(args.signal, 60_000),
   })
   const parsed = parseJsonObject(response.text)
   const groups = Array.isArray(parsed?.groups) ? parsed.groups : []
@@ -581,6 +633,18 @@ function reportTitle(tool: LabRequest['tool']): string {
 
 function demoReport(request: LabRequest, context: LabContext): string {
   const q = request.question?.trim() || '这次阅读'
+  if (request.tool === 'podcast') {
+    return [
+      'A：欢迎来到页边。今天我们不背结论，只把这一章里最难的一点聊清楚。',
+      'B：好。我先给判断：真正稀缺的不是意志力，而是及时发现注意力已经漂走的那个动作。',
+      'A：这句话听起来和常见的自律叙事不太一样。为什么环境比决心更重要？',
+      'B：因为每一次抵抗诱惑都要消耗注意力。把手机移出视线，等于把一次选择提前做完了。',
+      `A：那它的边界在哪里？是不是所有问题都能靠环境设计解决？`,
+      'B：不是。环境能减少摩擦，但不能替你决定要做什么。方向仍然要由人自己选。',
+      `A：所以读者今天能带走的一句话是什么？`,
+      'B：先把环境改到不需要反复下决心，再把决心留给真正重要的选择。',
+    ].join('\n\n')
+  }
   return [
     `## ${reportTitle(request.tool)}`,
     `演示模式生成，基于 ${context.label}。`,
@@ -824,13 +888,14 @@ function normalizeRelationGraph(raw: unknown, bookTitle: string): RelationGraph 
 }
 
 export async function generateRelationGraph(args: {
+  signal?: AbortSignal
   config: ModelConfig
   demo: boolean
   bookId: string
 }): Promise<RelationGraph> {
   const context = relationContext(args.bookId)
   if (args.demo) {
-    return {
+    return relationGraphSchema.parse({
       title: `${context.bookTitle} · 人物关系图`,
       genre: '演示',
       summary: '演示模式：这里会显示人物、组织和事件之间的关系；正式模型会按书的体裁抽取。',
@@ -848,7 +913,7 @@ export async function generateRelationGraph(args: {
         { source: 'p4', target: 'p2', label: '目击/隐瞒', reverseLabel: '被目击', kind: 'clue', description: '证词指向关键时间点。' },
         { source: 'p1', target: 'p4', label: '询问', reverseLabel: '被询问', kind: 'other', description: '侦探寻找关键证词。' },
       ],
-    }
+    })
   }
   const model = createLanguageModel(args.config)
   const book = getBookSummary(args.bookId)
@@ -876,14 +941,15 @@ export async function generateRelationGraph(args: {
     prompt,
     temperature: 0.3,
     maxRetries: 1,
-    abortSignal: AbortSignal.timeout(180_000),
+    abortSignal: labTimeout(args.signal, 180_000),
   })
   const graph = mergeRelationAliases(normalizeRelationGraph(parseJsonObject(response.text), context.bookTitle))
   if (graph.nodes.length < 2) throw new Error('没有抽出足够的人物或事件，请换一个模型或先补充章节笔记。')
-  return graph
+  return relationGraphSchema.parse(graph)
 }
 
 export async function analyzePdfPage(args: {
+  signal?: AbortSignal
   config: ModelConfig
   demo: boolean
   bookId: string
@@ -926,7 +992,7 @@ export async function analyzePdfPage(args: {
     ].join('\n\n'),
     temperature: 0.3,
     maxRetries: 1,
-    abortSignal: AbortSignal.timeout(90_000),
+    abortSignal: labTimeout(args.signal, 90_000),
   })
   return { title: `页面理解 · 第 ${page} 页`, markdown: response.text.trim() }
 }

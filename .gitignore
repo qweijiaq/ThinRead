@@ -9,3 +9,8 @@ dist-electron/
 
 .test-build/
 release/
+resources/kokoro/*
+!resources/kokoro/README.md
+
+storybook-static/
+storybook-screenshots-current/

@@ -1,6 +1,7 @@
 import { useEffect, useState, type JSX } from 'react'
 
 import type { ChapterMeta } from '../../shared/types.js'
+import type { BookmarkView } from '../lib/bookmarks.js'
 import { confirmDialog } from './ConfirmDialog.js'
 
 interface ChapterListProps {
@@ -13,6 +14,9 @@ interface ChapterListProps {
   onDelete(chapter: ChapterMeta): void
   onRename(chapter: ChapterMeta): void
   onRenamePart(partIndex: number, title: string): void
+  bookmarks: BookmarkView[]
+  onOpenBookmark(bookmark: BookmarkView): void
+  onDeleteBookmark(id: string): void
 }
 
 interface ChapterEntry {
@@ -60,6 +64,9 @@ export function ChapterList({
   onDelete,
   onRename,
   onRenamePart,
+  bookmarks,
+  onOpenBookmark,
+  onDeleteBookmark,
 }: ChapterListProps): JSX.Element {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const visible = chapters.filter((chapter) => !chapter.hidden)
@@ -147,6 +154,30 @@ export function ChapterList({
       <div className="progress-track sidebar-progress">
         <div className="progress-fill" style={{ width: `${Math.round(progress * 100)}%` }} />
       </div>
+      {bookmarks.length > 0 ? (
+        <div className="sidebar-bookmarks">
+          <div className="sidebar-bookmarks-head">
+            <span>书签</span>
+            <span>{bookmarks.length}</span>
+          </div>
+          {bookmarks.slice(0, 8).map((bookmark) => (
+            <div key={bookmark.id} className="sidebar-bookmark-row">
+              <button type="button" className="sidebar-bookmark" onClick={() => onOpenBookmark(bookmark)} title={bookmark.label}>
+                <span>{bookmark.label}</span>
+                <em>{Math.round(bookmark.scrollRatio * 100)}%</em>
+              </button>
+              <button
+                type="button"
+                className="chapter-delete"
+                aria-label={`删除书签 ${bookmark.label}`}
+                onClick={() => onDeleteBookmark(bookmark.id)}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : null}
       <nav className="chapter-list">
         {blocks.map((block) => {
           if (block.type === 'chapter') return renderChapter(block.entry)

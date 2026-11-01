@@ -99,7 +99,7 @@ export function PublishDialog({ open, book, title, markdown, onClose }: PublishD
     setNotice(null)
     try {
       const { buildPublishPackage } = await import('../lib/publish-package.js')
-      const pkg = buildPublishPackage({
+      const pkg = await buildPublishPackage({
         bookTitle: book.title,
         author: book.author,
         title: displayTitle,
@@ -189,9 +189,9 @@ export function PublishDialog({ open, book, title, markdown, onClose }: PublishD
               发布包包含 index.html、cover.png、metadata.json{includeMarkdown ? '、notes.md' : ''}
               和一份上传说明。静态页不依赖外部资源。
             </p>
-            {coverError ? <div className="inline-error">{coverError}</div> : null}
-            {error ? <div className="inline-error">{error}</div> : null}
-            {notice ? <div className="inline-notice">{notice}</div> : null}
+            {coverError ? <div className="inline-error" role="alert">{coverError}</div> : null}
+            {error ? <div className="inline-error" role="alert">{error}</div> : null}
+            {notice ? <div className="inline-notice" role="status" aria-live="polite">{notice}</div> : null}
             <div className="publish-actions">
               <button type="button" className="ghost-button" onClick={onClose} disabled={busy}>
                 关闭

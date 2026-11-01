@@ -14,7 +14,8 @@ export interface ParsedBook {
 }
 
 const MAX_CHAPTERS = 600
-const MAX_IMAGE_BYTES = 2 * 1024 * 1024
+const MAX_IMAGE_BYTES = 4 * 1024 * 1024
+const MAX_TOTAL_IMAGE_BYTES = 20 * 1024 * 1024
 
 const IMAGE_MIME: Record<string, string> = {
   '.png': 'image/png',
@@ -88,6 +89,7 @@ function inlineImagesInPlace(
   $: cheerio.CheerioAPI,
   chapterPath: string,
   files: Record<string, Uint8Array>,
+  budget: { used: number },
 ): void {
   $('img').each((_, element) => {
     const node = $(element)
@@ -105,10 +107,11 @@ function inlineImagesInPlace(
     const target = resolveHref(chapterPath, src)
     const bytes = files[target]
     const mime = mimeFor(target)
-    if (!bytes || !mime || bytes.length > MAX_IMAGE_BYTES) {
+    if (!bytes || !mime || bytes.length > MAX_IMAGE_BYTES || budget.used + bytes.length > MAX_TOTAL_IMAGE_BYTES) {
       node.remove()
       return
     }
+    budget.used += bytes.length
     node.attr('src', `data:${mime};base64,${Buffer.from(bytes).toString('base64')}`)
   })
 }
@@ -412,7 +415,8 @@ export function parseEpub(buffer: Buffer, sourceName: string): ParsedBook {
 
   const targets = htmlTargets.length > 0 ? htmlTargets : Object.keys(files).filter((name) => /\.x?html?$/i.test(name))
 
-  const chapters: NewChapter[] = []
+  const imageBudget = { used: 0 }
+const chapters: NewChapter[] = []
   let currentPartTitle: string | null = null
   let currentPartIndex: number | null = null
   let partCounter = 0
@@ -423,7 +427,7 @@ export function parseEpub(buffer: Buffer, sourceName: string): ParsedBook {
 
     const $ = cheerio.load(decode(bytes))
     $('script, style, nav, svg').remove()
-    inlineImagesInPlace($, target, files)
+    inlineImagesInPlace($, target, files, imageBudget)
 
     const $body = $('body').length > 0 ? $('body') : $.root()
     normalizeStructure($, $body)

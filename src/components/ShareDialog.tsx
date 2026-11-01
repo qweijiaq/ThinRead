@@ -248,8 +248,8 @@ export function ShareDialog({ note, book, notes, initialTemplate, onClose }: Sha
                 {busy === 'text' ? '复制中…' : '复制文字'}
               </button>
             </div>
-            {notice ? <div className="inline-notice">{notice}</div> : null}
-            {error ? <div className="inline-error">{error}</div> : null}
+            {notice ? <div className="inline-notice" role="status" aria-live="polite">{notice}</div> : null}
+            {error ? <div className="inline-error" role="alert">{error}</div> : null}
           </div>
 
           <div className="share-controls">

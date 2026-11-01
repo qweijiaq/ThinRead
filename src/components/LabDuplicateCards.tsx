@@ -91,8 +91,13 @@ export function LabDuplicateCards(): JSX.Element {
         <button type="button" className="ghost-button small" onClick={() => void load()} disabled={loading}>
           {loading ? '扫描中…' : '重新扫描'}
         </button>
+        {loading ? (
+          <button type="button" className="ghost-button small" onClick={() => void window.api.cancelLab()}>
+            取消
+          </button>
+        ) : null}
       </div>
-      {error ? <div className="inline-error">{error}</div> : null}
+      {error ? <div className="inline-error" role="alert">{error}</div> : null}
       {loading && pairs.length === 0 ? <p className="lab-empty">正在扫描相似卡片…</p> : null}
       {!loading && pairs.length === 0 ? <p className="lab-empty">没有发现同一章内足够相似的知识点卡片。</p> : null}
       <div className="lab-dedupe-list">

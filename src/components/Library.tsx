@@ -13,6 +13,8 @@ interface LibraryProps {
   onRename(book: BookSummary): void
   onCompose(bookId: string): void
   onMerge(): void
+  onSettings(): void
+  demo: boolean
 }
 
 function formatWords(value: number): string {
@@ -25,7 +27,7 @@ function formatWords(value: number): string {
 
 type LibrarySort = 'recent' | 'title' | 'progress' | 'chars'
 
-export function Library({ books, importing, onOpen, onImport, onDelete, onRename, onCompose, onMerge }: LibraryProps): JSX.Element {
+export function Library({ books, importing, onOpen, onImport, onDelete, onRename, onCompose, onMerge, onSettings, demo }: LibraryProps): JSX.Element {
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState<LibrarySort>('recent')
   const [covers, setCovers] = useState<Record<string, string>>({})
@@ -68,11 +70,16 @@ export function Library({ books, importing, onOpen, onImport, onDelete, onRename
         <h1>把一本书读成自己的</h1>
         <p className="welcome-lead">
           AI 先替你读一遍，生成带原文引用的笔记草稿；你边读边改、补充、把想法连起来。
-          书和笔记都在本地。
+          书和笔记都在本地。当前默认是演示模式，不需要 API Key；要使用真实模型，点下方「配置模型」。
         </p>
-        <button type="button" className="primary-button large" onClick={onImport} disabled={importing}>
-          {importing ? '正在解析…' : '导入一本书'}
-        </button>
+        <div className="welcome-actions">
+          <button type="button" className="primary-button large" onClick={onImport} disabled={importing}>
+            {importing ? '正在解析…' : '导入一本书'}
+          </button>
+          <button type="button" className="ghost-button large" onClick={onSettings}>
+            {demo ? '配置真实模型' : '模型设置'}
+          </button>
+        </div>
         <div className="welcome-grid">
           <div>
             <h3>按章生成</h3>
@@ -93,6 +100,14 @@ export function Library({ books, importing, onOpen, onImport, onDelete, onRename
 
   return (
     <main className="library">
+      {demo ? (
+        <div className="library-demo-banner">
+          <span>当前是演示模式，生成结果是示例内容。</span>
+          <button type="button" className="text-button" onClick={onSettings}>
+            配置真实模型
+          </button>
+        </div>
+      ) : null}
       <div className="library-head">
         <div>
           <h1>书架</h1>

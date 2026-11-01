@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import * as cheerio from 'cheerio'
 
@@ -46,6 +47,60 @@ const COVER_MIME: Record<string, string> = {
   '.svg': 'image/svg+xml',
 }
 const MAX_COVER_BYTES = 8 * 1024 * 1024
+const MAX_INLINE_IMAGE_BYTES = 2 * 1024 * 1024
+const MAX_INLINE_IMAGE_TOTAL = 12 * 1024 * 1024
+const MAX_INLINE_IMAGES = 30
+
+async function inlineChapterImages(
+  $: cheerio.CheerioAPI,
+  resourceDir: string,
+  budget: { used: number },
+): Promise<void> {
+  const images = $('img').toArray().slice(0, MAX_INLINE_IMAGES)
+  for (const element of images) {
+    const node = $(element)
+    const source = node.attr('src')?.trim() ?? ''
+    if (!source) {
+      node.remove()
+      continue
+    }
+    if (source.startsWith('data:')) continue
+    if (/^[a-z]+:/i.test(source) && !source.startsWith('file://')) {
+      node.remove()
+      continue
+    }
+    let filePath: string
+    try {
+      filePath = source.startsWith('file://') ? fileURLToPath(source) : path.resolve(resourceDir, source)
+    } catch {
+      node.remove()
+      continue
+    }
+    const resolvedDir = path.resolve(resourceDir)
+    if (filePath !== resolvedDir && !filePath.startsWith(`${resolvedDir}${path.sep}`)) {
+      node.remove()
+      continue
+    }
+    const extension = path.extname(filePath).toLowerCase()
+    const mime = COVER_MIME[extension]
+    if (!mime || extension === '.svg') {
+      node.remove()
+      continue
+    }
+    try {
+      const data = await fs.readFile(filePath)
+      if (data.length === 0 || data.length > MAX_INLINE_IMAGE_BYTES || budget.used + data.length > MAX_INLINE_IMAGE_TOTAL) {
+        node.remove()
+        continue
+      }
+      budget.used += data.length
+      node.attr('src', `data:${mime};base64,${data.toString('base64')}`)
+    } catch {
+      node.remove()
+    }
+  }
+  $('img').slice(MAX_INLINE_IMAGES).remove()
+}
 
 function patchKf8Loader(book: MobiBookLike): void {
   const target = book as unknown as {
@@ -99,6 +154,7 @@ async function parseWith(
     visitToc(book.getToc?.())
 
     const chapters: NewChapter[] = []
+    const imageBudget = { used: 0 }
     const spine = book.getSpine()
     for (const entry of spine) {
       let loaded: { html: string } | undefined
@@ -109,8 +165,8 @@ async function parseWith(
       }
       if (!loaded?.html) continue
       const $chapter = cheerio.load(loaded.html)
-      // MOBI 图片是单独的 Kindle 资源记录，直接保留会变成坏图。
-      $chapter('img').remove()
+      // MOBI 图片是单独的 Kindle 资源记录；解析器已把它们写到临时目录，这里转成 data URL。
+      await inlineChapterImages($chapter, resourceDir, imageBudget)
       const html = sanitizeChapterHtml($chapter('body').html() ?? $chapter.html())
       const text = htmlToText(html)
       if (text.replace(/\s/g, '').length < 20) continue

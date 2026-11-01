@@ -103,7 +103,7 @@ export function MergeBooksDialog({ open, books, onClose, onMerged }: MergeBooksD
           </label>
         </div>
         <p className="import-hint">合并会移动章节和笔记，其他选中的书会从书架移除；原文件不再单独保留。</p>
-        {error ? <div className="inline-error">{error}</div> : null}
+        {error ? <div className="inline-error" role="alert">{error}</div> : null}
         <div className="merge-actions">
           <span className="muted">已选 {chosen.length} 本</span>
           <button type="button" className="primary-button" onClick={() => void merge()} disabled={busy || chosen.length < 2}>

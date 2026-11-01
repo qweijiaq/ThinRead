@@ -44,6 +44,8 @@ const KIND_OPTIONS: Array<{ value: ContentKind | ''; label: string }> = [
   { value: 'graph', label: '人物关系图' },
 ]
 
+const PAGE_SIZE = 30
+
 const STATUS_LABEL: Record<ContentStatus, string> = {
   draft: '草稿',
   adopted: '已采用',
@@ -80,6 +82,8 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
   const [busy, setBusy] = useState<string | null>(null)
   const [refreshTick, setRefreshTick] = useState(0)
   const [listCollapsed, setListCollapsed] = useState(false)
+  const [page, setPage] = useState(0)
+  const [total, setTotal] = useState(0)
 
   const selected = useMemo(
     () => items.find((item) => item.id === selectedId) ?? items[0] ?? null,
@@ -87,26 +91,34 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
   )
 
   useEffect(() => {
+    setPage(0)
+  }, [query, kind, bookId, status, favoriteOnly])
+
+  useEffect(() => {
     let cancelled = false
     setLoading(true)
     const timer = window.setTimeout(() => {
       void window.api
-        .listContent({
+        .listContentPage({
           query: query.trim() || undefined,
           kind: kind || undefined,
           bookId: bookId || undefined,
           favorite: favoriteOnly || undefined,
           status,
-          limit: 300,
+          limit: PAGE_SIZE,
+          offset: page * PAGE_SIZE,
         })
-        .then((found) => {
+        .then((result) => {
           if (cancelled) return
-          setItems(found)
+          setItems(result.items)
+          setTotal(result.total)
           setError(null)
+          const lastPage = Math.max(0, Math.ceil(result.total / PAGE_SIZE) - 1)
+          if (page > lastPage) setPage(lastPage)
           setSelectedId((current) => {
-            if (current && found.some((item) => item.id === current)) return current
-            if (initialItemId && found.some((item) => item.id === initialItemId)) return initialItemId
-            return found[0]?.id ?? ''
+            if (current && result.items.some((item) => item.id === current)) return current
+            if (initialItemId && result.items.some((item) => item.id === initialItemId)) return initialItemId
+            return result.items[0]?.id ?? ''
           })
         })
         .catch((err: unknown) => {
@@ -120,7 +132,7 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [query, kind, bookId, status, favoriteOnly, initialItemId, refreshTick])
+  }, [query, kind, bookId, status, favoriteOnly, initialItemId, refreshTick, page])
 
   useEffect(() => {
     if (!initialItemId) return
@@ -159,7 +171,10 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
         status === 'all' ||
         (status === 'active' ? nextStatus === 'draft' || nextStatus === 'adopted' : status === nextStatus)
       if (stays) replaceItem(next)
-      else setItems((current) => current.filter((row) => row.id !== item.id))
+      else {
+        setItems((current) => current.filter((row) => row.id !== item.id))
+        setTotal((current) => Math.max(0, current - 1))
+      }
       setNotice(nextStatus === 'archived' ? '已归档。' : nextStatus === 'deleted' ? '已放入回收站。' : '已恢复。')
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -285,11 +300,11 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
         >
           {listCollapsed ? '展开列表' : '收起列表'}
         </button>
-        <span className="content-count">{loading ? '加载中…' : `${items.length} 条`}</span>
+        <span className="content-count">{loading ? '加载中…' : `${total} 条`}</span>
       </div>
 
-      {error ? <div className="inline-error">{error}</div> : null}
-      {notice ? <div className="inline-notice">{notice}</div> : null}
+      {error ? <div className="inline-error" role="alert">{error}</div> : null}
+      {notice ? <div className="inline-notice" role="status" aria-live="polite">{notice}</div> : null}
 
       <div className={`content-layout${listCollapsed ? ' is-list-collapsed' : ''}`}>
         <div className="content-list">
@@ -318,6 +333,23 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
               <span className="content-row-snippet">{contentSnippet(item)}</span>
             </button>
           ))}
+          {Math.ceil(total / PAGE_SIZE) > 1 ? (
+            <div className="content-pager">
+              <button type="button" disabled={page === 0} onClick={() => setPage((current) => Math.max(0, current - 1))}>
+                上一页
+              </button>
+              <span>
+                {page + 1} / {Math.ceil(total / PAGE_SIZE)}
+              </span>
+              <button
+                type="button"
+                disabled={page + 1 >= Math.ceil(total / PAGE_SIZE)}
+                onClick={() => setPage((current) => current + 1)}
+              >
+                下一页
+              </button>
+            </div>
+          ) : null}
         </div>
 
         <section className="content-detail">

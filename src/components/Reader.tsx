@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type JSX } fr
 
 import type { ChapterContent, ReaderMark, ReaderMarkStyle, ReaderStyle, RelatedNote } from '../../shared/types.js'
 import { EchoDialog } from './EchoDialog.js'
+import { PdfOriginalView } from './PdfOriginalView.js'
 
 interface ReaderProps {
   chapter: ChapterContent | null
@@ -22,6 +23,18 @@ interface ReaderProps {
   onAsk(text: string): void
   onShareQuote(text: string): void
   onListenSelection(text: string): void
+  onOpenXhs(): void
+  positionTarget: { chapterId: string; ratio: number; key: number } | null
+  onCreateBookmark(input: {
+    bookId: string
+    chapterId: string
+    scrollRatio: number
+    scrollTop: number
+    label: string
+    quote: string | null
+  }): void
+  pdfBookId?: string
+  pdfBookTitle?: string
 }
 
 /** 旧版本解析出的章节会把标题重复放进正文；渲染时去掉与章节标题相同的前导标题文本。 */
@@ -111,15 +124,28 @@ export function Reader({
   onAsk,
   onShareQuote,
   onListenSelection,
+  onOpenXhs,
+  positionTarget,
+  onCreateBookmark,
+  pdfBookId,
+  pdfBookTitle,
 }: ReaderProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
+  const positionTimerRef = useRef<number | null>(null)
+  const restoringRef = useRef(false)
   const [selection, setSelection] = useState<string>('')
   const [toolbar, setToolbar] = useState<{ x: number; y: number } | null>(null)
   const [echoOpen, setEchoOpen] = useState(false)
+  const [pdfOpen, setPdfOpen] = useState(false)
   const html = useMemo(() => {
     const source = chapter?.formattedHtml ?? chapter?.html
     return source ? stripDuplicateTitle(source, chapter?.title ?? '') : null
   }, [chapter?.formattedHtml, chapter?.html, chapter?.title])
+
+  const pdfPage = useMemo(() => {
+    const match = chapter?.text.match(/\[第 (\d+) 页\]/)
+    return match ? Math.max(1, Number(match[1])) : 1
+  }, [chapter?.text])
 
   const contentStyle: CSSProperties = {
     fontFamily:
@@ -145,7 +171,82 @@ export function Reader({
     setSelection('')
     setToolbar(null)
     setEchoOpen(false)
+    setPdfOpen(false)
   }, [chapter?.id])
+
+  useEffect(() => {
+    const root = containerRef.current
+    if (!root || !chapter || loading) return
+    let cancelled = false
+    restoringRef.current = true
+    root.scrollTop = 0
+    const apply = async (): Promise<void> => {
+      let ratio = 0
+      if (positionTarget && positionTarget.chapterId === chapter.id) ratio = positionTarget.ratio
+      else {
+        const position = await window.api.getReadingPosition(chapter.id).catch(() => null)
+        ratio = position?.scrollRatio ?? 0
+      }
+      if (cancelled) return
+      const max = Math.max(0, root.scrollHeight - root.clientHeight)
+      root.scrollTop = Math.max(0, Math.min(max, ratio * max))
+    }
+    const timer = window.setTimeout(() => {
+      void apply().finally(() => {
+        window.setTimeout(() => {
+          if (!cancelled) restoringRef.current = false
+        }, 90)
+      })
+    }, 60)
+    // 图片/字体可能稍后才撑开高度，再兜底恢复一次。
+    const lateTimer = window.setTimeout(() => {
+      if (!cancelled && (positionTarget?.ratio ?? 0) > 0) void apply()
+    }, 700)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+      window.clearTimeout(lateTimer)
+    }
+  }, [chapter?.id, loading, positionTarget?.chapterId, positionTarget?.key, positionTarget?.ratio])
+
+  function handleReaderScroll(): void {
+    setToolbar(null)
+    const root = containerRef.current
+    if (!root || !chapter || loading || restoringRef.current) return
+    if (positionTimerRef.current) window.clearTimeout(positionTimerRef.current)
+    const max = Math.max(0, root.scrollHeight - root.clientHeight)
+    const scrollTop = root.scrollTop
+    const ratio = max > 0 ? scrollTop / max : 0
+    const bookId = chapter.bookId
+    const chapterId = chapter.id
+    positionTimerRef.current = window.setTimeout(() => {
+      void window.api
+        .saveReadingPosition({ bookId, chapterId, scrollRatio: ratio, scrollTop })
+        .catch(() => undefined)
+    }, 350)
+  }
+
+  function bookmarkHere(): void {
+    const root = containerRef.current
+    if (!root || !chapter) return
+    const max = Math.max(0, root.scrollHeight - root.clientHeight)
+    const ratio = max > 0 ? root.scrollTop / max : 0
+    onCreateBookmark({
+      bookId: chapter.bookId,
+      chapterId: chapter.id,
+      scrollRatio: ratio,
+      scrollTop: root.scrollTop,
+      label: `${chapter.title} · ${Math.round(ratio * 100)}%`,
+      quote: selection.trim() || null,
+    })
+  }
+
+  useEffect(
+    () => () => {
+      if (positionTimerRef.current) window.clearTimeout(positionTimerRef.current)
+    },
+    [],
+  )
 
   useEffect(() => {
     const root = containerRef.current
@@ -207,7 +308,7 @@ export function Reader({
 
   return (
     <section className="reader-wrap">
-      <div className="reader" ref={containerRef} onMouseUp={handleMouseUp} onScroll={() => setToolbar(null)}>
+      <div className="reader" ref={containerRef} onMouseUp={handleMouseUp} onScroll={handleReaderScroll}>
         {loading || !chapter ? (
           <div className="reader-skeleton">
             <div className="skeleton-line wide" />
@@ -228,6 +329,11 @@ export function Reader({
                   约 {chapter.chars.toLocaleString()} 字
                 </div>
                 <div className="chapter-head-actions">
+                  {pdfBookId ? (
+                    <button type="button" className="ghost-button small" onClick={() => setPdfOpen(true)}>
+                      原版 PDF
+                    </button>
+                  ) : null}
                   {echoes.length > 0 ? (
                     <button type="button" className="ghost-button small" onClick={() => setEchoOpen(true)}>
                       回声 · {echoes.length}
@@ -235,6 +341,12 @@ export function Reader({
                   ) : null}
                   <button type="button" className="ghost-button small" onClick={onListen}>
                     听读
+                  </button>
+                  <button type="button" className="ghost-button small" onClick={onOpenXhs}>
+                    小红书
+                  </button>
+                  <button type="button" className="ghost-button small" onClick={bookmarkHere}>
+                    书签
                   </button>
                   <button type="button" className="ghost-button small" onClick={onRenameChapter}>
                     改名
@@ -367,6 +479,15 @@ export function Reader({
             复制
           </button>
         </div>
+      ) : null}
+      {pdfOpen && pdfBookId ? (
+        <PdfOriginalView
+          bookId={pdfBookId}
+          chapterId={chapter?.id ?? null}
+          title={pdfBookTitle ?? bookTitle}
+          initialPage={pdfPage}
+          onClose={() => setPdfOpen(false)}
+        />
       ) : null}
       {echoOpen && chapter ? (
         <EchoDialog

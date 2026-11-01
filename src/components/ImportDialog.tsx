@@ -23,6 +23,7 @@ export function ImportDialog({
   onHighlightsImported,
   onOcrStarted,
 }: ImportDialogProps): JSX.Element | null {
+  const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent)
   const [mode, setMode] = useState<ImportMode>('file')
   const [title, setTitle] = useState('')
   const [author, setAuthor] = useState('')
@@ -149,6 +150,19 @@ export function ImportDialog({
     }
   }
 
+  async function chooseWechatHighlights(): Promise<void> {
+    setBusy(true)
+    setError(null)
+    try {
+      const result = await window.api.importWechatHighlights({ mergeExisting: mergeHighlights })
+      if (result) onHighlightsImported(result)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function importText(): Promise<void> {
     if (!text.trim() || busy) return
     setBusy(true)
@@ -241,8 +255,14 @@ export function ImportDialog({
               <button type="button" className="primary-button" onClick={() => void chooseFile()} disabled={busy}>
                 {busy ? '正在解析…' : '选择电子书文件'}
               </button>
-              <button type="button" className="ghost-button" onClick={() => void chooseScannedPdf()} disabled={busy}>
-                扫描版 PDF（OCR）
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={() => void chooseScannedPdf()}
+                disabled={busy || !isMac}
+                title={isMac ? undefined : '扫描版 OCR 目前只支持 macOS'}
+              >
+                扫描版 PDF（OCR）{isMac ? '' : ' · 仅 macOS'}
               </button>
             </div>
             {ocrJobs.find((job) => job.status !== 'done') ? (
@@ -291,7 +311,7 @@ export function ImportDialog({
         ) : mode === 'highlights' ? (
           <section className="import-pane">
             <p className="import-hint">
-              支持 Readwise 的 CSV 导出和 Kindle 的 My Clippings.txt。每本书会建立一本独立书籍，每条划线保存为可编辑的高亮笔记。
+              支持 Readwise 的 CSV 导出、Kindle 的 My Clippings.txt，以及微信读书复制的笔记文本或 HTML 导出。每本书会建立一本独立书籍，每条划线保存为可编辑的高亮笔记。
             </p>
             <Checkbox
               checked={mergeHighlights}
@@ -302,11 +322,16 @@ export function ImportDialog({
               <button type="button" className="primary-button" onClick={() => void chooseHighlights()} disabled={busy}>
                 {busy ? '正在整理划线…' : '选择划线文件'}
               </button>
+              <button type="button" className="ghost-button" onClick={() => void chooseWechatHighlights()} disabled={busy}>
+                导入微信读书笔记
+              </button>
               <button type="button" className="ghost-button" onClick={() => void syncReadwise()} disabled={busy}>
                 同步 Readwise
               </button>
             </div>
-            <p className="import-foot">Readwise 请选择 readwise.csv 或先在设置里配置 Token 后直接同步；Kindle 请选择 My Clippings.txt。重复划线会自动去重；不勾选合并时会为每本书建立新书。</p>
+            <p className="import-foot">
+              微信读书：在 App 的笔记页复制笔记，或导出为 .txt / .md / .html 后选择文件；支持书名、作者、章节标题和「想法 / 笔记」。Readwise 请选择 readwise.csv 或先在设置里配置 Token 后直接同步；Kindle 请选择 My Clippings.txt。重复划线会自动去重；不勾选合并时会为每本书建立新书。
+            </p>
           </section>
         ) : (
           <section className="import-pane">
@@ -314,7 +339,7 @@ export function ImportDialog({
               网页地址
               <input value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://example.com/article" autoFocus />
             </label>
-            <p className="import-hint">会抓取网页正文，去掉导航和广告；只保存正文文本，不下载图片。也可以直接导入本地 HTML 文件。</p>
+            <p className="import-hint">会抓取网页正文，去掉导航和广告，并把正文图片下载到本地；失败的图片会跳过。也可以直接导入本地 HTML 文件。</p>
             <div className="import-actions">
               <span className="muted">只支持公开的 http / https 页面</span>
               <button type="button" className="primary-button" onClick={() => void importUrl()} disabled={busy || !url.trim()}>
@@ -324,7 +349,7 @@ export function ImportDialog({
           </section>
         )}
 
-        {error ? <div className="inline-error">{error}</div> : null}
+        {error ? <div className="inline-error" role="alert">{error}</div> : null}
       </div>
     </div>
   )

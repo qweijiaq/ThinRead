@@ -28,6 +28,7 @@ interface BookComposeProps {
   onBack(): void
   onOpenChapter(chapterId: string): void
   onShareBook(): void
+  onOpenXhsBook(): void
   onSplitBook(): void
 }
 
@@ -98,6 +99,7 @@ export function BookCompose({
   onBack,
   onOpenChapter,
   onShareBook,
+  onOpenXhsBook,
   onSplitBook,
 }: BookComposeProps): JSX.Element {
   const visible = useMemo(() => chapters.filter((chapter) => !chapter.hidden), [chapters])
@@ -120,7 +122,7 @@ export function BookCompose({
   const [selectedVersion, setSelectedVersion] = useState('')
   const [editing, setEditing] = useState(false)
   const [dirty, setDirty] = useState(false)
-  const [busyAction, setBusyAction] = useState<'copy' | 'markdown' | 'html' | 'save' | null>(null)
+  const [busyAction, setBusyAction] = useState<'copy' | 'markdown' | 'html' | 'pdf' | 'save' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [chaptersCollapsed, setChaptersCollapsed] = useState(false)
@@ -160,6 +162,9 @@ export function BookCompose({
   const generatedChapters = visible.length - missing
   const totalCards = notes.filter((note) => note.kind === 'point' || note.kind === 'claim').length
   const sourceChars = [...condensedByChapter.values()].reduce((sum, note) => sum + note.content.length, 0)
+  const pendingChapters = visible.filter((chapter) => !condensedByChapter.has(chapter.id))
+  const pendingChars = pendingChapters.reduce((sum, chapter) => sum + chapter.chars, 0)
+  const mergeBatches = Math.max(1, Math.ceil(sourceChars / 7000) + 1)
 
   useEffect(() => {
     let cancelled = false
@@ -430,28 +435,49 @@ export function BookCompose({
     }
   }
 
+  async function buildShareHtml(): Promise<string> {
+    const { bookDescription, buildBookBlogHtml } = await import('../lib/blog-export.js')
+    const { renderPublishCover } = await import('../lib/publish-cover.js')
+    const date = todayStamp()
+    return buildBookBlogHtml({
+      bookTitle: book.title,
+      author: book.author,
+      markdown: article,
+      date,
+      coverSrc: renderPublishCover({
+        title: result?.title || book.title,
+        author: book.author,
+        date,
+        description: bookDescription(article, 140),
+      }),
+    })
+  }
+
   async function exportHtml(): Promise<void> {
     if (!article.trim()) return
     setBusyAction('html')
     setError(null)
     try {
-      const { bookDescription, buildBookBlogHtml, bookHtmlFilename } = await import('../lib/blog-export.js')
-      const { renderPublishCover } = await import('../lib/publish-cover.js')
-      const date = todayStamp()
-      const html = buildBookBlogHtml({
-        bookTitle: book.title,
-        author: book.author,
-        markdown: article,
-        date,
-        coverSrc: renderPublishCover({
-          title: result?.title || book.title,
-          author: book.author,
-          date,
-          description: bookDescription(article, 140),
-        }),
-      })
+      const { bookHtmlFilename } = await import('../lib/blog-export.js')
+      const html = await buildShareHtml()
       const saved = await window.api.saveHtml(bookHtmlFilename(book.title), html)
       if (saved.saved) setNotice(`分享页已导出到 ${saved.path}`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusyAction(null)
+    }
+  }
+
+  async function exportPdf(): Promise<void> {
+    if (!article.trim()) return
+    setBusyAction('pdf')
+    setError(null)
+    try {
+      const { bookPdfFilename } = await import('../lib/blog-export.js')
+      const html = await buildShareHtml()
+      const saved = await window.api.savePdf(bookPdfFilename(book.title), html)
+      if (saved.saved) setNotice(`排版 PDF 已导出到 ${saved.path}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -500,11 +526,14 @@ export function BookCompose({
           <button type="button" className="ghost-button small" onClick={onShareBook}>
             分享这本书
           </button>
+          <button type="button" className="ghost-button small" onClick={onOpenXhsBook}>
+            小红书图文
+          </button>
         </div>
       </div>
 
-      {error ? <div className="inline-error">{error}</div> : null}
-      {notice ? <div className="inline-notice">{notice}</div> : null}
+      {error ? <div className="inline-error" role="alert">{error}</div> : null}
+      {notice ? <div className="inline-notice" role="status" aria-live="polite">{notice}</div> : null}
 
       <div className={`compose-grid${chaptersCollapsed ? ' is-chapters-collapsed' : ''}`}>
         <section className="compose-chapters">
@@ -754,8 +783,20 @@ export function BookCompose({
           </div>
 
           {missing > 0 ? (
-            <p className="compose-warning">还有 {missing} 节没有读薄稿；现在合并只会使用已生成的 {generatedChapters} 节。</p>
+            <p className="compose-warning">
+              还有 {missing} 节没有读薄稿；现在合并只会使用已生成的 {generatedChapters} 节。
+            </p>
           ) : null}
+          {missing > 0 && generatedChapters > 0 ? (
+            <p className="compose-resume">
+              已完成 {generatedChapters} 节，还有 {missing} 节未完成。已生成的笔记已经保存在本地，点「生成未完成章节」会从缺口继续，不会重跑已完成章节。
+            </p>
+          ) : null}
+          <p className="compose-estimate">
+            预计 {missing} 次章节生成
+            {pendingChars > 0 ? `（约 ${pendingChars.toLocaleString()} 字原文）` : ''} · 合并约 {mergeBatches} 次请求。
+            实际 token 和费用取决于模型；长书会按章节串行执行，期间可以取消。
+          </p>
           {sourceChars > 0 ? (
             <p className="compose-target-hint">
               当前读薄稿 {sourceChars.toLocaleString()} 字，
@@ -852,11 +893,17 @@ export function BookCompose({
                 <button type="button" className="ghost-button small" onClick={() => void exportHtml()} disabled={busyAction === 'html'}>
                   {busyAction === 'html' ? '导出中…' : '导出博客分享页'}
                 </button>
+                <button type="button" className="ghost-button small" onClick={() => void exportPdf()} disabled={busyAction === 'pdf'}>
+                  {busyAction === 'pdf' ? '排版中…' : '导出排版 PDF'}
+                </button>
                 <button type="button" className="ghost-button small" onClick={() => setPublishOpen(true)}>
                   发布包
                 </button>
                 <button type="button" className="ghost-button small" onClick={onShareBook}>
                   分享卡
+                </button>
+                <button type="button" className="ghost-button small" onClick={onOpenXhsBook}>
+                  小红书图文
                 </button>
               </div>
             </div>

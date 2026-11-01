@@ -132,6 +132,20 @@ export interface Note {
   updatedAt: string
 }
 
+/** 写入数据库前的 AI 笔记；id、作者和时间由存储层补齐。 */
+export interface GeneratedNote {
+  kind: NoteKind
+  title: string
+  content: string
+  quote: string | null
+  quoteVerified: boolean
+  tags: string[]
+  section?: string | null
+  importance?: number | null
+  role?: string | null
+  divergences?: NoteDivergence[]
+}
+
 export interface TokenUsage {
   inputTokens: number
   outputTokens: number
@@ -189,12 +203,28 @@ export interface LibraryNote extends Note {
   chapterTitle: string | null
 }
 
+export interface TrashedNote {
+  id: string
+  title: string
+  kind: NoteKind
+  preview: string
+  bookTitle: string
+  chapterTitle: string | null
+  deletedAt: string
+}
+
 export interface LibraryFilter {
   bookId?: string | null
   tag?: string | null
   kind?: NoteKind | null
   query?: string
   limit?: number
+  offset?: number
+}
+
+export interface PageResult<T> {
+  items: T[]
+  total: number
 }
 
 export interface TagCount {
@@ -432,6 +462,9 @@ export interface ContentFilter {
   favorite?: boolean
   status?: 'active' | ContentStatus | 'all'
   limit?: number
+  offset?: number
+  /** 全文索引给出的候选 id；只在主进程内部使用。 */
+  ids?: string[]
 }
 
 export type ContentApplyAction = 'note' | 'source' | 'current'
@@ -590,6 +623,7 @@ export interface SettingsView {
   composeModel: string
   labModel: string
   readwiseConfigured: boolean
+  beatraConfigured: boolean
 }
 
 export interface SettingsPatch {
@@ -602,6 +636,7 @@ export interface SettingsPatch {
   composeModel?: string
   labModel?: string
   readwiseToken?: string
+  beatraToken?: string
 }
 
 export interface TestResult {
@@ -669,6 +704,72 @@ export interface SaveFileResult {
   path: string | null
 }
 
+export interface SaveImagesResult {
+  saved: boolean
+  path: string | null
+  count: number
+}
+
+export interface ReadingPositionRecord {
+  chapterId: string
+  bookId: string
+  scrollRatio: number
+  scrollTop: number
+  page: number | null
+  updatedAt: string
+}
+
+export interface ReadingPositionInput {
+  bookId: string
+  chapterId: string
+  scrollRatio: number
+  scrollTop: number
+  page?: number | null
+}
+
+export interface ReadingBookmark {
+  id: string
+  bookId: string
+  chapterId: string
+  chapterTitle: string
+  scrollRatio: number
+  scrollTop: number
+  page: number | null
+  label: string
+  quote: string | null
+  createdAt: string
+}
+
+export interface ReadingBookmarkDraft {
+  bookId: string
+  chapterId: string
+  scrollRatio: number
+  scrollTop: number
+  page?: number | null
+  label: string
+  quote?: string | null
+}
+
+export interface XhsCoverageMissing {
+  id: string
+  chapterId: string | null
+  chapterTitle: string | null
+  point: string
+  evidence: string
+}
+
+export interface XhsCoverageAudit {
+  missing: XhsCoverageMissing[]
+  checkedChapters: number
+  note: string
+}
+
+export interface XhsCoverageRequest {
+  bookId: string
+  chapterId?: string | null
+  cards: Array<{ title: string; content: string; chapterTitle: string | null }>
+}
+
 export type BackupKind = 'auto' | 'manual'
 
 export interface BackupInfo {
@@ -694,6 +795,45 @@ export interface SearchResult {
   /** 语义检索追加的笔记结果。 */
   source?: 'keyword' | 'semantic'
   score?: number
+}
+
+export type TtsEngine = 'system' | 'edge' | 'kokoro' | 'beatra'
+
+export interface TtsVoice {
+  id: string
+  label: string
+  language: string
+  gender?: 'female' | 'male' | 'unknown'
+}
+
+export interface TtsStatus {
+  edge: {
+    online: boolean
+    voices: TtsVoice[]
+  }
+  kokoro: {
+    ready: boolean
+    path: string
+    voices: TtsVoice[]
+    missing: string[]
+    modelFile: string | null
+    downloadUrl: string
+  }
+  beatra: {
+    configured: boolean
+  }
+}
+
+export interface TtsSynthesisRequest {
+  engine: 'edge' | 'kokoro' | 'beatra'
+  text: string
+  voice: string
+  rate: number
+}
+
+export interface TtsAudio {
+  mime: string
+  base64: string
 }
 
 export interface GenerationProgress {
@@ -730,6 +870,8 @@ export interface GenerationErrorEvent {
 export interface BookFormatOptions {
   /** 只处理还没有 AI 排版结果的章节；默认 false。 */
   onlyMissing?: boolean
+  /** 只重试这些章节；不传表示全部可见章节。 */
+  chapterIds?: string[]
 }
 
 export interface BookFormatProgress {
@@ -754,6 +896,8 @@ export interface BookFormatDoneEvent {
 export interface BookGenerationOptions {
   /** 只补还没有读薄稿的章节；默认 true。 */
   onlyMissing?: boolean
+  /** 只重试这些章节；不传表示全部可见章节。 */
+  chapterIds?: string[]
 }
 
 export interface BookGenerationChapter {
@@ -827,6 +971,7 @@ export interface ReadingApi {
   syncReadwise(): Promise<HighlightImportResult>
   testReadwise(token?: string): Promise<TestResult>
   importHighlights(options?: HighlightImportOptions): Promise<HighlightImportResult | null>
+  importWechatHighlights(options?: HighlightImportOptions): Promise<HighlightImportResult | null>
   openBook(bookId: string): Promise<{ book: BookSummary; chapters: ChapterMeta[]; style: ReaderStyle }>
   renameBook(bookId: string, title: string): Promise<BookSummary>
   setBookGenre(bookId: string, genre: BookGenre): Promise<BookSummary>
@@ -853,12 +998,30 @@ export interface ReadingApi {
   listNotes(bookId: string, chapterId?: string | null): Promise<Note[]>
   listRelatedNotes(bookId: string, tags: string[], queryText?: string): Promise<RelatedNote[]>
   listLibraryNotes(filter?: LibraryFilter): Promise<LibraryNote[]>
+  listLibraryNotesPage(filter?: LibraryFilter): Promise<PageResult<LibraryNote>>
   listLibraryTags(bookId?: string | null): Promise<TagCount[]>
   askChapter(chapterId: string, question: string, history: ChatTurn[], mode: ChatMode): Promise<ChatAnswer>
+  askChapterStream(
+    chapterId: string,
+    question: string,
+    history: ChatTurn[],
+    mode: ChatMode,
+    onDelta: (text: string) => void,
+  ): Promise<ChatAnswer>
   evaluateExplanation(chapterId: string, explanation: string): Promise<FeynmanResult>
+  evaluateExplanationStream(
+    chapterId: string,
+    explanation: string,
+    onDelta: (text: string) => void,
+  ): Promise<FeynmanResult>
   getKnowledgeMap(): Promise<KnowledgeMapData>
   runLab(request: LabRequest): Promise<LabReport>
   labChat(request: LabRequest, history: ChatTurn[]): Promise<LabChatAnswer>
+  labChatStream(
+    request: LabRequest,
+    history: ChatTurn[],
+    onDelta: (text: string) => void,
+  ): Promise<LabChatAnswer>
   marginNote(chapterId: string, quote: string): Promise<LabReport>
   generateQuiz(chapterId: string): Promise<LabQuiz>
   checkQuizAnswer(chapterId: string, question: string, answer: string): Promise<LabAnswerCheck>
@@ -867,6 +1030,20 @@ export interface ReadingApi {
   findDuplicateNotes(): Promise<LabDuplicatePair[]>
   mergeNotes(keepId: string, mergeId: string): Promise<Note>
   saveImage(dataUrl: string, defaultName: string): Promise<SaveFileResult>
+  saveImages(images: Array<{ dataUrl: string; name: string }>, defaultDirName: string): Promise<SaveImagesResult>
+  saveAudio(base64: string, defaultName: string): Promise<SaveFileResult>
+  getReadingPosition(chapterId: string): Promise<ReadingPositionRecord | null>
+  saveReadingPosition(input: ReadingPositionInput): Promise<void>
+  saveReadingPage(chapterId: string, bookId: string, page: number): Promise<void>
+  listBookmarks(bookId: string): Promise<ReadingBookmark[]>
+  createBookmark(input: ReadingBookmarkDraft): Promise<ReadingBookmark>
+  deleteBookmark(id: string): Promise<void>
+  restoreNote(noteId: string): Promise<Note | null>
+  listTrashedNotes(): Promise<TrashedNote[]>
+  purgeTrashedNote(noteId: string): Promise<void>
+  emptyNoteTrash(): Promise<number>
+  auditXhsCoverage(input: XhsCoverageRequest): Promise<XhsCoverageAudit>
+  cancelLab(): Promise<void>
   analyzePdfPage(bookId: string, page: number): Promise<LabReport>
   generateRelationGraph(bookId: string): Promise<RelationGraph>
   getLabArtifact(tool: string, scope?: string): Promise<LabArtifact | null>
@@ -886,6 +1063,7 @@ export interface ReadingApi {
     patch: { title?: string; content?: string; meta?: string | null },
   ): Promise<LabArtifact>
   listContent(filter?: ContentFilter): Promise<ContentItem[]>
+  listContentPage(filter?: ContentFilter): Promise<PageResult<ContentItem>>
   getContent(id: string): Promise<ContentItem | null>
   setContentFavorite(id: string, favorite: boolean): Promise<ContentItem>
   setContentStatus(id: string, status: ContentStatus): Promise<ContentItem>
@@ -900,6 +1078,7 @@ export interface ReadingApi {
   composeBook(bookId: string, options: BookComposeOptions): Promise<BookComposeResult>
   cancelBookCompose(): Promise<void>
   saveHtml(defaultName: string, content: string): Promise<SaveFileResult>
+  savePdf(defaultName: string, html: string): Promise<SaveFileResult>
   saveBinary(defaultName: string, base64: string): Promise<SaveFileResult>
   copyImage(dataUrl: string): Promise<void>
   expandNote(noteId: string): Promise<Note>
@@ -916,6 +1095,13 @@ export interface ReadingApi {
   exportBackup(id: string): Promise<SaveFileResult>
   copyText(text: string): Promise<void>
   saveMarkdown(defaultName: string, content: string): Promise<SaveFileResult>
+  readBookFile(bookId: string): Promise<Uint8Array>
+  getTtsStatus(): Promise<TtsStatus>
+  synthesizeTts(request: TtsSynthesisRequest): Promise<TtsAudio>
+  getBeatraVoices(): Promise<TtsVoice[]>
+  testBeatra(token?: string): Promise<TestResult>
+  importBeatraCredential(): Promise<TestResult>
+  openKokoroDir(): Promise<void>
   search(query: string): Promise<SearchResult[]>
   searchSemantic(query: string): Promise<SearchResult[]>
   onGenerationPartial(cb: (event: GenerationPartialEvent) => void): () => void
