@@ -2,6 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-2ea44f)](LICENSE)
 [![Platform: macOS](https://img.shields.io/badge/platform-macOS-lightgrey)](#安装与构建)
+[![Release](https://img.shields.io/github/v/release/qweijiaq/ThinRead?label=release)](https://github.com/qweijiaq/ThinRead/releases)
 [![CI](https://github.com/qweijiaq/ThinRead/actions/workflows/ci.yml/badge.svg)](https://github.com/qweijiaq/ThinRead/actions/workflows/ci.yml)
 
 **把一本书读薄成能发布的稿子，而不是再堆一堆划线。**
@@ -35,7 +36,7 @@ pnpm dev
 
 没有书？导入 [samples/sample.epub](samples/sample.epub)（两章示例书）。要接真实模型，见下面的「接模型」。
 
-> 当前从源码运行；macOS 安装包尚未发布。发布流程只构建 macOS 未签名版本，不签名、不公证。
+> macOS 安装包已发布在 [Releases](https://github.com/qweijiaq/ThinRead/releases)；只构建 macOS 未签名版本，不签名、不公证。
 
 ## 和同类工具的区别
 
@@ -559,20 +560,21 @@ README 里的产品截图放在 `docs/`，Storybook 视觉基线放在 `storyboo
 
 ## 安装包与 Release
 
-当前没有已发布的安装包，macOS 未签名构建会放在 [Releases](https://github.com/qweijiaq/ThinRead/releases)。在发布前请先按上面的源码方式运行；发布版本不做签名和公证。
+最新 macOS 未签名安装包见 [Releases](https://github.com/qweijiaq/ThinRead/releases)。当前提供 arm64 DMG/ZIP；发布版本不做签名和公证，首次打开需要在系统设置里手动允许。
 
 ## Roadmap
 
 - [x] 本地优先的 EPUB/PDF/MOBI/网页导入、读薄、卡片、跨书回声和知识地图
 - [x] 章节问答、费曼自测、AI 工作台、分享卡、小红书图文、Markdown/HTML/PDF 导出
 - [x] zod 边界校验、版本化 SQLite 迁移、AI trace、固定样例评测和 Storybook 视觉基线
-- [ ] macOS 未签名安装包、30–60 秒演示 GIF
+- [x] macOS 未签名安装包（v0.1.0）
+- [ ] 30–60 秒演示 GIF
 - [ ] 英文 README 和更完整的同类工具对比
 - [ ] Windows/Linux 实机验证（暂时不做）
 
 ## 更新记录
 
-- **2026-11-01**：补充笔记回收站、PDF 页码记忆、AI 流式回答、持久化搜索索引、MIT License 和 macOS-only 发布流程；增加 DeepSeek 固定样例评测与无障碍检查。
+- **2026-11-01**：发布 v0.1.0 macOS arm64 未签名安装包；补充笔记回收站、PDF 页码记忆、AI 流式回答、持久化搜索索引、MIT License 和 macOS-only 发布流程；增加 DeepSeek 固定样例评测与无障碍检查。
 
 ## 反馈
 
