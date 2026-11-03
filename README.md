@@ -592,7 +592,7 @@ README 里的产品截图放在 `docs/`，Storybook 视觉基线放在 `storyboo
 
 ## 安装包与 Release
 
-最新 macOS 未签名安装包见 [Releases](https://github.com/qweijiaq/ThinRead/releases)。当前 v0.1.1 是内测预发布，提供 arm64 app zip 和完整内测 bundle；不做签名和公证，首次打开需要在系统设置里手动允许。v0.1.0 是第一个公开安装包。
+最新 macOS 未签名安装包见 [Releases](https://github.com/qweijiaq/ThinRead/releases)。当前 v0.1.2 是内测预发布，提供 arm64 app zip 和完整内测 bundle；不做签名和公证，首次打开需要在系统设置里手动允许。v0.1.0 是第一个公开安装包。
 
 推送 `v*` tag 的发布流程有一道硬门禁：先跑 `pnpm typecheck`、`pnpm test`、渲染层与 PDF 冒烟，并校验 tag 与 `package.json` 的版本号一致，通过后才复用同一份构建产物打包。发布 job 会上传 dmg、zip 和 blockmap（增量更新需要）。
 
@@ -604,13 +604,14 @@ README 里的产品截图放在 `docs/`，Storybook 视觉基线放在 `storyboo
 - [x] 章节问答、费曼自测、AI 工作台、分享卡、小红书图文、Markdown/HTML/PDF 导出
 - [x] zod 边界校验、版本化 SQLite 迁移、AI trace、固定样例评测和 Storybook 视觉基线
 - [x] macOS 未签名安装包（v0.1.0）
-- [x] v0.1.1 内测包（圆角图标、首次引导、成本确认、内嵌手册）
+- [x] v0.1.2 内测包（文章复制全文；0.1.1 加入圆角图标、首次引导、成本确认、内嵌手册）
 - [ ] 30–60 秒演示 GIF
 - [ ] 英文 README 和更完整的同类工具对比
 - [ ] Windows/Linux 实机验证（暂时不做）
 
 ## 更新记录
 
+- **2026-11-03**：发布 v0.1.2 macOS arm64 内测预发布包，为章节、读薄稿、成书、报告、周复盘等文章加入「复制全文」。
 - **2026-11-03**：发布 v0.1.1 macOS arm64 内测预发布包，加入首次引导、成本确认、内嵌手册和圆角图标。
 - **2026-11-01**：发布 v0.1.0 macOS arm64 未签名安装包；补充笔记回收站、PDF 页码记忆、AI 流式回答、持久化搜索索引、MIT License 和 macOS-only 发布流程；增加 DeepSeek 固定样例评测与无障碍检查。
 - **2026-11-01（main）**：增加章节回收站、崩溃安全任务恢复、笔记依据核查、关键词/语义 RRF 融合搜索、发布包 BibTeX/RIS/APA 引用、`thinread://` 深链和打包产物冒烟。
