@@ -47,7 +47,7 @@ function measure() {
   return { canvas, ctx: ctx as unknown as CanvasRenderingContext2D }
 }
 
-test('packs all chapter knowledge points exactly once and splits long cards', () => {
+test('packs all chapter knowledge points exactly once and summarizes long cards', () => {
   const { ctx } = measure()
   const long = `长卡片。${'这是一个需要继续写下去的知识点，'.repeat(120)}最后一句。`
   const notes = [
@@ -71,8 +71,8 @@ test('packs all chapter knowledge points exactly once and splits long cards', ()
   assert.equal(plan.pages.at(-1)?.kind, 'closing')
   const ids = plan.pages.flatMap((page) => page.parts.map((part) => part.cardId))
   assert.deepEqual(new Set(ids), new Set(['n1', 'n2', 'n3']))
-  assert.equal(ids.filter((id) => id === 'n2').length > 1, true)
-  assert.ok(plan.pages.some((page) => page.parts.some((part) => part.continuation)))
+  assert.equal(ids.filter((id) => id === 'n2').length, 1)
+  assert.ok(plan.pages.every((page) => page.parts.every((part) => part.bodyLines.join('').length <= 200)))
 })
 
 test('orders book pages by chapter and skips hidden chapters', () => {
@@ -117,4 +117,26 @@ test('renders cover, content and closing pages at 1080 x 1440', () => {
     assert.equal(canvas.width, 1080)
     assert.equal(canvas.height, 1440)
   }
+})
+
+test('concise mode keeps only three cards', () => {
+  const { ctx } = measure()
+  const notes = Array.from({ length: 6 }, (_, index) =>
+    note(`n${index}`, `知识点 ${index}`, `这是第 ${index} 个知识点的内容，用来测试精简模式。`),
+  )
+  const plan = planXhsCarousel({
+    scope: 'chapter',
+    bookTitle: '认知之书',
+    author: '作者',
+    chapterTitle: '第一章 认知',
+    chapters: CHAPTERS,
+    notes,
+    concise: true,
+    measure: ctx,
+  })
+  assert.equal(plan.totalCards, 3)
+  assert.deepEqual(
+    plan.pages.flatMap((page) => page.parts.map((part) => part.cardId)),
+    ['n0', 'n1', 'n2'],
+  )
 })

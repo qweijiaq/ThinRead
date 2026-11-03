@@ -1,3 +1,5 @@
+import type { DeepLinkTarget } from './deep-link.js'
+
 export type BookFormat = 'epub' | 'pdf' | 'pdf-ocr' | 'mobi' | 'url' | 'text'
 
 /** 书籍体裁只作为生成提示，不限制任何功能。 */
@@ -85,6 +87,8 @@ export interface ReaderStyle {
   paragraphSpacing: number
   indent: boolean
   theme: 'paper' | 'plain' | 'warm' | 'folio'
+  /** 正文版心最大宽度（px）。 */
+  maxWidth: number
 }
 
 export const DEFAULT_READER_STYLE: ReaderStyle = {
@@ -94,6 +98,7 @@ export const DEFAULT_READER_STYLE: ReaderStyle = {
   paragraphSpacing: 1.15,
   indent: false,
   theme: 'folio',
+  maxWidth: 760,
 }
 
 export interface RemovedPart {
@@ -152,6 +157,22 @@ export interface TokenUsage {
   totalTokens: number
 }
 
+export type GenerationStage =
+  | 'condense'
+  | 'audit-fidelity'
+  | 'audit-details'
+  | 'extract-cards'
+  | 'refilter-cards'
+  | 'expand-cards'
+
+/** 生成过程中失败的步骤；有内容说明这次结果是降级的，不能当成完整结果。 */
+export interface DegradedStep {
+  stage: GenerationStage
+  failed: number
+  total?: number
+  message?: string
+}
+
 export interface NoteReport {
   originalChars: number
   condensedChars: number
@@ -171,8 +192,23 @@ export interface NoteReport {
   /** 本次生成累计的模型 token；旧报告可能没有。 */
   usage?: TokenUsage
   promptVersion?: string
+  /** 本次直接复用了内容哈希缓存，没有调用模型。 */
+  cached?: boolean
+  /** 缓存命中时省下的 token。 */
+  cachedTokens?: number
+  /** 失败的生成步骤；空表示完整生成。 */
+  degraded?: DegradedStep[]
   model: string
   createdAt: string
+}
+
+/** 渲染层崩溃/未捕获异常上报；只用于写本地日志，不联网。 */
+export interface RendererErrorReport {
+  scope: string
+  message: string
+  stack?: string | null
+  componentStack?: string | null
+  url?: string | null
 }
 
 export interface RelatedNote {
@@ -211,6 +247,33 @@ export interface TrashedNote {
   bookTitle: string
   chapterTitle: string | null
   deletedAt: string
+}
+
+export interface TrashedChapter {
+  id: string
+  title: string
+  bookId: string
+  bookTitle: string
+  noteCount: number
+  deletedAt: string
+}
+
+export interface BackgroundTaskTarget {
+  id: string
+  title: string
+}
+
+export interface BackgroundTaskRecord {
+  id: string
+  kind: 'notes' | 'format'
+  bookId: string
+  targets: BackgroundTaskTarget[]
+  status: 'running' | 'paused' | 'done' | 'error' | 'cancelled'
+  done: number
+  total: number
+  failures: Array<{ chapterId: string; title: string; message: string }>
+  createdAt: string
+  updatedAt: string
 }
 
 export interface LibraryFilter {
@@ -624,6 +687,11 @@ export interface SettingsView {
   labModel: string
   readwiseConfigured: boolean
   beatraConfigured: boolean
+  openaiTtsConfigured: boolean
+  openaiTtsBaseUrl: string
+  openaiTtsModel: string
+  openaiTtsVoiceA: string
+  openaiTtsVoiceB: string
 }
 
 export interface SettingsPatch {
@@ -637,6 +705,11 @@ export interface SettingsPatch {
   labModel?: string
   readwiseToken?: string
   beatraToken?: string
+  openaiTtsBaseUrl?: string
+  openaiTtsModel?: string
+  openaiTtsVoiceA?: string
+  openaiTtsVoiceB?: string
+  openaiTtsKey?: string
 }
 
 export interface TestResult {
@@ -797,7 +870,7 @@ export interface SearchResult {
   score?: number
 }
 
-export type TtsEngine = 'system' | 'edge' | 'kokoro' | 'beatra'
+export type TtsEngine = 'system' | 'edge' | 'beatra' | 'openai'
 
 export interface TtsVoice {
   id: string
@@ -811,21 +884,20 @@ export interface TtsStatus {
     online: boolean
     voices: TtsVoice[]
   }
-  kokoro: {
-    ready: boolean
-    path: string
-    voices: TtsVoice[]
-    missing: string[]
-    modelFile: string | null
-    downloadUrl: string
-  }
   beatra: {
     configured: boolean
+  }
+  openai: {
+    configured: boolean
+    baseUrl: string
+    model: string
+    voiceA: string
+    voiceB: string
   }
 }
 
 export interface TtsSynthesisRequest {
-  engine: 'edge' | 'kokoro' | 'beatra'
+  engine: 'edge' | 'beatra' | 'openai'
   text: string
   voice: string
   rate: number
@@ -959,6 +1031,23 @@ export interface AppInfo {
   demo: boolean
 }
 
+export interface ShareCopyInput {
+  title: string
+  body: string
+  kind?: string
+}
+
+export interface ShareCopyResult {
+  title: string
+  points: string[]
+  note?: string
+}
+
+export interface GenerateNotesOptions {
+  /** 忽略缓存，强制重新调用模型。 */
+  fresh?: boolean
+}
+
 export interface ReadingApi {
   listBooks(): Promise<BookSummary[]>
   importBook(): Promise<BookSummary | null>
@@ -973,7 +1062,7 @@ export interface ReadingApi {
   importHighlights(options?: HighlightImportOptions): Promise<HighlightImportResult | null>
   importWechatHighlights(options?: HighlightImportOptions): Promise<HighlightImportResult | null>
   openBook(bookId: string): Promise<{ book: BookSummary; chapters: ChapterMeta[]; style: ReaderStyle }>
-  renameBook(bookId: string, title: string): Promise<BookSummary>
+  renameBook(bookId: string, title: string, author?: string): Promise<BookSummary>
   setBookGenre(bookId: string, genre: BookGenre): Promise<BookSummary>
   renameChapter(chapterId: string, title: string): Promise<void>
   renamePart(bookId: string, partIndex: number, title: string): Promise<void>
@@ -995,12 +1084,18 @@ export interface ReadingApi {
   classifyChapters(bookId: string): Promise<ClassifyResult>
   applyChapterFlags(flags: ChapterFlag[]): Promise<void>
   deleteChapters(chapterIds: string[]): Promise<void>
+  listTrashedChapters(): Promise<TrashedChapter[]>
+  restoreTrashedChapter(chapterId: string): Promise<ChapterContent | null>
+  purgeTrashedChapter(chapterId: string): Promise<void>
+  emptyChapterTrash(): Promise<number>
+  listBackgroundTasks(): Promise<BackgroundTaskRecord[]>
+  onDeepLink(listener: (target: DeepLinkTarget) => void): () => void
+  onRelationGraphProgress(listener: (stage: 'nodes' | 'edges') => void): () => void
   listNotes(bookId: string, chapterId?: string | null): Promise<Note[]>
   listRelatedNotes(bookId: string, tags: string[], queryText?: string): Promise<RelatedNote[]>
   listLibraryNotes(filter?: LibraryFilter): Promise<LibraryNote[]>
   listLibraryNotesPage(filter?: LibraryFilter): Promise<PageResult<LibraryNote>>
   listLibraryTags(bookId?: string | null): Promise<TagCount[]>
-  askChapter(chapterId: string, question: string, history: ChatTurn[], mode: ChatMode): Promise<ChatAnswer>
   askChapterStream(
     chapterId: string,
     question: string,
@@ -1016,7 +1111,6 @@ export interface ReadingApi {
   ): Promise<FeynmanResult>
   getKnowledgeMap(): Promise<KnowledgeMapData>
   runLab(request: LabRequest): Promise<LabReport>
-  labChat(request: LabRequest, history: ChatTurn[]): Promise<LabChatAnswer>
   labChatStream(
     request: LabRequest,
     history: ChatTurn[],
@@ -1072,7 +1166,7 @@ export interface ReadingApi {
   createNote(draft: NoteDraft): Promise<Note>
   updateNote(id: string, patch: NotePatch): Promise<Note>
   deleteNote(id: string): Promise<void>
-  generateNotes(chapterId: string): Promise<void>
+  generateNotes(chapterId: string, options?: GenerateNotesOptions): Promise<void>
   generateBookNotes(bookId: string, options?: BookGenerationOptions): Promise<void>
   cancelGeneration(): Promise<void>
   composeBook(bookId: string, options: BookComposeOptions): Promise<BookComposeResult>
@@ -1093,7 +1187,10 @@ export interface ReadingApi {
   deleteBackup(id: string): Promise<void>
   openBackupsDir(): Promise<void>
   exportBackup(id: string): Promise<SaveFileResult>
+  exportDiagnostics(): Promise<SaveFileResult>
+  logRendererError(report: RendererErrorReport): Promise<void>
   copyText(text: string): Promise<void>
+  optimizeShareCopy(input: ShareCopyInput): Promise<ShareCopyResult>
   saveMarkdown(defaultName: string, content: string): Promise<SaveFileResult>
   readBookFile(bookId: string): Promise<Uint8Array>
   getTtsStatus(): Promise<TtsStatus>
@@ -1101,7 +1198,6 @@ export interface ReadingApi {
   getBeatraVoices(): Promise<TtsVoice[]>
   testBeatra(token?: string): Promise<TestResult>
   importBeatraCredential(): Promise<TestResult>
-  openKokoroDir(): Promise<void>
   search(query: string): Promise<SearchResult[]>
   searchSemantic(query: string): Promise<SearchResult[]>
   onGenerationPartial(cb: (event: GenerationPartialEvent) => void): () => void

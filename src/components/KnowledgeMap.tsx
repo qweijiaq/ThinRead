@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX, type MouseEvent as ReactMouseEvent } from 'react'
+
+import { t, useLocale } from '../lib/i18n.js'
 import {
   Background,
   BackgroundVariant,
@@ -134,7 +136,7 @@ function MapNodeView({ data }: NodeProps): JSX.Element {
               {node.label}
             </text>
             <text className="map-book-count" x={center} y={center + radius + 30}>
-              {node.noteCount ?? 0} 条笔记
+              {node.noteCount ?? 0} {t('条笔记')}
             </text>
           </>
         ) : (
@@ -198,6 +200,7 @@ function readMapPositions(): Record<string, { x: number; y: number }> {
 }
 
 export function KnowledgeMap({ books, onBack, onOpenNote, onOpenBook }: KnowledgeMapProps): JSX.Element {
+  useLocale()
   const [mode, setMode] = useState<'map' | 'relation'>('map')
   const [relationBookId, setRelationBookId] = useState(
     books.find((book) => book.chapterCount > 0)?.id ?? '',
@@ -608,7 +611,7 @@ export function KnowledgeMap({ books, onBack, onOpenNote, onOpenBook }: Knowledg
     const text = mermaidFence(knowledgeMapToMermaid(data))
     try {
       await window.api.copyText(text)
-      setMapNotice('Mermaid 已复制')
+      setMapNotice(t('Mermaid 已复制'))
       window.setTimeout(() => setMapNotice(null), 1800)
     } catch {
       try {
@@ -623,7 +626,7 @@ export function KnowledgeMap({ books, onBack, onOpenNote, onOpenBook }: Knowledg
         document.execCommand('copy')
         area.remove()
       }
-      setMapNotice('Mermaid 已复制')
+      setMapNotice(t('Mermaid 已复制'))
       window.setTimeout(() => setMapNotice(null), 1800)
     }
   }
@@ -636,10 +639,10 @@ export function KnowledgeMap({ books, onBack, onOpenNote, onOpenBook }: Knowledg
       const result = await exportFlowImage({
         root: stageRef.current,
         nodes: flowRef.current?.getNodes() ?? [],
-        filename: graphImageFilename('知识地图'),
+        filename: graphImageFilename(t('知识地图')),
       })
       if (result.saved) {
-        setMapNotice(`已保存到 ${result.path ?? '图片'}`)
+        setMapNotice(`${t('已保存到')} ${result.path ?? t('图片')}`)
         window.setTimeout(() => setMapNotice(null), 2400)
       }
     } catch (err) {
@@ -693,24 +696,24 @@ export function KnowledgeMap({ books, onBack, onOpenNote, onOpenBook }: Knowledg
     <main className="map-view">
       <div className="map-header">
         <div>
-          <h1>{mode === 'map' ? '知识地图' : '人物关系'}</h1>
+          <h1>{mode === 'map' ? t('知识地图') : t('人物关系')}</h1>
           <p>
             {mode === 'map' ? (
               <>
-                {conceptCount} 个概念 · {bookOptions.length} 本书 · {crossConceptCount} 个跨书概念 · {data?.displayedNotes ?? 0} 条带标签笔记
-                {data && data.totalNotes > data.displayedNotes ? `（共 ${data.totalNotes} 条）` : ''}
-                <span className="map-usage">· 点击节点查看详情 · 双击打开书 · 拖拽节点或框选</span>
+                {conceptCount} {t('个概念')} · {bookOptions.length} {t('本书')} · {crossConceptCount} {t('个跨书概念')} · {data?.displayedNotes ?? 0} {t('条带标签笔记')}
+                {data && data.totalNotes > data.displayedNotes ? `${t('（共')} ${data.totalNotes} ${t('条）')}` : ''}
+                <span className="map-usage">· {t('点击节点查看详情 · 双击打开书 · 拖拽节点或框选')}</span>
               </>
             ) : (
               <>
-                {relationBooks.length} 本书 · 按人物、组织和事件抽取关系
-                <span className="map-usage">· 选择一本书后生成关系图</span>
+                {relationBooks.length} {t('本书')} · {t('按人物、组织和事件抽取关系')}
+                <span className="map-usage">· {t('选择一本书后生成关系图')}</span>
               </>
             )}
           </p>
         </div>
         <div className="map-actions">
-          <div className="map-mode-switch" role="tablist" aria-label="地图模式">
+          <div className="map-mode-switch" role="tablist" aria-label={t('地图模式')}>
             <button
               type="button"
               role="tab"
@@ -718,7 +721,7 @@ export function KnowledgeMap({ books, onBack, onOpenNote, onOpenBook }: Knowledg
               className={mode === 'map' ? 'active' : ''}
               onClick={() => setMode('map')}
             >
-              知识地图
+              {t('知识地图')}
             </button>
             <button
               type="button"
@@ -727,11 +730,11 @@ export function KnowledgeMap({ books, onBack, onOpenNote, onOpenBook }: Knowledg
               className={mode === 'relation' ? 'active' : ''}
               onClick={() => setMode('relation')}
             >
-              人物关系
+              {t('人物关系')}
             </button>
           </div>
           <button type="button" className="ghost-button" onClick={onBack}>
-            返回
+            {t('返回')}
           </button>
           {mode === 'map' ? (
             <button
@@ -746,7 +749,7 @@ export function KnowledgeMap({ books, onBack, onOpenNote, onOpenBook }: Knowledg
                 setLayoutKey((value) => value + 1)
               }}
             >
-              重新布局
+              {t('重新布局')}
             </button>
           ) : null}
         </div>
@@ -755,18 +758,18 @@ export function KnowledgeMap({ books, onBack, onOpenNote, onOpenBook }: Knowledg
       {mode === 'relation' ? (
         <div className="map-relation">
           <div className="map-relation-toolbar">
-            <span>选择一本书</span>
+            <span>{t('选择一本书')}</span>
             <Select
               value={relationBookId}
               onChange={setRelationBookId}
-              ariaLabel="选择关系图书"
+              ariaLabel={t('选择关系图书')}
               options={relationBooks.map((book) => ({ value: book.id, label: `${book.title}${book.author ? ` · ${book.author}` : ''}` }))}
             />
           </div>
           {selectedRelationBook ? (
             <LabRelationGraph bookId={selectedRelationBook.id} bookTitle={selectedRelationBook.title} />
           ) : (
-            <p className="map-empty">书架里还没有书。先导入一本书，再来抽取人物关系。</p>
+            <p className="map-empty">{t('书架里还没有书。先导入一本书，再来抽取人物关系。')}</p>
           )}
         </div>
       ) : (
@@ -782,8 +785,8 @@ export function KnowledgeMap({ books, onBack, onOpenNote, onOpenBook }: Knowledg
               focusFirstMatch()
             }
           }}
-          placeholder="搜索概念或书名，回车定位…"
-          aria-label="搜索概念或书名"
+          placeholder={t('搜索概念或书名，回车定位…')}
+          aria-label={t('搜索概念或书名')}
         />
         <Select
           className="filter-select"
@@ -791,26 +794,26 @@ export function KnowledgeMap({ books, onBack, onOpenNote, onOpenBook }: Knowledg
           onChange={setBookFilter}
           ariaLabel="按书筛选"
           options={[
-            { value: '', label: '全部书' },
+            { value: '', label: t('全部书') },
             ...bookOptions.map((book) => ({ value: book.bookId, label: book.label })),
           ]}
         />
-        <Checkbox className="map-toggle" checked={crossOnly} onChange={setCrossOnly} label="只看跨书概念" />
+        <Checkbox className="map-toggle" checked={crossOnly} onChange={setCrossOnly} label={t('只看跨书概念')} />
         <div className="map-zoom">
-          <button type="button" onClick={() => zoomBy(1.2)} aria-label="放大">
+          <button type="button" onClick={() => zoomBy(1.2)} aria-label={t('放大')}>
             ＋
           </button>
-          <button type="button" onClick={() => zoomBy(0.83)} aria-label="缩小">
+          <button type="button" onClick={() => zoomBy(0.83)} aria-label={t('缩小')}>
             －
           </button>
-          <button type="button" onClick={fitGraph} aria-label="重置视图">
-            全图
+          <button type="button" onClick={fitGraph} aria-label={t('重置视图')}>
+            {t('全图')}
           </button>
-          <button type="button" onClick={() => void copyMermaid()} aria-label="复制 Mermaid 图">
-            复制 Mermaid
+          <button type="button" onClick={() => void copyMermaid()} aria-label={t('复制 Mermaid 图')}>
+            {t('复制 Mermaid')}
           </button>
-          <button type="button" onClick={() => void exportImage()} disabled={imageBusy} aria-label="导出地图图片">
-            {imageBusy ? '导出中…' : '导出图片'}
+          <button type="button" onClick={() => void exportImage()} disabled={imageBusy} aria-label={t('导出地图图片')}>
+            {imageBusy ? t('导出中…') : t('导出图片')}
           </button>
         </div>
         {mapNotice ? <span className="map-copy-notice" role="status">{mapNotice}</span> : null}
@@ -818,13 +821,13 @@ export function KnowledgeMap({ books, onBack, onOpenNote, onOpenBook }: Knowledg
 
       {error ? <div className="inline-error map-error">{error}</div> : null}
       {data && conceptCount === 0 ? (
-        <p className="map-hint">还没有带标签的笔记，概念图暂时为空；你仍然可以在笔记库里浏览全部笔记。</p>
+        <p className="map-hint">{t('还没有带标签的笔记，概念图暂时为空；你仍然可以在笔记库里浏览全部笔记。')}</p>
       ) : null}
 
       <div className="map-stage" ref={stageRef}>
-        {loading && !data ? <p className="map-empty">正在整理知识地图…</p> : null}
+        {loading && !data ? <p className="map-empty">{t('正在整理知识地图…')}</p> : null}
         {!loading && data && data.nodes.length === 0 ? (
-          <p className="map-empty">还没有带标签的笔记。先去读一章生成卡片，地图会从概念里长出来。</p>
+          <p className="map-empty">{t('还没有带标签的笔记。先去读一章生成卡片，地图会从概念里长出来。')}</p>
         ) : null}
         {data && data.nodes.length > 0 ? (
           <ReactFlow
@@ -862,23 +865,23 @@ export function KnowledgeMap({ books, onBack, onOpenNote, onOpenBook }: Knowledg
               nodeStrokeColor={minimapStroke}
               nodeStrokeWidth={2}
               nodeComponent={MiniMapDot}
-              ariaLabel="知识地图缩略图"
+              ariaLabel={t('知识地图缩略图')}
             />
           </ReactFlow>
         ) : null}
 
         <div className="map-legend">
           <span>
-            <i className="legend-book" /> 书
+            <i className="legend-book" /> {t('书')}
           </span>
           <span>
-            <i className="legend-concept" /> 概念
+            <i className="legend-concept" /> {t('概念')}
           </span>
           <span>
-            <i className="legend-cross" /> 跨书概念
+            <i className="legend-cross" /> {t('跨书概念')}
           </span>
           <span>
-            <i className="legend-tag" /> 概念共现
+            <i className="legend-tag" /> {t('概念共现')}
           </span>
         </div>
 
@@ -886,17 +889,17 @@ export function KnowledgeMap({ books, onBack, onOpenNote, onOpenBook }: Knowledg
           <div className="map-tooltip">
             <span className="map-tooltip-source">
               {hoveredNode.type === 'book'
-                ? `${hoveredNode.noteCount ?? 0} 条笔记`
-                : `${hoveredNode.noteCount ?? 0} 条笔记 · ${conceptBooks.get(hoveredNode.id)?.size ?? 0} 本书`}
+                ? `${hoveredNode.noteCount ?? 0} ${t('条笔记')}`
+                : `${hoveredNode.noteCount ?? 0} ${t('条笔记')} · ${conceptBooks.get(hoveredNode.id)?.size ?? 0} ${t('本书')}`}
             </span>
             <strong>{hoveredNode.label}</strong>
-            <span className="map-tooltip-open">点击查看详情</span>
+            <span className="map-tooltip-open">{t('点击查看详情')}</span>
           </div>
         ) : null}
 
         {selectedEdge ? (
           <div className="map-edge-detail" role="status">
-            <span className="map-edge-detail-kind">{EDGE_KIND_LABEL[selectedEdge.kind]}</span>
+            <span className="map-edge-detail-kind">{t(EDGE_KIND_LABEL[selectedEdge.kind])}</span>
             <span className="map-edge-detail-path">
               {selectedEdgeSource?.label ?? selectedEdge.source} → {selectedEdgeTarget?.label ?? selectedEdge.target}
             </span>
@@ -904,7 +907,7 @@ export function KnowledgeMap({ books, onBack, onOpenNote, onOpenBook }: Knowledg
               type="button"
               className="icon-button"
               onClick={() => setSelectedEdgeId(null)}
-              aria-label="关闭关系详情"
+              aria-label={t('关闭关系详情')}
             >
               ×
             </button>
@@ -916,17 +919,17 @@ export function KnowledgeMap({ books, onBack, onOpenNote, onOpenBook }: Knowledg
             <div className="map-detail-head">
               <span className="map-tooltip-source">
                 {selectedNode.type === 'book'
-                  ? `书 · ${selectedNode.noteCount ?? 0} 条笔记`
-                  : `概念 · ${selectedNode.noteCount ?? 0} 条笔记 · ${conceptBooks.get(selectedNode.id)?.size ?? 0} 本书`}
+                  ? `${t('书')} · ${selectedNode.noteCount ?? 0} ${t('条笔记')}`
+                  : `${t('概念')} · ${selectedNode.noteCount ?? 0} ${t('条笔记')} · ${conceptBooks.get(selectedNode.id)?.size ?? 0} ${t('本书')}`}
               </span>
-              <button type="button" className="icon-button" onClick={() => setSelected(null)} aria-label="关闭详情">
+              <button type="button" className="icon-button" onClick={() => setSelected(null)} aria-label={t('关闭详情')}>
                 ×
               </button>
             </div>
             <h3>{selectedNode.label}</h3>
             {selectedNode.type === 'concept' && conceptBooksList.length > 0 ? (
               <div className="map-detail-links">
-                <span>所属书</span>
+                <span>{t('所属书')}</span>
                 {conceptBooksList.map((node) => (
                   <button
                     key={node.id}
@@ -943,7 +946,7 @@ export function KnowledgeMap({ books, onBack, onOpenNote, onOpenBook }: Knowledg
             ) : null}
             {selectedNode.type === 'concept' && conceptLinks.length > 0 ? (
               <div className="map-detail-links">
-                <span>相关概念</span>
+                <span>{t('相关概念')}</span>
                 {conceptLinks.slice(0, 8).map((node) => (
                   <button
                     key={node.id}
@@ -960,7 +963,7 @@ export function KnowledgeMap({ books, onBack, onOpenNote, onOpenBook }: Knowledg
             ) : null}
             {selectedNode.type === 'book' && bookConcepts.length > 0 ? (
               <div className="map-detail-links">
-                <span>这本书的概念</span>
+                <span>{t('这本书的概念')}</span>
                 {bookConcepts.slice(0, 10).map((node) => (
                   <button
                     key={node.id}
@@ -976,10 +979,10 @@ export function KnowledgeMap({ books, onBack, onOpenNote, onOpenBook }: Knowledg
               </div>
             ) : null}
             <div className="map-detail-notes">
-              <span>笔记</span>
-              {detailLoading ? <p className="muted">正在加载…</p> : null}
+              <span>{t('笔记')}</span>
+              {detailLoading ? <p className="muted">{t('正在加载…')}</p> : null}
               {detailError ? <p className="inline-error" role="alert">{detailError}</p> : null}
-              {!detailLoading && detailNotes.length === 0 ? <p className="muted">没有可显示的笔记。</p> : null}
+              {!detailLoading && detailNotes.length === 0 ? <p className="muted">{t('没有可显示的笔记。')}</p> : null}
               {detailNotes.slice(0, 10).map((note) => (
                 <button key={note.id} type="button" className="map-detail-note" onClick={() => openLibraryNote(note)}>
                   <strong>{noteDisplayTitle(note)}</strong>
@@ -989,15 +992,15 @@ export function KnowledgeMap({ books, onBack, onOpenNote, onOpenBook }: Knowledg
                   </em>
                 </button>
               ))}
-              {detailNotes.length > 10 ? <p className="muted">还有 {detailNotes.length - 10} 条…</p> : null}
+              {detailNotes.length > 10 ? <p className="muted">{t('还有')} {detailNotes.length - 10} {t('条…')}</p> : null}
             </div>
             <div className="map-detail-actions">
               <button type="button" className="ghost-button small" onClick={() => focusNode(selectedNode.id)}>
-                聚焦
+                {t('聚焦')}
               </button>
               {selectedNode.type === 'book' ? (
                 <button type="button" className="primary-button small" onClick={() => onOpenBook(selectedNode.bookId)}>
-                  打开这本书
+                  {t('打开这本书')}
                 </button>
               ) : null}
             </div>

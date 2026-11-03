@@ -111,6 +111,7 @@ test('validates format, notes and feynman artifact payloads', () => {
         paragraphSpacing: 1.15,
         indent: false,
         theme: 'folio',
+        maxWidth: 760,
       },
     }).success,
     true,

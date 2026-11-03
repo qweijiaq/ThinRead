@@ -5,12 +5,67 @@ on:
     tags:
       - 'v*'
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+# 默认只读；只有发布 job 需要写权限。
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  package:
+  # 发版前必须过和 CI 一样的门禁：类型、单测、渲染层冒烟，以及 tag 与版本号一致。
+  verify:
     runs-on: macos-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Cache Electron
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/electron
+            ~/.cache/electron
+          key: electron-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Verify tag matches package.json
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if [ "v${version}" != "${GITHUB_REF_NAME}" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} 与 package.json 的 v${version} 不一致；先提交版本号再打 tag。"
+            exit 1
+          fi
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: Regression tests
+        run: pnpm test
+      - name: Build
+        run: pnpm build
+      - name: UI smoke test
+        run: node scripts/test-ui.mjs
+      - name: PDF viewer smoke test
+        run: node scripts/test-ui-pdf.mjs
+      - name: Upload verified build
+        uses: actions/upload-artifact@v4
+        with:
+          name: build
+          path: |
+            dist
+            dist-electron
+          retention-days: 3
+
+  package:
+    needs: verify
+    runs-on: macos-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -22,15 +77,51 @@ jobs:
           cache: pnpm
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      - name: Fetch bundled Kokoro model
-        run: pnpm fetch:kokoro
-      - name: Build renderer and main process
-        run: pnpm build
-      - name: Package macOS (unsigned)
+      - name: Download verified build
+        uses: actions/download-artifact@v4
+        with:
+          name: build
+      # 证书只在这一步可见，避免 pnpm install 的依赖脚本读到 secrets。
+      - name: Import Developer ID certificate
+        id: cert
         env:
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: pnpm exec electron-builder --mac --publish never
+          MAC_CERT_P12: ${{ secrets.MAC_CERT_P12 }}
+          MAC_CERT_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+        run: |
+          if [ -z "${MAC_CERT_P12:-}" ]; then
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            echo "没有配置 MAC_CERT_P12，跳过签名。"
+            exit 0
+          fi
+          cert_path="$RUNNER_TEMP/developer-id.p12"
+          printf '%s' "$MAC_CERT_P12" | openssl base64 -d -A -out "$cert_path"
+          echo "CSC_LINK=$cert_path" >> "$GITHUB_ENV"
+          echo "CSC_KEY_PASSWORD=$MAC_CERT_PASSWORD" >> "$GITHUB_ENV"
+          echo "signed=true" >> "$GITHUB_OUTPUT"
+      - name: Package macOS
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          args=(--mac --publish never)
+          if [ -n "${CSC_LINK:-}" ] && [ -n "${APPLE_ID:-}" ]; then
+            args+=(--config.mac.notarize=true)
+          fi
+          pnpm exec electron-builder "${args[@]}"
+      - name: Verify code signature
+        if: steps.cert.outputs.signed == 'true'
+        run: |
+          app="$(find release -maxdepth 2 -name 'ThinRead.app' -type d | head -1)"
+          test -n "$app" || { echo "::error::找不到打包产物"; exit 1; }
+          codesign --verify --deep --strict --verbose=2 "$app"
+          spctl -a -vv "$app"
+          xcrun stapler validate "$app"
+      - name: Note unsigned build
+        if: steps.cert.outputs.signed != 'true'
+        run: echo "::warning::未配置签名证书：产物为 ad-hoc 签名，Gatekeeper 会拦截，自动更新不可用。"
+      - name: Smoke test packaged app
+        run: pnpm test:packaged
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -38,12 +129,15 @@ jobs:
           path: |
             release/*.dmg
             release/*.zip
+            release/*.blockmap
             release/latest-mac.yml
           if-no-files-found: error
 
   publish-release:
     needs: package
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Download packaged artifacts
         uses: actions/download-artifact@v4

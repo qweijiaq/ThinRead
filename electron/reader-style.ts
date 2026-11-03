@@ -19,6 +19,7 @@ export function normalizeReaderStyle(input: unknown): ReaderStyle {
       DEFAULT_READER_STYLE.paragraphSpacing,
     ),
     indent: raw.indent !== false,
+    maxWidth: clamp(Number(raw.maxWidth), 520, 980, DEFAULT_READER_STYLE.maxWidth),
     theme:
       raw.theme === 'plain' || raw.theme === 'warm' || raw.theme === 'folio'
         ? raw.theme

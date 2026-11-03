@@ -1,6 +1,8 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { IpcRendererEvent } from 'electron'
 
+import type { DeepLinkTarget } from '../shared/deep-link.js'
+
 import type {
   BackupInfo,
   BookComposeOptions,
@@ -15,8 +17,6 @@ import type {
   ChapterFlag,
   ChapterMeta,
   ChatAnswer,
-  ChatMode,
-  ChatTurn,
   BookFormatDoneEvent,
   BookFormatOptions,
   BookFormatProgress,
@@ -26,6 +26,8 @@ import type {
   ContentFilter,
   ContentItem,
   ContentStatus,
+  BackgroundTaskRecord,
+  TrashedChapter,
   FormatResult,
   FeynmanResult,
   GenerationDoneEvent,
@@ -64,7 +66,10 @@ import type {
   ReaderStyle,
   RelatedNote,
   ReadingApi,
+  RendererErrorReport,
   SaveFileResult,
+  ShareCopyInput,
+  ShareCopyResult,
   SaveImagesResult,
   ReadingBookmark,
   ReadingBookmarkDraft,
@@ -121,8 +126,8 @@ const api: ReadingApi = {
       chapters: ChapterMeta[]
       style: ReaderStyle
     }>,
-  renameBook: (bookId: string, title: string) =>
-    ipcRenderer.invoke('books:rename', bookId, title) as Promise<BookSummary>,
+  renameBook: (bookId: string, title: string, author?: string) =>
+    ipcRenderer.invoke('books:rename', bookId, title, author) as Promise<BookSummary>,
   setBookGenre: (bookId: string, genre: BookGenre) =>
     ipcRenderer.invoke('books:genre', bookId, genre) as Promise<BookSummary>,
   renameChapter: (chapterId: string, title: string) =>
@@ -152,13 +157,33 @@ const api: ReadingApi = {
   classifyChapters: (bookId) => ipcRenderer.invoke('chapters:classify', bookId) as Promise<ClassifyResult>,
   applyChapterFlags: (flags: ChapterFlag[]) => ipcRenderer.invoke('chapters:flags', flags) as Promise<void>,
   deleteChapters: (chapterIds) => ipcRenderer.invoke('chapters:delete', chapterIds) as Promise<void>,
+  listTrashedChapters: () => ipcRenderer.invoke('chapters:trash-list') as Promise<TrashedChapter[]>,
+  restoreTrashedChapter: (chapterId: string) =>
+    ipcRenderer.invoke('chapters:trash-restore', chapterId) as Promise<ChapterContent | null>,
+  purgeTrashedChapter: (chapterId: string) =>
+    ipcRenderer.invoke('chapters:trash-purge', chapterId) as Promise<void>,
+  emptyChapterTrash: () => ipcRenderer.invoke('chapters:trash-empty') as Promise<number>,
+  listBackgroundTasks: () => ipcRenderer.invoke('tasks:list') as Promise<BackgroundTaskRecord[]>,
+  onDeepLink: (listener) => {
+    const handler = (_event: IpcRendererEvent, target: DeepLinkTarget): void => listener(target)
+    ipcRenderer.on('app:deep-link', handler)
+    return () => ipcRenderer.removeListener('app:deep-link', handler)
+  },
+  onRelationGraphProgress: (listener) => {
+    const handler = (_event: IpcRendererEvent, payload: { stage?: 'nodes' | 'edges' }): void => {
+      if (payload?.stage === 'nodes' || payload?.stage === 'edges') listener(payload.stage)
+    }
+    ipcRenderer.on('relation:progress', handler)
+    return () => ipcRenderer.removeListener('relation:progress', handler)
+  },
   listNotes: (bookId, chapterId) => ipcRenderer.invoke('notes:list', bookId, chapterId) as Promise<Note[]>,
   listRelatedNotes: (bookId, tags, queryText) =>
     ipcRenderer.invoke('notes:related', bookId, tags, queryText) as Promise<RelatedNote[]>,
   createNote: (draft: NoteDraft) => ipcRenderer.invoke('notes:create', draft) as Promise<Note>,
   updateNote: (id, patch: NotePatch) => ipcRenderer.invoke('notes:update', id, patch) as Promise<Note>,
   deleteNote: (id) => ipcRenderer.invoke('notes:delete', id) as Promise<void>,
-  generateNotes: (chapterId) => ipcRenderer.invoke('notes:generate', chapterId) as Promise<void>,
+  generateNotes: (chapterId, options) =>
+    ipcRenderer.invoke('notes:generate', chapterId, options) as Promise<void>,
   generateBookNotes: (bookId: string, options?: BookGenerationOptions) =>
     ipcRenderer.invoke('notes:generate-book', bookId, options) as Promise<void>,
   cancelGeneration: () => ipcRenderer.invoke('notes:cancel') as Promise<void>,
@@ -177,7 +202,12 @@ const api: ReadingApi = {
   deleteBackup: (id: string) => ipcRenderer.invoke('backup:delete', id) as Promise<void>,
   openBackupsDir: () => ipcRenderer.invoke('backup:open-dir') as Promise<void>,
   exportBackup: (id: string) => ipcRenderer.invoke('backup:export', id) as Promise<SaveFileResult>,
+  exportDiagnostics: () => ipcRenderer.invoke('app:export-diagnostics') as Promise<SaveFileResult>,
+  logRendererError: (report: RendererErrorReport) =>
+    ipcRenderer.invoke('app:log-renderer-error', report) as Promise<void>,
   copyText: (text: string) => ipcRenderer.invoke('app:copy-text', text) as Promise<void>,
+  optimizeShareCopy: (input: ShareCopyInput) =>
+    ipcRenderer.invoke('share:optimize-copy', input) as Promise<ShareCopyResult>,
   saveMarkdown: (defaultName: string, content: string) =>
     ipcRenderer.invoke('app:save-markdown', defaultName, content) as Promise<SaveFileResult>,
   saveHtml: (defaultName: string, content: string) =>
@@ -196,7 +226,6 @@ const api: ReadingApi = {
   testBeatra: (token?: string) => ipcRenderer.invoke('tts:test-beatra', token) as Promise<TestResult>,
   importBeatraCredential: () =>
     ipcRenderer.invoke('tts:import-beatra-credential') as Promise<TestResult>,
-  openKokoroDir: () => ipcRenderer.invoke('tts:open-kokoro-dir') as Promise<void>,
   search: (query: string) => ipcRenderer.invoke('library:search', query) as Promise<SearchResult[]>,
   searchSemantic: (query: string) => ipcRenderer.invoke('library:search-semantic', query) as Promise<SearchResult[]>,
   listLibraryNotes: (filter?: LibraryFilter) =>
@@ -204,8 +233,6 @@ const api: ReadingApi = {
   listLibraryNotesPage: (filter?: LibraryFilter) =>
     ipcRenderer.invoke('library:notes-page', filter) as Promise<PageResult<LibraryNote>>,
   listLibraryTags: (bookId) => ipcRenderer.invoke('library:tags', bookId) as Promise<TagCount[]>,
-  askChapter: (chapterId: string, question: string, history: ChatTurn[], mode: ChatMode) =>
-    ipcRenderer.invoke('tutor:ask', chapterId, question, history, mode) as Promise<ChatAnswer>,
   askChapterStream: (chapterId, question, history, mode, onDelta) => {
     const id = streamId()
     const unsubscribe = subscribeStream('tutor:ask-delta', id, onDelta)
@@ -224,8 +251,6 @@ const api: ReadingApi = {
   },
   getKnowledgeMap: () => ipcRenderer.invoke('map:get') as Promise<KnowledgeMapData>,
   runLab: (request: LabRequest) => ipcRenderer.invoke('lab:run', request) as Promise<LabReport>,
-  labChat: (request: LabRequest, history: ChatTurn[]) =>
-    ipcRenderer.invoke('lab:chat', request, history) as Promise<LabChatAnswer>,
   labChatStream: (request, history, onDelta) => {
     const id = streamId()
     const unsubscribe = subscribeStream('lab:chat-delta', id, onDelta)

@@ -26,7 +26,6 @@ function ListenWithMock(): JSX.Element | null {
             { id: 'zh-CN-YunxiNeural', label: '云希 · 男声', language: 'zh-CN', gender: 'male' },
           ],
         },
-        kokoro: { ready: true, path: '/tmp/kokoro', voices: [], missing: [], modelFile: 'onnx/model.onnx', downloadUrl: '' },
         beatra: { configured: false },
       }),
       getBeatraVoices: async () => [],
@@ -50,7 +49,7 @@ const meta = {
     layout: 'fullscreen',
     docs: {
       description: {
-        component: '听读面板：Edge、Kokoro、Beatra、逐句播放和整章音频入口。',
+        component: '听读面板：Edge、Beatra、逐句播放和整章音频入口。',
       },
     },
   },

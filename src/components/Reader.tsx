@@ -1,6 +1,9 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type JSX } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type JSX } from 'react'
 
 import type { ChapterContent, ReaderMark, ReaderMarkStyle, ReaderStyle, RelatedNote } from '../../shared/types.js'
+import { t, useLocale } from '../lib/i18n.js'
+import { getAutoNext, getDailyGoal, setAutoNext as setAutoNextPreference, subscribePreferences } from '../lib/preferences.js'
+import { addReadingSeconds, getReadingSummary } from '../lib/reading-stats.js'
 import { EchoDialog } from './EchoDialog.js'
 import { PdfOriginalView } from './PdfOriginalView.js'
 
@@ -35,6 +38,13 @@ interface ReaderProps {
   }): void
   pdfBookId?: string
   pdfBookTitle?: string
+  chapterIndex?: number
+  chapterTotal?: number
+  onPrevChapter?(): void
+  onNextChapter?(): void
+  onAdjustStyle?(patch: Partial<ReaderStyle>): void
+  focusMode?: boolean
+  onToggleFocus?(): void
 }
 
 /** 旧版本解析出的章节会把标题重复放进正文；渲染时去掉与章节标题相同的前导标题文本。 */
@@ -129,7 +139,15 @@ export function Reader({
   onCreateBookmark,
   pdfBookId,
   pdfBookTitle,
+  chapterIndex,
+  chapterTotal,
+  onPrevChapter,
+  onNextChapter,
+  onAdjustStyle,
+  focusMode = false,
+  onToggleFocus,
 }: ReaderProps): JSX.Element {
+  useLocale()
   const containerRef = useRef<HTMLDivElement>(null)
   const positionTimerRef = useRef<number | null>(null)
   const restoringRef = useRef(false)
@@ -137,6 +155,64 @@ export function Reader({
   const [toolbar, setToolbar] = useState<{ x: number; y: number } | null>(null)
   const [echoOpen, setEchoOpen] = useState(false)
   const [pdfOpen, setPdfOpen] = useState(false)
+  const [linkCopied, setLinkCopied] = useState(false)
+  const [readProgress, setReadProgress] = useState(0)
+  const [helpOpen, setHelpOpen] = useState(false)
+  const autoNext = useSyncExternalStore(subscribePreferences, getAutoNext, getAutoNext)
+  const dailyGoal = useSyncExternalStore(subscribePreferences, getDailyGoal, getDailyGoal)
+  const [celebration, setCelebration] = useState<string | null>(null)
+  const celebrationTimerRef = useRef<number | null>(null)
+  const [countdown, setCountdown] = useState<number | null>(null)
+  const autoNextSuppressed = useRef(false)
+  const bookmarkRef = useRef<() => void>(() => undefined)
+
+  useEffect(() => {
+    function onKey(event: KeyboardEvent): void {
+      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return
+      const target = event.target
+      if (target instanceof HTMLElement && target.closest('input, textarea, select, [contenteditable="true"]')) return
+      if (event.key === 'ArrowLeft' || event.key === 'k' || event.key === 'K') {
+        event.preventDefault()
+        onPrevChapter?.()
+      } else if (event.key === 'ArrowRight' || event.key === 'j' || event.key === 'J') {
+        event.preventDefault()
+        onNextChapter?.()
+      } else if (event.key === 'f' || event.key === 'F') {
+        event.preventDefault()
+        onToggleFocus?.()
+      } else if (event.key === 'b' || event.key === 'B') {
+        event.preventDefault()
+        bookmarkRef.current()
+      } else if (event.key === '?') {
+        event.preventDefault()
+        setHelpOpen((value) => !value)
+      } else if (event.key === 'g') {
+        event.preventDefault()
+        containerRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
+      } else if (event.key === 'G') {
+        event.preventDefault()
+        const root = containerRef.current
+        if (root) root.scrollTo({ top: root.scrollHeight, behavior: 'smooth' })
+      } else if (event.key === 'Escape') {
+        if (helpOpen) {
+          event.preventDefault()
+          setHelpOpen(false)
+          return
+        }
+        if (focusMode) {
+          event.preventDefault()
+          onToggleFocus?.()
+          return
+        }
+        setSelection('')
+        setToolbar(null)
+        setEchoOpen(false)
+        setPdfOpen(false)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [focusMode, helpOpen, onNextChapter, onPrevChapter, onToggleFocus])
   const html = useMemo(() => {
     const source = chapter?.formattedHtml ?? chapter?.html
     return source ? stripDuplicateTitle(source, chapter?.title ?? '') : null
@@ -217,6 +293,7 @@ export function Reader({
     const max = Math.max(0, root.scrollHeight - root.clientHeight)
     const scrollTop = root.scrollTop
     const ratio = max > 0 ? scrollTop / max : 0
+    setReadProgress(ratio)
     const bookId = chapter.bookId
     const chapterId = chapter.id
     positionTimerRef.current = window.setTimeout(() => {
@@ -240,6 +317,61 @@ export function Reader({
       quote: selection.trim() || null,
     })
   }
+
+  bookmarkRef.current = bookmarkHere
+
+  useEffect(() => () => {
+    if (celebrationTimerRef.current !== null) window.clearTimeout(celebrationTimerRef.current)
+  }, [])
+
+  function celebrate(message: string): void {
+    setCelebration(message)
+    if (celebrationTimerRef.current !== null) window.clearTimeout(celebrationTimerRef.current)
+    celebrationTimerRef.current = window.setTimeout(() => setCelebration(null), 6000)
+  }
+
+  useEffect(() => {
+    const streak = getReadingSummary().currentStreak
+    const milestone = [100, 30, 7].find((value) => streak >= value)
+    if (!milestone) return
+    const flag = `reading-notes-streak-${milestone}`
+    try {
+      if (localStorage.getItem(flag)) return
+      localStorage.setItem(flag, '1')
+    } catch {
+      // 存储不可用时只提示一次本次会话。
+    }
+    celebrate(`${t('连续阅读')} ${milestone} ${t('天')}`)
+    return () => {
+      if (celebrationTimerRef.current !== null) window.clearTimeout(celebrationTimerRef.current)
+    }
+    // 只在打开章节时检查一次连续天数里程碑。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chapter?.id])
+
+  useEffect(() => {
+    if (!chapter) return
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== 'visible') return
+      addReadingSeconds(15, chapter.bookId)
+      if (dailyGoal <= 0) return
+      const now = new Date()
+      const dayKey = `reading-notes-goal-${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+      try {
+        if (localStorage.getItem(dayKey)) return
+      } catch {
+        // 存储不可用时仍然可以在本次会话提示。
+      }
+      if (getReadingSummary().todaySeconds < dailyGoal * 60) return
+      try {
+        localStorage.setItem(dayKey, '1')
+      } catch {
+        // 忽略。
+      }
+      celebrate(`${t('今日阅读目标达成')} · ${dailyGoal} ${t('分钟')}`)
+    }, 15_000)
+    return () => window.clearInterval(timer)
+  }, [chapter?.id, dailyGoal])
 
   useEffect(
     () => () => {
@@ -271,6 +403,46 @@ export function Reader({
       names.forEach((name) => css.highlights!.delete(name))
     }
   }, [marks, html, chapter?.id, loading])
+
+  useEffect(() => {
+    setReadProgress(0)
+    setCountdown(null)
+    autoNextSuppressed.current = false
+  }, [chapter?.id])
+
+  useEffect(() => {
+    if (!autoNext || !onNextChapter || chapterIndex == null || chapterTotal == null) return
+    if (chapterIndex + 1 >= chapterTotal || readProgress < 0.995) return
+    if (autoNextSuppressed.current || countdown !== null) return
+    setCountdown(3)
+  }, [autoNext, chapterIndex, chapterTotal, countdown, onNextChapter, readProgress])
+
+  useEffect(() => {
+    if (countdown === null) return
+    if (countdown <= 0) {
+      setCountdown(null)
+      onNextChapter?.()
+      return
+    }
+    const timer = window.setTimeout(() => setCountdown((value) => (value == null ? null : value - 1)), 1000)
+    return () => window.clearTimeout(timer)
+  }, [countdown, onNextChapter])
+
+  function toggleAutoNext(enabled: boolean): void {
+    setAutoNextPreference(enabled)
+    autoNextSuppressed.current = !enabled
+    setCountdown(null)
+    if (
+      enabled &&
+      onNextChapter &&
+      chapterIndex != null &&
+      chapterTotal != null &&
+      chapterIndex + 1 < chapterTotal &&
+      readProgress >= 0.995
+    ) {
+      setCountdown(3)
+    }
+  }
 
   useEffect(() => {
     if (!scrollTarget || !containerRef.current) return
@@ -308,6 +480,61 @@ export function Reader({
 
   return (
     <section className="reader-wrap">
+      {focusMode ? (
+        <button type="button" className="focus-exit" onClick={onToggleFocus} aria-label={t('退出专注')} title={t('退出专注')}>
+          ×
+        </button>
+      ) : null}
+      {helpOpen ? (
+        <div className="reader-help-backdrop" onMouseDown={() => setHelpOpen(false)}>
+          <div
+            className="reader-help"
+            role="dialog"
+            aria-modal="true"
+            aria-label={t('阅读快捷键')}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="reader-help-head">
+              <strong>{t('阅读快捷键')}</strong>
+              <button type="button" className="icon-button" onClick={() => setHelpOpen(false)} aria-label={t('关闭')}>
+                ×
+              </button>
+            </div>
+            <dl>
+              <div><dt>← / →</dt><dd>{t('上一章 / 下一章')}</dd></div>
+              <div><dt>j / k</dt><dd>{t('下一章 / 上一章')}</dd></div>
+              <div><dt>f</dt><dd>{t('进入 / 退出专注')}</dd></div>
+              <div><dt>b</dt><dd>{t('在当前位置加书签')}</dd></div>
+              <div><dt>g / G</dt><dd>{t('跳到章首 / 章尾')}</dd></div>
+              <div><dt>Esc</dt><dd>{t('关闭弹层或退出专注')}</dd></div>
+              <div><dt>?</dt><dd>{t('显示 / 隐藏本帮助')}</dd></div>
+            </dl>
+          </div>
+        </div>
+      ) : null}
+      {countdown !== null ? (
+        <div className="auto-next-toast" role="status" aria-live="polite">
+          <span>{countdown} {t('秒后进入下一章')}</span>
+          <button
+            type="button"
+            className="text-button"
+            onClick={() => {
+              autoNextSuppressed.current = true
+              setCountdown(null)
+            }}
+          >
+            {t('取消')}
+          </button>
+        </div>
+      ) : null}
+      {celebration ? (
+        <div className="goal-toast" role="status" aria-live="polite">
+          {celebration}
+        </div>
+      ) : null}
+      <div className="reader-progress" aria-hidden="true">
+        <span style={{ width: `${Math.round(readProgress * 100)}%` }} />
+      </div>
       <div className="reader" ref={containerRef} onMouseUp={handleMouseUp} onScroll={handleReaderScroll}>
         {loading || !chapter ? (
           <div className="reader-skeleton">
@@ -317,7 +544,7 @@ export function Reader({
             <div className="skeleton-line short" />
           </div>
         ) : (
-          <article>
+          <article style={{ maxWidth: `${style.maxWidth}px` }}>
             <header className="chapter-head">
               <div className="chapter-head-row">
                 <div className="chapter-kicker">
@@ -325,34 +552,75 @@ export function Reader({
                     <span className="chapter-part">{chapter.partTitle}</span>
                   ) : null}
                   {chapter.partTitle && !chapter.isPart ? ' · ' : null}
-                  {chapter.isPart ? '篇首 · ' : null}
-                  约 {chapter.chars.toLocaleString()} 字
+                  {chapter.isPart ? `${t('篇首')} · ` : null}
+                  {t('约')} {chapter.chars.toLocaleString()} {t('字')}
+                  {chapterIndex != null && chapterTotal != null && chapterTotal > 0
+                    ? ` · ${chapterIndex + 1} / ${chapterTotal} ${t('章')}`
+                    : ''}
+                  {` · ${t('预计')} ${Math.max(1, Math.round(chapter.chars / 400))} ${t('分钟')}`}
                 </div>
                 <div className="chapter-head-actions">
+                  {onToggleFocus ? (
+                    <button type="button" className="ghost-button small" onClick={onToggleFocus} title={t('专注阅读')}>
+                      {focusMode ? t('退出专注') : t('专注')}
+                    </button>
+                  ) : null}
+                  {onAdjustStyle ? (
+                    <span className="reader-font-controls">
+                      <button
+                        type="button"
+                        className="ghost-button small"
+                        title={t('减小字号')}
+                        onClick={() => onAdjustStyle({ fontSize: Math.max(13, style.fontSize - 1) })}
+                      >
+                        A−
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost-button small"
+                        title={t('增大字号')}
+                        onClick={() => onAdjustStyle({ fontSize: Math.min(28, style.fontSize + 1) })}
+                      >
+                        A+
+                      </button>
+                    </span>
+                  ) : null}
                   {pdfBookId ? (
                     <button type="button" className="ghost-button small" onClick={() => setPdfOpen(true)}>
-                      原版 PDF
+                      {t('原版 PDF')}
                     </button>
                   ) : null}
                   {echoes.length > 0 ? (
                     <button type="button" className="ghost-button small" onClick={() => setEchoOpen(true)}>
-                      回声 · {echoes.length}
+                      {t('回声')} · {echoes.length}
                     </button>
                   ) : null}
                   <button type="button" className="ghost-button small" onClick={onListen}>
-                    听读
+                    {t('听读')}
                   </button>
                   <button type="button" className="ghost-button small" onClick={onOpenXhs}>
-                    小红书
+                    {t('小红书')}
                   </button>
                   <button type="button" className="ghost-button small" onClick={bookmarkHere}>
-                    书签
+                    {t('书签')}
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost-button small"
+                    onClick={() => {
+                      void window.api.copyText(`thinread://book/${chapter.bookId}/chapter/${chapter.id}`)
+                      setLinkCopied(true)
+                      window.setTimeout(() => setLinkCopied(false), 1600)
+                    }}
+                    title={t('复制指向这一章的 thinread:// 链接')}
+                  >
+                    {linkCopied ? t('已复制链接') : t('深链')}
                   </button>
                   <button type="button" className="ghost-button small" onClick={onRenameChapter}>
-                    改名
+                    {t('改名')}
                   </button>
                   <button type="button" className="ghost-button small" onClick={onOpenFormat}>
-                    排版
+                    {t('排版')}
                   </button>
                 </div>
               </div>
@@ -367,7 +635,7 @@ export function Reader({
                   if (marker) {
                     return (
                       <div key={index}>
-                        <div className="page-marker">第 {marker[1]} 页</div>
+                        <div className="page-marker">{t('第')} {marker[1]} {t('页')}</div>
                         <p>{paragraph.slice(marker[0].length)}</p>
                       </div>
                     )
@@ -376,11 +644,26 @@ export function Reader({
                 })}
               </div>
             )}
+            <div className="chapter-end">
+              {onNextChapter && chapterIndex != null && chapterTotal != null && chapterIndex + 1 < chapterTotal ? (
+                <button type="button" className="primary-button" onClick={onNextChapter}>
+                  {t('下一章')}
+                </button>
+              ) : (
+                <span className="muted">{t('已经是最后一章')}</span>
+              )}
+              {onNextChapter && chapterIndex != null && chapterTotal != null && chapterIndex + 1 < chapterTotal ? (
+                <label className="auto-next-toggle">
+                  <input type="checkbox" checked={autoNext} onChange={(event) => toggleAutoNext(event.target.checked)} />
+                  {t('读到底自动进入下一章')}
+                </label>
+              ) : null}
+            </div>
           </article>
         )}
       </div>
       {toolbar && selection ? (
-        <div className="selection-toolbar" role="toolbar" aria-label="选中文本操作" style={{ left: toolbar.x, top: toolbar.y }}>
+        <div className="selection-toolbar" role="toolbar" aria-label={t('选中文本操作')} style={{ left: toolbar.x, top: toolbar.y }}>
           <button
             type="button"
             onClick={() => {
@@ -390,7 +673,7 @@ export function Reader({
               setToolbar(null)
             }}
           >
-            高亮
+            {t('高亮')}
           </button>
           <button
             type="button"
@@ -401,11 +684,11 @@ export function Reader({
               setToolbar(null)
             }}
           >
-            划线
+            {t('划线')}
           </button>
           <button
             type="button"
-            title="给选中文字加删除线"
+            title={t('给选中文字加删除线')}
             onClick={() => {
               onCreateMark('strikethrough', selection)
               window.getSelection()?.removeAllRanges()
@@ -413,7 +696,7 @@ export function Reader({
               setToolbar(null)
             }}
           >
-            删除
+            {t('删除')}
           </button>
           {selectedMarks.length > 0 ? (
             <button
@@ -425,7 +708,7 @@ export function Reader({
                 setToolbar(null)
               }}
             >
-              清除
+              {t('清除')}
             </button>
           ) : null}
           <button
@@ -436,7 +719,7 @@ export function Reader({
               setToolbar(null)
             }}
           >
-            问 AI
+            {t('问 AI')}
           </button>
           <button
             type="button"
@@ -447,7 +730,7 @@ export function Reader({
               setToolbar(null)
             }}
           >
-            AI 边注
+            {t('AI 边注')}
           </button>
           <button
             type="button"
@@ -457,7 +740,7 @@ export function Reader({
               setToolbar(null)
             }}
           >
-            分享
+            {t('分享')}
           </button>
           <button
             type="button"
@@ -467,7 +750,7 @@ export function Reader({
               setToolbar(null)
             }}
           >
-            朗读
+            {t('朗读')}
           </button>
           <button
             type="button"
@@ -476,7 +759,7 @@ export function Reader({
               setToolbar(null)
             }}
           >
-            复制
+            {t('复制')}
           </button>
         </div>
       ) : null}

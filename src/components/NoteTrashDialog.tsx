@@ -1,6 +1,7 @@
 import { useEffect, useState, type JSX } from 'react'
 
 import type { TrashedNote } from '../../shared/types.js'
+import { t, useLocale } from '../lib/i18n.js'
 import { useDialogFocus } from '../lib/useDialogFocus.js'
 import { confirmDialog } from './ConfirmDialog.js'
 
@@ -27,6 +28,7 @@ function deletedLabel(value: string): string {
 }
 
 export function NoteTrashDialog({ open, onClose, onChanged }: NoteTrashDialogProps): JSX.Element | null {
+  useLocale()
   const [notes, setNotes] = useState<TrashedNote[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -62,7 +64,7 @@ export function NoteTrashDialog({ open, onClose, onChanged }: NoteTrashDialogPro
     setError(null)
     try {
       const note = await window.api.restoreNote(item.id)
-      if (!note) throw new Error('原书或章节已经不存在，无法恢复这条笔记。')
+      if (!note) throw new Error(t('原书或章节已经不存在，无法恢复这条笔记。'))
       setNotes((current) => current.filter((entry) => entry.id !== item.id))
       onChanged()
     } catch (err) {
@@ -75,9 +77,9 @@ export function NoteTrashDialog({ open, onClose, onChanged }: NoteTrashDialogPro
   async function purge(item: TrashedNote): Promise<void> {
     if (busy) return
     const confirmed = await confirmDialog({
-      title: '彻底删除',
-      message: `彻底删除「${item.title}」？删除后无法恢复。`,
-      confirmLabel: '彻底删除',
+      title: t('彻底删除'),
+      message: `${t('彻底删除')}「${item.title}」${t('？删除后无法恢复。')}`,
+      confirmLabel: t('彻底删除'),
       danger: true,
     })
     if (!confirmed) return
@@ -96,9 +98,9 @@ export function NoteTrashDialog({ open, onClose, onChanged }: NoteTrashDialogPro
   async function empty(): Promise<void> {
     if (busy || notes.length === 0) return
     const confirmed = await confirmDialog({
-      title: '清空回收站',
-      message: `彻底删除 ${notes.length} 条笔记？删除后无法恢复。`,
-      confirmLabel: '清空',
+      title: t('清空回收站'),
+      message: `${t('彻底删除')} ${notes.length} ${t('条笔记？删除后无法恢复。')}`,
+      confirmLabel: t('清空'),
       danger: true,
     })
     if (!confirmed) return
@@ -122,22 +124,22 @@ export function NoteTrashDialog({ open, onClose, onChanged }: NoteTrashDialogPro
         className="modal trash-modal"
         role="dialog"
         aria-modal="true"
-        aria-label="最近删除的笔记"
+        aria-label={t('最近删除的笔记')}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="modal-head">
           <div>
-            <h2>最近删除</h2>
-            <p className="trash-hint">删除的笔记保留 30 天，之后会自动清理。</p>
+            <h2>{t('最近删除')}</h2>
+            <p className="trash-hint">{t('删除的笔记保留 30 天，之后会自动清理。')}</p>
           </div>
-          <button type="button" className="icon-button" onClick={onClose} disabled={Boolean(busy)} aria-label="关闭">
+          <button type="button" className="icon-button" onClick={onClose} disabled={Boolean(busy)} aria-label={t('关闭')}>
             ×
           </button>
         </div>
 
         {error ? <div className="inline-error" role="alert">{error}</div> : null}
-        {loading ? <p className="trash-empty">正在加载…</p> : null}
-        {!loading && notes.length === 0 ? <p className="trash-empty">回收站是空的。</p> : null}
+        {loading ? <p className="trash-empty">{t('正在加载…')}</p> : null}
+        {!loading && notes.length === 0 ? <p className="trash-empty">{t('回收站是空的。')}</p> : null}
 
         {notes.length > 0 ? (
           <div className="trash-list">
@@ -145,21 +147,21 @@ export function NoteTrashDialog({ open, onClose, onChanged }: NoteTrashDialogPro
               <article key={item.id} className="trash-row">
                 <div className="trash-row-main">
                   <div className="trash-row-head">
-                    <span className="kind-badge">{KIND_LABEL[item.kind]}</span>
+                    <span className="kind-badge">{t(KIND_LABEL[item.kind])}</span>
                     <strong>{item.title}</strong>
                   </div>
                   <p className="trash-row-meta">
                     {item.bookTitle}
-                    {item.chapterTitle ? ` · ${item.chapterTitle}` : ''} · 删除于 {deletedLabel(item.deletedAt)}
+                    {item.chapterTitle ? ` · ${item.chapterTitle}` : ''} · {t('删除于')} {deletedLabel(item.deletedAt)}
                   </p>
                   {item.preview ? <p className="trash-row-preview">{item.preview}</p> : null}
                 </div>
                 <div className="trash-row-actions">
                   <button type="button" className="text-button" onClick={() => void restore(item)} disabled={Boolean(busy)}>
-                    {busy === item.id ? '处理中…' : '恢复'}
+                    {busy === item.id ? t('处理中…') : t('恢复')}
                   </button>
                   <button type="button" className="text-button muted" onClick={() => void purge(item)} disabled={Boolean(busy)}>
-                    彻底删除
+                    {t('彻底删除')}
                   </button>
                 </div>
               </article>
@@ -168,9 +170,9 @@ export function NoteTrashDialog({ open, onClose, onChanged }: NoteTrashDialogPro
         ) : null}
 
         <div className="trash-foot">
-          <span className="muted">{notes.length > 0 ? `${notes.length} 条笔记` : ''}</span>
+          <span className="muted">{notes.length > 0 ? `${notes.length} ${t('条笔记')}` : ''}</span>
           <button type="button" className="ghost-button small" onClick={() => void empty()} disabled={notes.length === 0 || Boolean(busy)}>
-            {busy === 'empty' ? '清理中…' : '清空回收站'}
+            {busy === 'empty' ? t('清理中…') : t('清空回收站')}
           </button>
         </div>
       </div>

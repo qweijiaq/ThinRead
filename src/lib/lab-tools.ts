@@ -163,7 +163,7 @@ export const LAB_TOOLS: LabTool[] = [
     id: 'podcast',
     group: '深读',
     title: '双人播客',
-    description: '把章节变成一段主持人与作者视角的对谈脚本，可直接听。',
+    description: '把章节变成一段主持人与作者视角的对谈脚本，可复制、导出或存为笔记。',
     kind: 'report',
     books: 'single',
     chapter: true,

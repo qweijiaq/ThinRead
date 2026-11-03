@@ -1,0 +1,1 @@
+(async()=>{const d=(ms)=>new Promise(r=>setTimeout(r,ms));document.querySelector('.book-card')?.click();await d(1800);document.querySelectorAll('.inline-notice,.update-banner,.toast').forEach(e=>e.remove());return {ok:true}})()

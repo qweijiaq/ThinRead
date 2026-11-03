@@ -43,7 +43,7 @@ const relationGraphFixture: RelationGraph = {
     },
     {
       id: 'org-yard',
-      label: '旧船厂',
+      label: '雾港旧船厂码头档案室',
       kind: 'organization',
       role: 'other',
       importance: 4,

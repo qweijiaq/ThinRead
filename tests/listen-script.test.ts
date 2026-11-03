@@ -52,3 +52,77 @@ test('falls back to one Chinese voice with pitch separation', () => {
   assert.equal(plan.b?.name, 'Ting-Ting')
   assert.equal(plan.distinct, false)
 })
+
+test('ignores non-dialogue lines after the conversation starts', () => {
+  const segments = parseListenScript(
+    '# 双人播客脚本\n本期简介：我们聊专注。\nA：第一句还没说完\n继续说完。\nB：这是回答。\n（片尾音乐）\n本期参考：《专注的练习》\n制作：页边',
+  )
+  assert.deepEqual(
+    segments.map((item) => [item.speaker, item.text]),
+    [
+      ['A', '第一句还没说完继续说完。'],
+      ['B', '这是回答。'],
+    ],
+  )
+})
+
+test('detects bold speaker labels and skips role descriptions', () => {
+  const segments = parseListenScript(
+    '**时长：约 5 分钟**\n**主持人 A：提问、推进**\n**主持人 B：用本章观点回答**\n\n**A：** 欢迎来到页边。\n**B：** 谢谢。',
+  )
+  assert.deepEqual(
+    segments.map((item) => [item.speaker, item.text]),
+    [
+      ['A', '欢迎来到页边。'],
+      ['B', '谢谢。'],
+    ],
+  )
+})
+
+test('drops chapter citations but keeps natural references', () => {
+  const segments = parseListenScript(
+    'A：这是回答（第二章第一节）。\nB：这也很重要（《认知觉醒》第2章第1节）。\nA：今天我们聊第二章。',
+  )
+  assert.deepEqual(
+    segments.map((item) => item.text),
+    ['这是回答。', '这也很重要。', '今天我们聊第二章。'],
+  )
+})
+
+test('keeps closing quotes attached to the sentence', () => {
+  const segments = parseListenScript(
+    'B：书里说：“恐惧就是一个欺软怕硬的货色，你正视它，它就原形毕露。”\nA：明白了。',
+  )
+  assert.deepEqual(
+    segments.map((item) => item.text),
+    ['书里说：“恐惧就是一个欺软怕硬的货色，你正视它，它就原形毕露。”', '明白了。'],
+  )
+  assert.equal(segments.some((item) => item.text.trim() === '”'), false)
+})
+
+test('does not read markdown tables or bilingual shownotes', () => {
+  const segments = parseListenScript(
+    '## 时间轴 / Timeline\n| 时间 | 内容 |\n| --- | --- |\n| 00:00 | 开场 |\nA：这是对白。\nB：这是回答。\n### 参考 / References\n- 《书》第二章',
+  )
+  assert.deepEqual(
+    segments.map((item) => [item.speaker, item.text]),
+    [
+      ['A', '这是对白。'],
+      ['B', '这是回答。'],
+    ],
+  )
+})
+
+test('supports named hosts without reading metadata', () => {
+  const segments = parseListenScript(
+    '**小页：** 欢迎来到页边。\n**小边：** 今天聊专注。\n**小页：** 先从注意力开始。\n本期参考：《专注的练习》',
+  )
+  assert.deepEqual(
+    segments.map((item) => [item.speaker, item.text]),
+    [
+      ['A', '欢迎来到页边。'],
+      ['B', '今天聊专注。'],
+      ['A', '先从注意力开始。'],
+    ],
+  )
+})

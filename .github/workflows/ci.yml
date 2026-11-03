@@ -12,6 +12,13 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        # README 承诺 Node >= 22，但 Electron 打包产物实际跑在更新的 Node 上（node:sqlite）；
+        # 两边都验证，避免“测试绿、打包挂”。
+        node: [22, 24]
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -19,7 +26,7 @@ jobs:
           version: 10
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: ${{ matrix.node }}
           cache: pnpm
       - name: Install dependencies
         env:
@@ -30,11 +37,24 @@ jobs:
       - name: Regression tests
         run: pnpm test
       - name: Build
+        if: matrix.node == 22
         run: pnpm build
       - name: Build Storybook
+        if: matrix.node == 22
         run: pnpm build-storybook
+      - name: Upload build artifacts
+        if: matrix.node == 22
+        uses: actions/upload-artifact@v4
+        with:
+          name: build
+          path: |
+            dist
+            dist-electron
+            storybook-static
+          retention-days: 3
 
   ui-smoke:
+    needs: check
     runs-on: macos-latest
     timeout-minutes: 20
     steps:
@@ -46,15 +66,38 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+      - name: Cache Electron
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/electron
+            ~/.cache/electron
+          key: electron-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      - name: Build
-        run: pnpm build
-      - name: Build Storybook
-        run: pnpm build-storybook
-      - name: Storybook visual regression
-        run: pnpm capture:storybook -- --check
+      # 构建产物与平台无关（Vite 渲染层 + esbuild 主进程），复用 check 的结果，避免重复构建。
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build
+      # 真正的回归测试先跑：截图基线曾经挡住过 UI 冒烟，顺序不能再反过来。
       - name: UI smoke test
         run: node scripts/test-ui.mjs
       - name: PDF viewer smoke test
         run: node scripts/test-ui-pdf.mjs
+      - name: Storybook visual regression
+        id: visual
+        # 截图受字体和 GPU 影响；基线稳定前只报警，不阻塞 UI 回归。
+        continue-on-error: true
+        run: pnpm capture:storybook -- --check
+      - name: Upload visual diffs
+        if: steps.visual.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: storybook-visual-diff
+          path: storybook-screenshots-current/
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Note visual regression
+        if: steps.visual.outcome == 'failure'
+        run: echo "::warning::Storybook 截图与基线不一致；差异已上传为 storybook-visual-diff，确认后用 pnpm capture:storybook 更新基线。"

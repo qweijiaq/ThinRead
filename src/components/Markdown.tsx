@@ -1,5 +1,5 @@
-import { isValidElement, useEffect, useState, type JSX, type ReactNode } from 'react'
-import ReactMarkdown from 'react-markdown'
+import { isValidElement, memo, useEffect, useMemo, useState, type JSX, type ReactNode } from 'react'
+import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
 interface MarkdownProps {
@@ -59,36 +59,58 @@ function MermaidDiagram({ source }: { source: string }): JSX.Element {
   return <div className="mermaid-diagram" dangerouslySetInnerHTML={{ __html: svg }} />
 }
 
-export function Markdown({ text, onWikiLink }: MarkdownProps): JSX.Element {
+const REMARK_PLUGINS = [remarkGfm]
+
+function MarkdownImpl({ text, onWikiLink }: MarkdownProps): JSX.Element {
+  // 预处理和组件表都必须稳定，否则每次父组件渲染都会重新解析整篇 Markdown。
+  const processed = useMemo(() => preprocess(text), [text])
+  const components = useMemo<Components>(
+    () => ({
+      a: ({ href, children }) => {
+        if (href?.startsWith('#wiki:')) {
+          const title = decodeURIComponent(href.slice('#wiki:'.length))
+          return (
+            <button type="button" className="wiki-link" onClick={() => onWikiLink?.(title)}>
+              {children}
+            </button>
+          )
+        }
+        if (href?.startsWith('#')) {
+          return (
+            <a
+              href={href}
+              onClick={(event) => {
+                event.preventDefault()
+                const id = decodeURIComponent(href.slice(1))
+                document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+              }}
+            >
+              {children}
+            </a>
+          )
+        }
+        return (
+          <a href={href} target="_blank" rel="noreferrer">
+            {children}
+          </a>
+        )
+      },
+      pre: ({ children }) => {
+        const source = mermaidSource(children)
+        if (source !== null) return <MermaidDiagram source={source.trimEnd()} />
+        return <pre>{children}</pre>
+      },
+    }),
+    [onWikiLink],
+  )
+
   return (
     <div className="markdown">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={{
-          a: ({ href, children }) => {
-            if (href?.startsWith('#wiki:')) {
-              const title = decodeURIComponent(href.slice('#wiki:'.length))
-              return (
-                <button type="button" className="wiki-link" onClick={() => onWikiLink?.(title)}>
-                  {children}
-                </button>
-              )
-            }
-            return (
-              <a href={href} target="_blank" rel="noreferrer">
-                {children}
-              </a>
-            )
-          },
-          pre: ({ children }) => {
-            const source = mermaidSource(children)
-            if (source !== null) return <MermaidDiagram source={source.trimEnd()} />
-            return <pre>{children}</pre>
-          },
-        }}
-      >
-        {preprocess(text)}
+      <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={components}>
+        {processed}
       </ReactMarkdown>
     </div>
   )
 }
+
+export const Markdown = memo(MarkdownImpl)

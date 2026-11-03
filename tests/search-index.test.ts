@@ -39,7 +39,7 @@ test('builds a local index over chapters, books and notes', async () => {
     const byAuthor = searchIndex('newport')
     assert.ok(byAuthor?.some((result) => result.type === 'book' && result.id === book.id))
 
-    const created = createNote({ bookId: book.id, kind: 'idea', title: '环境先于意志', content: '先把手机拿走，再谈专注。' })
+    const created = createNote({ bookId: book.id, kind: 'thought', title: '环境先于意志', content: '先把手机拿走，再谈专注。' })
     const note = searchIndex('手机')
     assert.ok(note?.some((result) => result.type === 'note' && result.title === '环境先于意志'))
 

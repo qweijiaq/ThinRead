@@ -1,0 +1,1 @@
+(async()=>{const d=(ms)=>new Promise(r=>setTimeout(r,ms));document.querySelector('.book-card')?.click();await d(1200);[...document.querySelectorAll('.note-actions button')].find(b=>b.textContent.trim()==='分享')?.click();await d(1000);return {ok:true}})()

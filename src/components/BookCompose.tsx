@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 
+import { countUnit, t, useLocale } from '../lib/i18n.js'
 import type {
   BookComposeOptions,
   BookComposeProgress,
@@ -102,6 +103,7 @@ export function BookCompose({
   onOpenXhsBook,
   onSplitBook,
 }: BookComposeProps): JSX.Element {
+  useLocale()
   const visible = useMemo(() => chapters.filter((chapter) => !chapter.hidden), [chapters])
   const [notes, setNotes] = useState<Note[]>([])
   const [loadingNotes, setLoadingNotes] = useState(true)
@@ -221,12 +223,12 @@ export function BookCompose({
       const phase = event.partial.progress?.phase
       const label =
         phase === 'condense'
-          ? '正在把这一章读薄'
+          ? t('正在把这一章读薄')
           : phase === 'cards'
-            ? '正在提炼核心卡片'
+            ? t('正在提炼核心卡片')
             : phase === 'expand'
-              ? '正在做有限延伸'
-              : 'AI 正在读这一章'
+              ? t('正在做有限延伸')
+              : t('AI 正在读这一章')
       setGeneration((current) => (current.running ? { ...current, message: label } : current))
     })
     const offProgress = window.api.onBookGenerationProgress((event) => {
@@ -266,9 +268,9 @@ export function BookCompose({
 
   async function formatBook(): Promise<void> {
     const confirmed = await confirmDialog({
-      title: '整本 AI 排版',
-      message: '会逐章用 AI 整理正文、清理广告和乱码，并覆盖已有 AI 排版结果；原文仍可随时还原。继续？',
-      confirmLabel: '开始排版',
+      title: t('整本 AI 排版'),
+      message: t('会逐章用 AI 整理正文、清理广告和乱码，并覆盖已有 AI 排版结果；原文仍可随时还原。继续？'),
+      confirmLabel: t('开始排版'),
       danger: false,
     })
     if (!confirmed) return
@@ -283,7 +285,7 @@ export function BookCompose({
       total: 0,
       status: 'start',
       done: 0,
-      message: '正在准备排版',
+      message: t('正在准备排版'),
     })
     try {
       await window.api.formatBook(book.id)
@@ -305,14 +307,30 @@ export function BookCompose({
     setGenre(next)
     try {
       await window.api.setBookGenre(book.id, next)
-      setNotice(`书籍类型已改为「${bookGenreLabel(next)}」，之后生成的笔记、成稿和关系图会使用它。`)
+      setNotice(`${t('书籍类型已改为')}「${t(bookGenreLabel(next))}」${t('，之后生成的笔记、成稿和关系图会使用它。')}`)
     } catch (err) {
       setGenre(previous)
       setError(err instanceof Error ? err.message : String(err))
     }
   }
 
-  async function generateBook(onlyMissing: boolean): Promise<void> {
+  async function generateBook(
+    onlyMissing: boolean,
+    options?: { skipConfirm?: boolean },
+  ): Promise<boolean> {
+    const count = onlyMissing ? missing : visible.length
+    if (!options?.skipConfirm) {
+      const message = onlyMissing
+        ? `${t('本次会为')} ${count} ${t('节生成读薄稿，预计')} ${count} ${t('次章节请求。读薄、回查、卡片和延伸都会消耗 token，长书可能持续十几分钟；建议先跑一章确认质量。')}`
+        : `${t('本次会为')} ${count} ${t('节重新生成读薄稿，预计')} ${count} ${t('次章节请求，并替换所有未人工修改的 AI 笔记。读薄、回查、卡片和延伸都会消耗 token，长书可能持续十几分钟；建议先跑一章确认质量。')}`
+      const confirmed = await confirmDialog({
+        title: onlyMissing ? t('生成未完成章节') : t('整本重新生成'),
+        message,
+        confirmLabel: t('继续生成'),
+        danger: !onlyMissing,
+      })
+      if (!confirmed) return false
+    }
     setError(null)
     setGenerationResult(null)
     setGeneration({
@@ -321,7 +339,7 @@ export function BookCompose({
       total: onlyMissing ? missing : visible.length,
       title: '',
       status: null,
-      message: onlyMissing ? '正在准备生成未完成的章节' : '正在准备重新生成整本书',
+      message: onlyMissing ? t('正在准备生成未完成的章节') : t('正在准备重新生成整本书'),
     })
     try {
       await window.api.generateBookNotes(book.id, { onlyMissing })
@@ -329,7 +347,9 @@ export function BookCompose({
       autoComposeRef.current = false
       setGeneration((current) => ({ ...current, running: false }))
       setError(err instanceof Error ? err.message : String(err))
+      return false
     }
+    return true
   }
 
   async function cancelGeneration(): Promise<void> {
@@ -347,18 +367,18 @@ export function BookCompose({
       stage: 'collect',
       done: 0,
       total: 0,
-      message: '正在收齐读薄稿',
+      message: t('正在收齐读薄稿'),
     })
     try {
       const next = await window.api.composeBook(book.id, composeOptionsRef.current)
       setResult(next)
       setArticle(next.markdown)
       setDirty(false)
-      setNotice('整本成稿已生成并保存。')
+      setNotice(t('整本成稿已生成并保存。'))
       await loadCompose()
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      if (message.includes('取消')) setNotice('已取消合并。')
+      if (message.includes('取消') || message.toLowerCase().includes('cancel')) setNotice(t('已取消合并。'))
       else setError(message)
     } finally {
       setComposing(false)
@@ -397,7 +417,7 @@ export function BookCompose({
       })
       setResult(next)
       setDirty(false)
-      setNotice('修改已保存为新版本。')
+      setNotice(t('修改已保存为新版本。'))
       await loadCompose()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -412,7 +432,7 @@ export function BookCompose({
     setError(null)
     try {
       await window.api.copyText(article)
-      setNotice('整本笔记已复制，可以直接贴到博客编辑器。')
+      setNotice(t('整本笔记已复制，可以直接贴到博客编辑器。'))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -427,7 +447,7 @@ export function BookCompose({
     try {
       const name = `${book.title} 整本读书笔记.md`.replace(/[\\/:*?"<>|#%{}]/g, ' ').replace(/\s+/g, ' ').trim()
       const saved = await window.api.saveMarkdown(name, article)
-      if (saved.saved) setNotice(`已导出到 ${saved.path}`)
+      if (saved.saved) setNotice(`${t('已导出到')} ${saved.path}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -461,7 +481,7 @@ export function BookCompose({
       const { bookHtmlFilename } = await import('../lib/blog-export.js')
       const html = await buildShareHtml()
       const saved = await window.api.saveHtml(bookHtmlFilename(book.title), html)
-      if (saved.saved) setNotice(`分享页已导出到 ${saved.path}`)
+      if (saved.saved) setNotice(`${t('分享页已导出到')} ${saved.path}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -477,7 +497,7 @@ export function BookCompose({
       const { bookPdfFilename } = await import('../lib/blog-export.js')
       const html = await buildShareHtml()
       const saved = await window.api.savePdf(bookPdfFilename(book.title), html)
-      if (saved.saved) setNotice(`排版 PDF 已导出到 ${saved.path}`)
+      if (saved.saved) setNotice(`${t('排版 PDF 已导出到')} ${saved.path}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -485,12 +505,18 @@ export function BookCompose({
     }
   }
 
-  function oneClick(): void {
+  async function oneClick(): Promise<void> {
     if (composing || generation.running || loadingNotes) return
     if (missing > 0) {
+      const confirmed = await confirmDialog({
+        title: t('一键成稿'),
+        message: `${t('本次会先补')} ${missing} ${t('节读薄稿，然后自动合并全文；章节生成和合并都会消耗 token，长书可能持续十几分钟。建议先跑一章确认质量。')}`,
+        confirmLabel: t('继续生成'),
+      })
+      if (!confirmed) return
       autoComposeRef.current = true
-      setNotice(`正在先补 ${missing} 节读薄稿，完成后会自动合并全文。`)
-      void generateBook(true)
+      setNotice(`${t('正在先补')} ${missing} ${t('节读薄稿，完成后会自动合并全文。')}`)
+      void generateBook(true, { skipConfirm: true })
       return
     }
     void compose()
@@ -503,12 +529,12 @@ export function BookCompose({
       <div className="compose-head">
         <div>
           <button type="button" className="text-button muted" onClick={onBack}>
-            ← 回到阅读
+            {t('← 回到阅读')}
           </button>
           <h1>{book.title}</h1>
           <p>
-            {bookGenreLabel(genre)} · {visible.length} 节 · 已生成 {generatedChapters} 节 · {totalCards} 张卡片
-            {sourceChars > 0 ? ` · 读薄稿 ${sourceChars.toLocaleString()} 字` : ''}
+            {t(bookGenreLabel(genre))} · {visible.length} {countUnit(visible.length, t('节'), t('节一'))} · {t('已生成')} {generatedChapters} {countUnit(generatedChapters, t('节'), t('节一'))} · {totalCards} {countUnit(totalCards, t('张卡片'), t('张卡片一'))}
+            {sourceChars > 0 ? ` · ${t('读薄稿')} ${sourceChars.toLocaleString()} ${t('字')}` : ''}
           </p>
         </div>
         <div className="compose-head-actions">
@@ -518,16 +544,16 @@ export function BookCompose({
             onClick={() => setChaptersCollapsed((value) => !value)}
             aria-pressed={chaptersCollapsed}
           >
-            {chaptersCollapsed ? '展开章节' : '收起章节'}
+            {chaptersCollapsed ? t('展开章节') : t('收起章节')}
           </button>
           <button type="button" className="ghost-button small" onClick={onSplitBook}>
-            拆分本书
+            {t('拆分本书')}
           </button>
           <button type="button" className="ghost-button small" onClick={onShareBook}>
-            分享这本书
+            {t('分享这本书')}
           </button>
           <button type="button" className="ghost-button small" onClick={onOpenXhsBook}>
-            小红书图文
+            {t('小红书图文')}
           </button>
         </div>
       </div>
@@ -539,8 +565,8 @@ export function BookCompose({
         <section className="compose-chapters">
           <div className="compose-section-head">
             <div>
-              <h2>整本生成</h2>
-              <p>逐章读薄，保留人工修改；已有读薄稿的章节默认跳过。</p>
+              <h2>{t('整本生成')}</h2>
+              <p>{t('逐章读薄，保留人工修改；已有读薄稿的章节默认跳过。')}</p>
             </div>
             <span className="compose-stat">{generatedChapters}/{visible.length}</span>
           </div>
@@ -552,24 +578,15 @@ export function BookCompose({
               onClick={() => void generateBook(true)}
               disabled={generation.running || loadingNotes || missing === 0}
             >
-              {generation.running ? '生成中…' : missing > 0 ? `生成未完成章节 · ${missing}` : '全部章节已生成'}
+              {generation.running ? t('生成中…') : missing > 0 ? `${t('生成未完成章节')} · ${missing}` : t('全部章节已生成')}
             </button>
             <button
               type="button"
               className="ghost-button"
-              onClick={() => {
-                void confirmDialog({
-                  title: '重新生成整本书',
-                  message: '重新生成整本书会替换所有未人工修改的 AI 笔记，确定继续？',
-                  confirmLabel: '重新生成',
-                  danger: true,
-                }).then((confirmed) => {
-                  if (confirmed) void generateBook(false)
-                })
-              }}
+              onClick={() => void generateBook(false)}
               disabled={generation.running || visible.length === 0}
             >
-              整本重新生成
+              {t('整本重新生成')}
             </button>
             <button
               type="button"
@@ -577,7 +594,7 @@ export function BookCompose({
               onClick={() => void formatBook()}
               disabled={formatting || generation.running || visible.length === 0}
             >
-              {formatting ? '整本排版中…' : '整本 AI 排版'}
+              {formatting ? t('整本排版中…') : t('整本 AI 排版')}
             </button>
           </div>
 
@@ -585,12 +602,12 @@ export function BookCompose({
             <div className="compose-progress-card">
               <div className="compose-progress-head">
                 <span>
-                  {generation.running ? '正在生成' : '上次生成'}
+                  {generation.running ? t('正在生成') : t('上次生成')}
                   {generation.total > 0 ? ` · ${generation.done}/${generation.total}` : ''}
                 </span>
                 {generation.running ? (
                   <button type="button" className="text-button muted" onClick={() => void cancelGeneration()}>
-                    取消
+                    {t('取消')}
                   </button>
                 ) : null}
               </div>
@@ -602,15 +619,15 @@ export function BookCompose({
               </p>
               {generationResult && !generationResult.cancelled ? (
                 <p className="compose-progress-line">
-                  新生成 {generationResult.generated} 节
-                  {generationResult.existing > 0 ? `，已有读薄稿 ${generationResult.existing} 节` : ''}
-                  {generationResult.skipped > 0 ? `，跳过 ${generationResult.skipped} 节` : ''}
-                  {generationResult.failed.length > 0 ? `，失败 ${generationResult.failed.length} 节` : ''}
+                  {t('新生成')} {generationResult.generated} {t('节')}
+                  {generationResult.existing > 0 ? `${t('，已有读薄稿')} ${generationResult.existing} ${t('节')}` : ''}
+                  {generationResult.skipped > 0 ? `${t('，跳过')} ${generationResult.skipped} ${t('节')}` : ''}
+                  {generationResult.failed.length > 0 ? `${t('，失败')} ${generationResult.failed.length} ${t('节')}` : ''}
                 </p>
               ) : null}
               {generationResult?.failed.length ? (
                 <details className="compose-failures">
-                  <summary>查看失败章节</summary>
+                  <summary>{t('查看失败章节')}</summary>
                   <ul>
                     {generationResult.failed.map((item) => (
                       <li key={item.chapterId}>
@@ -628,12 +645,12 @@ export function BookCompose({
             <div className="compose-progress-card">
               <div className="compose-progress-head">
                 <span>
-                  整本 AI 排版
+                  {t('整本 AI 排版')}
                   {formatProgress && formatProgress.total > 0 ? ` · ${formatProgress.done}/${formatProgress.total}` : ''}
                 </span>
                 {formatting ? (
                   <button type="button" className="text-button muted" onClick={() => void cancelFormat()}>
-                    取消
+                    {t('取消')}
                   </button>
                 ) : null}
               </div>
@@ -648,17 +665,17 @@ export function BookCompose({
               <p className="compose-progress-line">
                 {formatProgress?.title
                   ? `${formatProgress.title}${formatProgress.message ? ` · ${formatProgress.message}` : ''}`
-                  : formatProgress?.message || '正在排版章节'}
+                  : formatProgress?.message || t('正在排版章节')}
               </p>
               {formatResult && !formatResult.cancelled ? (
                 <p className="compose-progress-line">
-                  完成 {formatResult.formatted} 节，跳过 {formatResult.skipped} 节
-                  {formatResult.failed.length > 0 ? `，失败 ${formatResult.failed.length} 节` : ''}
+                  {t('完成')} {formatResult.formatted} {t('节，跳过')} {formatResult.skipped} {t('节')}
+                  {formatResult.failed.length > 0 ? `${t('，失败')} ${formatResult.failed.length} ${t('节')}` : ''}
                 </p>
               ) : null}
               {formatResult?.failed.length ? (
                 <details className="compose-failures">
-                  <summary>查看排版失败章节</summary>
+                  <summary>{t('查看排版失败章节')}</summary>
                   <ul>
                     {formatResult.failed.map((item) => (
                       <li key={item.chapterId}>
@@ -673,7 +690,7 @@ export function BookCompose({
           ) : null}
 
           <div className="compose-chapter-list">
-            {loadingNotes ? <p className="muted">正在读取笔记…</p> : null}
+            {loadingNotes ? <p className="muted">{t('正在读取笔记…')}</p> : null}
             {visible.map((chapter, index) => {
               const condensed = condensedByChapter.get(chapter.id)
               const cards = cardsByChapter.get(chapter.id)?.length ?? 0
@@ -683,20 +700,20 @@ export function BookCompose({
                   type="button"
                   className={`compose-chapter-row${condensed ? ' is-ready' : ''}`}
                   onClick={() => onOpenChapter(chapter.id)}
-                  title={condensed ? '打开这一章' : '打开这一章并生成笔记'}
+                  title={condensed ? t('打开这一章') : t('打开这一章并生成笔记')}
                 >
                   <span className="compose-chapter-index">{String(index + 1).padStart(2, '0')}</span>
                   <span className="compose-chapter-main">
-                    <span className="compose-chapter-title">{chapter.isPart ? `${chapter.title}（篇首页）` : chapter.title}</span>
+                    <span className="compose-chapter-title">{chapter.isPart ? `${chapter.title}${t('（篇首页）')}` : chapter.title}</span>
                     <span className="compose-chapter-meta">
                       {chapter.partTitle && !chapter.isPart ? `${chapter.partTitle} · ` : ''}
-                      {chapter.chars.toLocaleString()} 字
-                      {cards > 0 ? ` · ${cards} 张卡片` : ''}
-                      {condensed ? ` · 读薄稿 ${condensed.content.length.toLocaleString()} 字` : ''}
+                      {chapter.chars.toLocaleString()} {t('字')}
+                      {cards > 0 ? ` · ${cards} ${countUnit(cards, t('张卡片'), t('张卡片一'))}` : ''}
+                      {condensed ? ` · ${t('读薄稿')} ${condensed.content.length.toLocaleString()} ${t('字')}` : ''}
                     </span>
                   </span>
                   <span className={`compose-chapter-state${condensed ? ' ready' : ''}`}>
-                    {condensed ? '已读薄' : '待生成'}
+                    {condensed ? t('已读薄') : t('待生成')}
                   </span>
                 </button>
               )
@@ -707,15 +724,15 @@ export function BookCompose({
         <section className="compose-article">
           <div className="compose-section-head">
             <div>
-              <h2>整本成稿</h2>
-              <p>把所有读薄稿合成一篇完整文章，统一语气、补过渡、去掉 AI 味。</p>
+              <h2>{t('整本成稿')}</h2>
+              <p>{t('把所有读薄稿合成一篇完整文章，统一语气、补过渡、去掉 AI 味。')}</p>
             </div>
             {history.length > 1 ? (
               <Select
                 className="compose-history"
                 value={selectedVersion}
                 onChange={(value) => void selectVersion(value)}
-                ariaLabel="成稿历史"
+                ariaLabel={t('成稿历史')}
                 options={history.map((artifact) => ({ value: artifact.id, label: versionLabel(artifact) }))}
               />
             ) : null}
@@ -723,43 +740,43 @@ export function BookCompose({
 
           <div className="compose-options">
             <label>
-              书籍类型
+              {t('书籍类型')}
               <Select
                 value={genre}
                 onChange={(value) => void changeGenre(value as BookGenre)}
                 disabled={composing}
-                ariaLabel="书籍类型"
-                options={BOOK_GENRE_OPTIONS}
+                ariaLabel={t('书籍类型')}
+                options={BOOK_GENRE_OPTIONS.map((option) => ({ value: option.value, label: t(option.label) }))}
               />
             </label>
             <label>
-              篇幅
+              {t('篇幅')}
               <Select
                 value={composeOptions.length}
                 onChange={(value) =>
                   setComposeOptions((current) => ({ ...current, length: value as BookComposeOptions['length'] }))
                 }
                 disabled={composing}
-                ariaLabel="篇幅"
+                ariaLabel={t('篇幅')}
                 options={[
-                  { value: 'tight', label: '精炼版' },
-                  { value: 'full', label: '完整版' },
+                  { value: 'tight', label: t('精炼版') },
+                  { value: 'full', label: t('完整版') },
                 ]}
               />
             </label>
             <label>
-              语气
+              {t('语气')}
               <Select
                 value={composeOptions.voice}
                 onChange={(value) =>
                   setComposeOptions((current) => ({ ...current, voice: value as BookComposeOptions['voice'] }))
                 }
                 disabled={composing}
-                ariaLabel="语气"
+                ariaLabel={t('语气')}
                 options={[
-                  { value: 'calm', label: '克制准确' },
-                  { value: 'personal', label: '读者视角' },
-                  { value: 'sharp', label: '有判断' },
+                  { value: 'calm', label: t('克制准确') },
+                  { value: 'personal', label: t('读者视角') },
+                  { value: 'sharp', label: t('有判断') },
                 ]}
               />
             </label>
@@ -769,48 +786,46 @@ export function BookCompose({
               onClick={() => void compose()}
               disabled={composing || generatedChapters === 0 || generation.running}
             >
-              {composing ? '正在合并…' : result ? '重新合并全文' : '合并整本书'}
+              {composing ? t('正在合并…') : result ? t('重新合并全文') : t('合并整本书')}
             </button>
             <button
               type="button"
               className="ghost-button"
-              onClick={oneClick}
+              onClick={() => void oneClick()}
               disabled={composing || generation.running || loadingNotes || generatedChapters + missing === 0}
-              title="先补全未生成的章节，再自动合并成一篇"
+              title={t('先补全未生成的章节，再自动合并成一篇')}
             >
-              一键成稿
+              {t('一键成稿')}
             </button>
           </div>
 
           {missing > 0 ? (
             <p className="compose-warning">
-              还有 {missing} 节没有读薄稿；现在合并只会使用已生成的 {generatedChapters} 节。
+              {t('还有')} {missing} {t('节没有读薄稿；现在合并只会使用已生成的')} {generatedChapters} {t('节。')}
             </p>
           ) : null}
           {missing > 0 && generatedChapters > 0 ? (
             <p className="compose-resume">
-              已完成 {generatedChapters} 节，还有 {missing} 节未完成。已生成的笔记已经保存在本地，点「生成未完成章节」会从缺口继续，不会重跑已完成章节。
+              {t('已完成')} {generatedChapters} {t('节，还有')} {missing} {t('节未完成。已生成的笔记已经保存在本地，点「生成未完成章节」会从缺口继续，不会重跑已完成章节。')}
             </p>
           ) : null}
           <p className="compose-estimate">
-            预计 {missing} 次章节生成
-            {pendingChars > 0 ? `（约 ${pendingChars.toLocaleString()} 字原文）` : ''} · 合并约 {mergeBatches} 次请求。
-            实际 token 和费用取决于模型；长书会按章节串行执行，期间可以取消。
+            {t('预计')} {missing} {t('次章节生成')}
+            {pendingChars > 0 ? ` ${t('（约')} ${pendingChars.toLocaleString()} ${t('字原文）')}` : ''} · {t('合并约')} {mergeBatches} {t('次请求。')} {t('实际 token 和费用取决于模型；长书会按章节串行执行，期间可以取消。')}
           </p>
           {sourceChars > 0 ? (
             <p className="compose-target-hint">
-              当前读薄稿 {sourceChars.toLocaleString()} 字，
+              {t('当前读薄稿')} {sourceChars.toLocaleString()} {t('字')} ·{' '}
               {composeOptions.length === 'tight'
-                ? `精炼版目标约 ${Math.round(sourceChars * 0.55).toLocaleString()} 字`
-                : `完整版目标约 ${Math.round(sourceChars * 0.82).toLocaleString()} 字`}
-              。
+                ? `${t('精炼版目标约')} ${Math.round(sourceChars * 0.55).toLocaleString()} ${t('字')}`
+                : `${t('完整版目标约')} ${Math.round(sourceChars * 0.82).toLocaleString()} ${t('字')}`}
             </p>
           ) : null}
 
           {composing ? (
             <div className="compose-progress-card">
               <div className="compose-progress-head">
-                <span>{composeProgress?.message ?? '正在合并整本书'}</span>
+                <span>{composeProgress?.message ?? t('正在合并整本书')}</span>
                 <button type="button" className="text-button muted" onClick={() => void cancelCompose()}>
                   取消
                 </button>
@@ -836,7 +851,7 @@ export function BookCompose({
                 <div>
                   <strong>{result.title}</strong>
                   <span>
-                    {result.sourceChapters} 章 · {result.sourceChars.toLocaleString()} → {result.outputChars.toLocaleString()} 字
+                    {result.sourceChapters} {t('章 ·')} {result.sourceChars.toLocaleString()} → {result.outputChars.toLocaleString()} {t('字')}
                     {result.durationMs > 0 ? ` · ${Math.round(result.durationMs / 1000)}s` : ''}
                     {result.usage?.totalTokens ? ` · ${result.usage.totalTokens.toLocaleString()} tokens` : ''}
                   </span>
@@ -847,7 +862,7 @@ export function BookCompose({
                     className="text-button"
                     onClick={() => setEditing((value) => !value)}
                   >
-                    {editing ? '预览' : '编辑'}
+                    {editing ? t('预览') : t('编辑')}
                   </button>
                   {dirty ? (
                     <button
@@ -856,7 +871,7 @@ export function BookCompose({
                       onClick={() => void saveArticle()}
                       disabled={busyAction === 'save'}
                     >
-                      {busyAction === 'save' ? '保存中…' : '保存修改'}
+                      {busyAction === 'save' ? t('保存中…') : t('保存修改')}
                     </button>
                   ) : null}
                 </div>
@@ -880,7 +895,7 @@ export function BookCompose({
 
               <div className="compose-export-actions">
                 <button type="button" className="ghost-button small" onClick={() => void copyArticle()} disabled={busyAction === 'copy'}>
-                  {busyAction === 'copy' ? '已复制' : '复制全文'}
+                  {busyAction === 'copy' ? t('已复制') : t('复制全文')}
                 </button>
                 <button
                   type="button"
@@ -888,31 +903,30 @@ export function BookCompose({
                   onClick={() => void exportMarkdown()}
                   disabled={busyAction === 'markdown'}
                 >
-                  {busyAction === 'markdown' ? '导出中…' : '导出 .md'}
+                  {busyAction === 'markdown' ? t('导出中…') : t('导出 .md')}
                 </button>
                 <button type="button" className="ghost-button small" onClick={() => void exportHtml()} disabled={busyAction === 'html'}>
-                  {busyAction === 'html' ? '导出中…' : '导出博客分享页'}
+                  {busyAction === 'html' ? t('导出中…') : t('导出博客分享页')}
                 </button>
                 <button type="button" className="ghost-button small" onClick={() => void exportPdf()} disabled={busyAction === 'pdf'}>
-                  {busyAction === 'pdf' ? '排版中…' : '导出排版 PDF'}
+                  {busyAction === 'pdf' ? t('排版中…') : t('导出排版 PDF')}
                 </button>
                 <button type="button" className="ghost-button small" onClick={() => setPublishOpen(true)}>
-                  发布包
+                  {t('发布包')}
                 </button>
                 <button type="button" className="ghost-button small" onClick={onShareBook}>
-                  分享卡
+                  {t('分享卡')}
                 </button>
                 <button type="button" className="ghost-button small" onClick={onOpenXhsBook}>
-                  小红书图文
+                  {t('小红书图文')}
                 </button>
               </div>
             </div>
           ) : (
             <div className="compose-empty">
-              <p className="compose-empty-title">还没有整本成稿</p>
+              <p className="compose-empty-title">{t('还没有整本成稿')}</p>
               <p>
-                先把章节读薄，再合并。合并会把所有读薄稿按主题重排，补上导语和过渡，做一次去 AI 味的润色，
-                输出一篇可以直接发博客的长文。
+                {t('先把章节读薄，再合并。合并会把所有读薄稿按主题重排，补上导语和过渡，做一次去 AI 味的润色，输出一篇可以直接发博客的长文。')}
               </p>
             </div>
           )}

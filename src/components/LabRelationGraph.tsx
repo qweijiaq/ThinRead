@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX, type MouseEvent as ReactMouseEvent } from 'react'
+
+import { t, useLocale } from '../lib/i18n.js'
 import {
   Background,
   BackgroundVariant,
@@ -29,6 +31,7 @@ import {
 
 import type { RelationEdge, RelationGraph, RelationNode, RelationNodeKind } from '../../shared/types.js'
 import { exportFlowImage, graphImageFilename } from '../lib/flow-image.js'
+import { countCrossings, countOverlaps, relationLabelWidth } from '../lib/relation-layout.js'
 import { mermaidFence, relationGraphToMermaid } from '../lib/mermaid-graph.js'
 
 interface LabRelationGraphProps {
@@ -38,6 +41,9 @@ interface LabRelationGraphProps {
 
 interface SimNode extends RelationNode, SimulationNodeDatum {
   radius: number
+  width: number
+  height: number
+  circleSize: number
 }
 
 interface SimLink extends SimulationLinkDatum<SimNode> {
@@ -47,6 +53,9 @@ interface SimLink extends SimulationLinkDatum<SimNode> {
 type RelationNodeData = {
   node: RelationNode
   radius: number
+  width: number
+  height: number
+  circleSize: number
   /** 同时连接两种以上类型的节点（例如人物同时连着组织和事件）。 */
   cross: boolean
   dim: boolean
@@ -122,18 +131,23 @@ function radiusFor(node: RelationNode): number {
   return base + roleBonus + (node.kind === 'person' && node.importance >= 4 ? 2 : 0)
 }
 
-function shortLabel(label: string): string {
-  return label.length > 8 ? `${label.slice(0, 7)}…` : label
-}
-
 function relationEdgeId(edge: RelationEdge, index: number): string {
   return `${edge.source}:${edge.target}:${edge.label}:${index}`
 }
 
+function nodeBox(node: RelationNode): { width: number; height: number; circleSize: number } {
+  const radius = radiusFor(node)
+  const circleSize = (radius + 8) * 2
+  return {
+    circleSize,
+    width: relationLabelWidth(node.label, circleSize),
+    height: circleSize + 46,
+  }
+}
+
 function RelationNodeView({ data }: NodeProps): JSX.Element {
-  const { node, radius, cross, dim, neighbour, selected } = data as RelationNodeData
-  const size = (radius + 8) * 2
-  const center = size / 2
+  const { node, radius, width, height, circleSize, cross, dim, neighbour, selected } = data as RelationNodeData
+  const center = circleSize / 2
   const className = [
     'relation-node',
     `kind-${node.kind}`,
@@ -147,23 +161,23 @@ function RelationNodeView({ data }: NodeProps): JSX.Element {
     .join(' ')
 
   return (
-    <div className={className} style={{ width: size, height: size }}>
-      <Handle type="target" position={Position.Left} />
-      <Handle type="source" position={Position.Right} />
-      <svg
-        className="relation-node-svg"
-        width={size}
-        height={size}
-        viewBox={`0 0 ${size} ${size}`}
-        aria-hidden="true"
-      >
-        <title>{node.description || node.label}</title>
-        {cross ? <circle className="relation-node-cross-ring" cx={center} cy={center} r={radius + 4} /> : null}
-        <circle className="relation-node-dot" cx={center} cy={center} r={radius} />
-        <text className="relation-node-label" x={center} y={center + 4} textAnchor="middle">
-          {shortLabel(node.label)}
-        </text>
-      </svg>
+    <div className={className} style={{ width, height, position: 'relative' }}>
+      <Handle type="target" position={Position.Left} style={{ top: center }} />
+      <Handle type="source" position={Position.Right} style={{ top: center }} />
+      <div style={{ width: circleSize, height: circleSize, margin: '0 auto' }}>
+        <svg
+          className="relation-node-svg"
+          width={circleSize}
+          height={circleSize}
+          viewBox={`0 0 ${circleSize} ${circleSize}`}
+          aria-hidden="true"
+        >
+          <title>{node.description || node.label}</title>
+          {cross ? <circle className="relation-node-cross-ring" cx={center} cy={center} r={radius + 4} /> : null}
+          <circle className="relation-node-dot" cx={center} cy={center} r={radius} />
+        </svg>
+      </div>
+      <div className="relation-node-caption">{node.label}</div>
     </div>
   )
 }
@@ -208,6 +222,7 @@ function minimapStroke(): string {
 }
 
 export function LabRelationGraph({ bookId, bookTitle }: LabRelationGraphProps): JSX.Element {
+  useLocale()
   const [graph, setGraph] = useState<RelationGraph | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -218,6 +233,7 @@ export function LabRelationGraph({ bookId, bookTitle }: LabRelationGraphProps): 
   const [layoutKey, setLayoutKey] = useState(0)
   const [fullscreen, setFullscreen] = useState(false)
   const [zoom, setZoom] = useState(1)
+  const [phase, setPhase] = useState<'nodes' | 'edges'>('nodes')
   const [imageBusy, setImageBusy] = useState(false)
   const [nodes, setNodes, onNodesChange] = useNodesState<RelationFlowNode>([])
   const [edges, setEdges, onEdgesChange] = useEdgesState<RelationFlowEdge>([])
@@ -258,6 +274,13 @@ export function LabRelationGraph({ bookId, bookTitle }: LabRelationGraphProps): 
     const timer = window.setTimeout(() => setNotice(null), 4000)
     return () => window.clearTimeout(timer)
   }, [notice])
+
+  useEffect(() => {
+    const unsubscribe = window.api.onRelationGraphProgress?.((stage) => setPhase(stage))
+    return () => {
+      if (typeof unsubscribe === 'function') unsubscribe()
+    }
+  }, [])
 
   // Escape 同时退出全屏并清除选中；React Flow 自己也用 Escape 取消选中，这里保持状态一致。
   useEffect(() => {
@@ -349,49 +372,80 @@ export function LabRelationGraph({ bookId, bookTitle }: LabRelationGraphProps): 
   useEffect(() => {
     if (!graph) return
     const ids = new Set(graph.nodes.map((node) => node.id))
-    const simNodes: SimNode[] = graph.nodes.map((node, index) => ({
-      ...node,
-      radius: radiusFor(node),
-      x: 600 + Math.cos((index / Math.max(1, graph.nodes.length)) * Math.PI * 2) * 180,
-      y: 380 + Math.sin((index / Math.max(1, graph.nodes.length)) * Math.PI * 2) * 160,
-    }))
     const simLinks: SimLink[] = graph.edges
       .filter((edge) => ids.has(edge.source) && ids.has(edge.target))
       .map((edge) => ({ source: edge.source, target: edge.target, edge }))
-    const simulation = forceSimulation<SimNode>(simNodes)
-      .force(
-        'link',
-        forceLink<SimNode, SimLink>(simLinks)
-          .id((node) => node.id)
-          .distance(190)
-          .strength(0.35),
-      )
-      .force('charge', forceManyBody<SimNode>().strength(-480))
-      .force('center', forceCenter(600, 380))
-      .force('collide', forceCollide<SimNode>().radius((node) => node.radius + 18))
-      .stop()
-    for (let tick = 0; tick < 240; tick++) simulation.tick()
-    simulation.stop()
+    let simNodes: SimNode[] = []
+    let bestScore = Number.POSITIVE_INFINITY
+    // 力导向布局有随机性：用固定种子跑多次，选交叉和标签重叠最少的一版。
+    for (let attempt = 0; attempt < 7; attempt++) {
+      let seed = (attempt + 1 + layoutKey * 17) * 2654435761
+      const random = (): number => {
+        seed = (seed * 1664525 + 1013904223) >>> 0
+        return seed / 4294967296
+      }
+      const attemptNodes: SimNode[] = graph.nodes.map((node, index) => {
+        const box = nodeBox(node)
+        const angle = (index / Math.max(1, graph.nodes.length)) * Math.PI * 2 - Math.PI / 2
+        const radius = 150 + random() * 130
+        return {
+          ...node,
+          ...box,
+          radius: radiusFor(node),
+          x: 600 + Math.cos(angle) * radius,
+          y: 380 + Math.sin(angle) * radius * 0.82,
+        }
+      })
+      const simulation = forceSimulation<SimNode>(attemptNodes)
+        .force(
+          'link',
+          forceLink<SimNode, SimLink>(simLinks)
+            .id((node) => node.id)
+            .distance(235)
+            .strength(0.32),
+        )
+        .force('charge', forceManyBody<SimNode>().strength(-650))
+        .force('center', forceCenter(600, 380))
+        .force('collide', forceCollide<SimNode>().radius((node) => Math.max(node.radius + 22, node.width / 2, node.height / 2)))
+        .stop()
+      for (let tick = 0; tick < 280; tick++) simulation.tick()
+      simulation.stop()
+      const points = new Map(attemptNodes.map((node) => [node.id, { x: node.x ?? 600, y: node.y ?? 380 }]))
+      const boxes = attemptNodes.map((node) => ({
+        x: (node.x ?? 600) - node.width / 2,
+        y: (node.y ?? 380) - node.height / 2,
+        width: node.width,
+        height: node.height,
+      }))
+      const score =
+        countCrossings(points, graph.edges.filter((edge) => ids.has(edge.source) && ids.has(edge.target))) * 12 +
+        countOverlaps(boxes) * 18
+      if (score < bestScore) {
+        bestScore = score
+        simNodes = attemptNodes
+      }
+    }
 
     const centers = new Map<string, { x: number; y: number }>()
     const flowNodes: RelationFlowNode[] = simNodes.map((simNode) => {
       const original = nodeById.get(simNode.id) ?? simNode
-      const size = (simNode.radius + 8) * 2
       const x = simNode.x ?? 600
       const y = simNode.y ?? 380
       centers.set(simNode.id, { x, y })
       return {
         id: simNode.id,
         type: original.kind,
-        position: { x, y },
-        origin: [0.5, 0.5],
-        width: size,
-        height: size,
-        ariaLabel: `${original.label}（${NODE_LABEL[original.kind]}）`,
+        position: { x: x - simNode.width / 2, y: y - simNode.circleSize / 2 },
+        width: simNode.width,
+        height: simNode.height,
+        ariaLabel: `${original.label}（${t(NODE_LABEL[original.kind])}）`,
         ariaRole: 'button',
         data: {
           node: original,
           radius: simNode.radius,
+          width: simNode.width,
+          height: simNode.height,
+          circleSize: simNode.circleSize,
           cross: crossById.get(original.id) ?? false,
           dim: false,
           neighbour: false,
@@ -588,7 +642,7 @@ export function LabRelationGraph({ bookId, bookTitle }: LabRelationGraphProps): 
 
   function focusNode(id: string): void {
     const flow = flowRef.current
-    const position = flow?.getNode(id)?.position ?? centerByIdRef.current.get(id)
+    const position = centerByIdRef.current.get(id) ?? flow?.getNode(id)?.position
     if (!position) return
     void flow?.setCenter(position.x, position.y, { zoom: 1.7, duration: 320 })
   }
@@ -644,7 +698,7 @@ export function LabRelationGraph({ bookId, bookTitle }: LabRelationGraphProps): 
     setError(null)
     try {
       await window.api.copyText(mermaidSource)
-      setNotice('Mermaid 代码已复制，可粘贴到支持 Mermaid 的 Markdown 或 HTML。')
+      setNotice(t('Mermaid 代码已复制，可粘贴到支持 Mermaid 的 Markdown 或 HTML。'))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
@@ -661,7 +715,7 @@ export function LabRelationGraph({ bookId, bookTitle }: LabRelationGraphProps): 
         nodes: flowRef.current?.getNodes() ?? [],
         filename: graphImageFilename('人物关系图'),
       })
-      if (result.saved) setNotice(`已保存到 ${result.path ?? '图片'}`)
+      if (result.saved) setNotice(`${t('已保存到')} ${result.path ?? t('图片')}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -687,44 +741,45 @@ export function LabRelationGraph({ bookId, bookTitle }: LabRelationGraphProps): 
     }
   }
 
-  if (!bookId) return <p className="lab-empty">先选择一本书。</p>
+  if (!bookId) return <p className="lab-empty">{t('先选择一本书。')}</p>
 
   return (
     <div className={`relation-view${fullscreen ? ' is-fullscreen' : ''}`}>
       <div className="relation-head">
         <div>
-          <h2>人物关系图</h2>
-          <p>{bookTitle ? `《${bookTitle}》 · ` : ''}按书里的人物、组织和事件抽取关系。</p>
+          <h2>{t('人物关系图')}</h2>
+          <p>{bookTitle ? `《${bookTitle}》 · ` : ''}{t('按书里的人物、组织和事件抽取关系。')}</p>
         </div>
         <div className="relation-head-actions">
           {graph ? (
             <>
               <button type="button" className="ghost-button small" onClick={() => void exportGraph()}>
-                导出 Markdown
+                {t('导出 Markdown')}
               </button>
               <button type="button" className="ghost-button small" onClick={() => void copyMermaid()}>
-                导出 Mermaid
+                {t('导出 Mermaid')}
               </button>
               <button type="button" className="ghost-button small" onClick={() => void exportImage()} disabled={imageBusy}>
-                {imageBusy ? '导出中…' : '导出图片'}
+                {imageBusy ? t('导出中…') : t('导出图片')}
               </button>
               <button type="button" className="ghost-button small" onClick={() => setFullscreen((value) => !value)}>
-                {fullscreen ? '退出全屏' : '全屏'}
+                {fullscreen ? t('退出全屏') : t('全屏')}
               </button>
             </>
           ) : null}
           <button type="button" className="primary-button small" onClick={() => void generate()} disabled={busy}>
-            {busy ? '抽取中…' : graph ? '重新生成' : '生成关系图'}
+            {busy ? t('抽取中…') : graph ? t('重新生成') : t('生成关系图')}
           </button>
           {busy ? (
             <button type="button" className="ghost-button small" onClick={() => void window.api.cancelLab()}>
-              取消
+              {t('取消')}
             </button>
           ) : null}
         </div>
       </div>
 
       {error ? <div className="inline-error" role="alert">{error}</div> : null}
+      {busy ? <p className="relation-notice">{phase === 'edges' ? t('人物名单已完成，正在整理关系边…') : t('正在抽取人物/地点名单，长书可能需要几分钟；可以随时取消。')}</p> : null}
       {notice ? <p className="relation-notice" role="status">{notice}</p> : null}
 
       {graph ? (
@@ -732,19 +787,19 @@ export function LabRelationGraph({ bookId, bookTitle }: LabRelationGraphProps): 
           <div className="relation-meta">
             <span className="relation-genre">{graph.genre}</span>
             <strong>{graph.title}</strong>
-            <span>{graph.nodes.length} 个节点 · {graph.edges.length} 条关系</span>
+            <span>{graph.nodes.length} {t('个节点')} · {graph.edges.length} {t('条关系')}</span>
             <button
               type="button"
               className="text-button"
               onClick={() => setLayoutKey((value) => value + 1)}
             >
-              重新布局
+              {t('重新布局')}
             </button>
           </div>
           {graph.summary ? <p className="relation-summary">{graph.summary}</p> : null}
           {graph.plot ? (
             <details className="relation-plot-details">
-              <summary>情节梗概（含剧透）</summary>
+              <summary>{t('情节梗概（含剧透）')}</summary>
               <p className="relation-plot">{graph.plot}</p>
             </details>
           ) : null}
@@ -754,7 +809,7 @@ export function LabRelationGraph({ bookId, bookTitle }: LabRelationGraphProps): 
               if (people.length === 0) return null
               return (
                 <span key={role} className={`role-chip role-${role}`}>
-                  {ROLE_LABEL[role]}：{people.map((node) => node.label).join('、')}
+                  {t(ROLE_LABEL[role])}：{people.map((node) => node.label).join('、')}
                 </span>
               )
             })}
@@ -763,9 +818,9 @@ export function LabRelationGraph({ bookId, bookTitle }: LabRelationGraphProps): 
           <div className="relation-body">
             <div className="relation-canvas" ref={canvasRef}>
               <div className="relation-canvas-tools">
-                <button type="button" onClick={() => zoomBy(1.18)} aria-label="放大">＋</button>
-                <button type="button" onClick={() => zoomBy(0.85)} aria-label="缩小">−</button>
-                <button type="button" onClick={fitGraph} aria-label="全图">全图</button>
+                <button type="button" onClick={() => zoomBy(1.18)} aria-label={t('放大')}>＋</button>
+                <button type="button" onClick={() => zoomBy(0.85)} aria-label={t('缩小')}>−</button>
+                <button type="button" onClick={fitGraph} aria-label={t('全图')}>{t('全图')}</button>
                 <span>{Math.round(zoom * 100)}%</span>
               </div>
               <ReactFlow
@@ -800,13 +855,13 @@ export function LabRelationGraph({ bookId, bookTitle }: LabRelationGraphProps): 
                   nodeStrokeColor={minimapStroke}
                   nodeStrokeWidth={2}
                   nodeComponent={MiniMapDot}
-                  ariaLabel="人物关系图缩略图"
+                  ariaLabel={t('人物关系图缩略图')}
                 />
               </ReactFlow>
 
               {selectedEdge ? (
                 <div className="relation-edge-detail" role="status">
-                  <span className="relation-edge-detail-kind">{EDGE_KIND_LABEL[selectedEdge.kind]}</span>
+                  <span className="relation-edge-detail-kind">{t(EDGE_KIND_LABEL[selectedEdge.kind])}</span>
                   <div className="relation-edge-detail-main">
                     <strong>
                       {selectedEdgeSource?.label ?? selectedEdge.source}
@@ -814,7 +869,7 @@ export function LabRelationGraph({ bookId, bookTitle }: LabRelationGraphProps): 
                       {selectedEdgeTarget?.label ?? selectedEdge.target}
                     </strong>
                     {selectedEdge.description ? <p>{selectedEdge.description}</p> : null}
-                    {selectedEdge.chapters?.length ? <small>出处：{selectedEdge.chapters.join('、')}</small> : null}
+                    {selectedEdge.chapters?.length ? <small>{t('出处：')}{selectedEdge.chapters.join('、')}</small> : null}
                     {selectedEdge.reverseLabel && selectedEdge.reverseLabel !== selectedEdge.label ? (
                       <small className="relation-edge-detail-reverse">
                         反向：{selectedEdgeTarget?.label ?? selectedEdge.target} — {selectedEdge.reverseLabel} —{' '}
@@ -822,7 +877,7 @@ export function LabRelationGraph({ bookId, bookTitle }: LabRelationGraphProps): 
                       </small>
                     ) : null}
                   </div>
-                  <button type="button" className="icon-button" onClick={clearSelection} aria-label="关闭关系详情">
+                  <button type="button" className="icon-button" onClick={clearSelection} aria-label={t('关闭关系详情')}>
                     ×
                   </button>
                 </div>
@@ -832,34 +887,34 @@ export function LabRelationGraph({ bookId, bookTitle }: LabRelationGraphProps): 
             <aside className="relation-detail">
               {selected ? (
                 <>
-                  <span className={`relation-kind kind-${selected.kind}`}>{NODE_LABEL[selected.kind]}</span>
+                  <span className={`relation-kind kind-${selected.kind}`}>{t(NODE_LABEL[selected.kind])}</span>
                   {selected.kind === 'person' && selected.role !== 'other' ? (
-                    <span className={`relation-role role-${selected.role}`}>{ROLE_LABEL[selected.role]}</span>
+                    <span className={`relation-role role-${selected.role}`}>{t(ROLE_LABEL[selected.role])}</span>
                   ) : null}
-                  {selected.realWorld ? <span className="relation-real">真实/神话</span> : null}
+                  {selected.realWorld ? <span className="relation-real">{t('真实/神话')}</span> : null}
                   <h3>{selected.label}</h3>
                   {(selected.aliases?.length ?? 0) > 0 ? (
-                    <p className="relation-aliases">别名：{selected.aliases?.join('、')}</p>
+                    <p className="relation-aliases">{t('别名：')}{selected.aliases?.join('、')}</p>
                   ) : null}
-                  <p>{selected.description || '暂无描述。'}</p>
+                  <p>{selected.description || t('暂无描述。')}</p>
                   <div className="relation-facts">
-                    {selected.identity ? <span><b>身份</b>{selected.identity}</span> : null}
-                    {selected.rank ? <span><b>官阶/职位</b>{selected.rank}</span> : null}
-                    {selected.affiliation ? <span><b>阵营/归属</b>{selected.affiliation}</span> : null}
+                    {selected.identity ? <span><b>{t('身份')}</b>{selected.identity}</span> : null}
+                    {selected.rank ? <span><b>{t('官阶/职位')}</b>{selected.rank}</span> : null}
+                    {selected.affiliation ? <span><b>{t('阵营/归属')}</b>{selected.affiliation}</span> : null}
                   </div>
                   {selected.chapters?.length ? (
-                    <p className="relation-chapters">出现章节：{selected.chapters.join('、')}</p>
+                    <p className="relation-chapters">{t('出现章节：')}{selected.chapters.join('、')}</p>
                   ) : null}
                   {selected.encyclopedia ? (
                     <div className="relation-encyclopedia">
-                      <strong>百科背景</strong>
+                      <strong>{t('百科背景')}</strong>
                       <p>{selected.encyclopedia}</p>
-                      <em>模型常识，需核对</em>
+                      <em>{t('模型常识，需核对')}</em>
                     </div>
                   ) : null}
                   <div className="relation-relations">
-                    <span>关系</span>
-                    {selectedRelations.length === 0 ? <p className="muted">还没有连接到其他节点。</p> : null}
+                    <span>{t('关系')}</span>
+                    {selectedRelations.length === 0 ? <p className="muted">{t('还没有连接到其他节点。')}</p> : null}
                     {selectedRelations.map(({ edge, label, other }) => (
                       <button
                         key={`${edge.source}-${edge.target}-${edge.label}`}
@@ -867,26 +922,26 @@ export function LabRelationGraph({ bookId, bookTitle }: LabRelationGraphProps): 
                         onClick={() => other && selectAndFocus(other.id)}
                       >
                         <strong>{label}</strong>
-                        <span>{other?.label ?? '未知节点'}</span>
+                        <span>{other?.label ?? t('未知节点')}</span>
                         {edge.description ? <em>{edge.description}</em> : null}
-                        {edge.chapters?.length ? <small>出处：{edge.chapters.join('、')}</small> : null}
+                        {edge.chapters?.length ? <small>{t('出处：')}{edge.chapters.join('、')}</small> : null}
                       </button>
                     ))}
                   </div>
                 </>
               ) : (
-                <p className="muted">点击图中的节点查看人物和关系。</p>
+                <p className="muted">{t('点击图中的节点查看人物和关系。')}</p>
               )}
               <div className="relation-legend">
                 {(Object.keys(NODE_LABEL) as RelationNode['kind'][]).map((kind) => (
                   <span key={kind}>
                     <i className={`kind-${kind}`} />
-                    {NODE_LABEL[kind]}
+                    {t(NODE_LABEL[kind])}
                   </span>
                 ))}
                 <span>
                   <i className="kind-cross" />
-                  跨类关联
+                  {t('跨类关联')}
                 </span>
               </div>
             </aside>
@@ -894,9 +949,9 @@ export function LabRelationGraph({ bookId, bookTitle }: LabRelationGraphProps): 
         </>
       ) : (
         <div className="relation-empty">
-          <p>历史、传记和侦探故事最适合看人物关系：谁和谁结盟、谁在隐瞒、哪件事改变了局面。</p>
+          <p>{t('历史、传记和侦探故事最适合看人物关系：谁和谁结盟、谁在隐瞒、哪件事改变了局面。')}</p>
           <button type="button" className="primary-button small" onClick={() => void generate()} disabled={busy}>
-            {busy ? '抽取中…' : '生成人物关系图'}
+            {busy ? t('抽取中…') : t('生成人物关系图')}
           </button>
         </div>
       )}

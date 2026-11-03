@@ -3,6 +3,7 @@ import path from 'node:path'
 
 import type { BookGenre } from '../shared/types.js'
 import { generateChapterNotes } from './ai/notes.js'
+import { getChapter, getChapters, listBooks } from './db.js'
 import { getActiveSettings } from './settings.js'
 
 interface EvalFixture {
@@ -97,4 +98,111 @@ export async function runRealEval(dataDir: string): Promise<void> {
   fs.mkdirSync(dataDir, { recursive: true })
   fs.writeFileSync(file, `${JSON.stringify({ at: new Date().toISOString(), results }, null, 2)}\n`, 'utf8')
   console.log(`[eval-real] ${JSON.stringify({ file, fixtures: results.length, results })}`)
+}
+
+
+/** 用真实书稿跑 N 章标准档，输出质量/成本基线；只读数据库，不写笔记。 */
+export async function runRealBookEval(limit = 5, chapterFilter?: string): Promise<void> {
+  const settings = getActiveSettings('notes')
+  if (settings.provider === 'demo' || (!settings.apiKey && settings.provider !== 'ollama')) {
+    throw new Error('SETUP REQUIRED：请先在设置里配置真实模型和 API Key。')
+  }
+  const book =
+    listBooks().find((item) => item.chapterCount >= 5 && item.noteCount > 0) ??
+    listBooks().find((item) => item.chapterCount >= 5)
+  if (!book) throw new Error('书架里没有至少 5 章的书。')
+  const chapters = getChapters(book.id)
+    .filter((chapter) => !chapter.hidden && chapter.chars >= 4_000 && chapter.chars <= 16_000)
+    .filter((chapter) => !chapterFilter || chapter.title.includes(chapterFilter))
+    .sort((a, b) => a.idx - b.idx)
+    .slice(0, Math.max(1, limit))
+  if (chapters.length === 0) throw new Error('没有合适长度的可见章节。')
+
+  const config = {
+    provider: settings.provider,
+    baseUrl: settings.baseUrl,
+    model: settings.model,
+    apiKey: settings.apiKey,
+  }
+  const results: Array<Record<string, unknown>> = []
+  let failures = 0
+  for (const meta of chapters) {
+    const chapter = getChapter(meta.id)
+    const usage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 }
+    const startedAt = Date.now()
+    try {
+    const result = await generateChapterNotes(
+      {
+        bookTitle: book.title,
+        chapterTitle: chapter.title,
+        chapterText: chapter.text,
+        chapterHtml: chapter.formattedHtml ?? chapter.html ?? '',
+        genre: book.genre,
+        config,
+        demo: false,
+        mode: 'standard',
+        usage,
+        debugRaw: (step, text) => {
+          fs.writeFileSync(path.join(process.cwd(), 'docs', `raw-${step}.txt`), text, 'utf8')
+        },
+      },
+      () => undefined,
+      AbortSignal.timeout(900_000),
+    )
+    const condensed = result.notes.find((note) => note.kind === 'condensed')
+    if (!condensed?.content.trim()) throw new Error(`${chapter.title}：没有生成读薄稿。`)
+    const cards = result.notes.filter((note) => note.kind === 'point' || note.kind === 'claim')
+    const withQuote = cards.filter((note) => note.quote?.trim())
+    const normalized = cards.map((note) => note.content.replace(/\s|[，。！？；：、,.!?;:]/g, ''))
+    const duplicateCards = normalized.length - new Set(normalized).size
+    results.push({
+      chapter: chapter.title,
+      inputChars: chapter.text.length,
+      durationMs: Date.now() - startedAt,
+      tokens: usage,
+      condensedChars: result.report.condensedChars,
+      ratio: Number(result.report.ratio.toFixed(2)),
+      cards: cards.length,
+      withQuotes: withQuote.length,
+      verifiedQuotes: withQuote.filter((note) => note.quoteVerified).length,
+      duplicateCards,
+      divergences: result.report.divergences,
+      fidelityMissing: result.report.fidelityMissing,
+      degraded: result.report.degraded?.length ?? 0,
+      condensedPreview: condensed.content.slice(0, 240),
+      cardPreviews: cards.slice(0, 5).map((note) => note.content.slice(0, 100)),
+    })
+    console.log(`[eval-book] ${chapter.title} done: ${cards.length} cards, ${usage.totalTokens} tokens`)
+    } catch (error) {
+      failures++
+      results.push({
+        chapter: chapter.title,
+        inputChars: chapter.text.length,
+        durationMs: Date.now() - startedAt,
+        tokens: usage,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      console.log(`[eval-book] ${chapter.title} FAILED: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+
+  const totalTokens = results.reduce((sum, item) => sum + ((item.tokens as { totalTokens?: number }).totalTokens ?? 0), 0)
+  const totalMs = results.reduce((sum, item) => sum + Number(item.durationMs), 0)
+  const output = {
+    at: new Date().toISOString(),
+    provider: settings.provider,
+    model: settings.model,
+    mode: 'standard',
+    book: { title: book.title, author: book.author },
+    chapters: results.length,
+    failures,
+    totalTokens,
+    totalMs,
+    results,
+  }
+  const suffix = chapterFilter ? `-${chapterFilter.replace(/[^\w\u4e00-\u9fa5]/g, '')}` : ''
+  const file = path.join(process.cwd(), 'docs', `real-book-eval${chapterFilter ? `-recheck${suffix}` : ''}.json`)
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  fs.writeFileSync(file, `${JSON.stringify(output, null, 2)}\n`, 'utf8')
+  console.log(`[eval-book] ${JSON.stringify({ file, book: book.title, chapters: results.length, totalTokens, totalMs })}`)
 }

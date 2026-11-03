@@ -3,6 +3,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 
 import { Markdown } from '../components/Markdown.js'
+import { getLocale, t } from './i18n.js'
 import { renderMermaidInHtml } from './mermaid-html.js'
 
 export interface BookBlogArgs {
@@ -62,7 +63,7 @@ export async function buildBookBlogHtml(args: BookBlogArgs): Promise<string> {
   const readingMinutes = Math.max(1, Math.round(args.markdown.replace(/\s+/g, '').length / 420))
   const coverSrc = args.coverSrc?.trim() ?? ''
   const coverHtml = coverSrc
-    ? `<figure class="publish-cover"><img src="${escapeHtml(coverSrc)}" alt="${title} 封面" /></figure>`
+    ? `<figure class="publish-cover"><img src="${escapeHtml(coverSrc)}" alt="${title} ${escapeHtml(t('封面'))}" /></figure>`
     : ''
   const coverMeta = coverSrc && !coverSrc.startsWith('data:')
     ? `<meta property="og:image" content="${escapeHtml(coverSrc)}">
@@ -70,8 +71,8 @@ export async function buildBookBlogHtml(args: BookBlogArgs): Promise<string> {
 <meta property="og:image:height" content="630">`
     : ''
   const toc = rendered.toc.length >= 2
-    ? `<nav class="toc" aria-label="本文目录">
-    <strong>本文目录</strong>
+    ? `<nav class="toc" aria-label="${escapeHtml(t('本文目录'))}">
+    <strong>${escapeHtml(t('本文目录'))}</strong>
     <ol>${rendered.toc.map((item) => `<li class="toc-level-${item.level}"><a href="#${item.id}">${escapeHtml(item.text)}</a></li>`).join('')}</ol>
   </nav>`
     : ''
@@ -82,27 +83,27 @@ export async function buildBookBlogHtml(args: BookBlogArgs): Promise<string> {
     description,
     author: args.author ? { '@type': 'Person', name: args.author } : undefined,
     datePublished: args.date,
-    inLanguage: 'zh-CN',
+    inLanguage: getLocale() === 'en' ? 'en' : 'zh-CN',
     publisher: { '@type': 'Organization', name: '页边 ThinRead' },
     ...(coverSrc && !coverSrc.startsWith('data:') ? { image: coverSrc } : {}),
   }).replace(/</g, '\u003c')
   return `<!doctype html>
-<html lang="zh-CN">
+<html lang="${getLocale() === 'en' ? 'en' : 'zh-CN'}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="${description}">
 <meta name="author" content="${author}">
 <meta property="og:type" content="article">
-<meta property="og:title" content="${title} · 读书笔记">
+<meta property="og:title" content="${title} · ${escapeHtml(t('读书笔记'))}">
 <meta property="og:description" content="${description}">
 <meta property="og:site_name" content="页边 ThinRead">
 ${coverMeta}
 <meta name="twitter:card" content="summary">
-<meta name="twitter:title" content="${title} · 读书笔记">
+<meta name="twitter:title" content="${title} · ${escapeHtml(t('读书笔记'))}">
 <meta name="twitter:description" content="${description}">
 <script type="application/ld+json">${articleLd}</script>
-<title>${title} · 读书笔记</title>
+<title>${title} · ${escapeHtml(t('读书笔记'))}</title>
 <style>
 :root {
   --paper: #f7f3ea;
@@ -292,13 +293,13 @@ footer {
 <div class="page">
   ${coverHtml}
   <header class="cover">
-    <div class="kicker">页边 · 读书笔记</div>
+    <div class="kicker">${escapeHtml(t('页边 · 读书笔记'))}</div>
     <h1>${title}</h1>
-    <div class="meta">${author ? `${author} · ` : ''}${escapeHtml(args.date)} · 约 ${readingMinutes} 分钟</div>
+    <div class="meta">${author ? `${author} · ` : ''}${escapeHtml(args.date)} · ${escapeHtml(t('约'))} ${readingMinutes} ${escapeHtml(t('分钟'))}</div>
   </header>
   ${toc}
   <article>${body}</article>
-  <footer>由页边 ThinRead 整理 · 书和笔记都留在本机</footer>
+  <footer>${escapeHtml(t('由页边 ThinRead 整理 · 书和笔记都留在本机'))}</footer>
 </div>
 </body>
 </html>
@@ -306,7 +307,7 @@ footer {
 }
 
 export function bookHtmlFilename(bookTitle: string): string {
-  const base = `${bookTitle} 读书笔记`.replace(/[\\/:*?"<>|#%{}]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80)
+  const base = `${bookTitle} ${t('读书笔记')}`.replace(/[\\/:*?"<>|#%{}]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80)
   return `${base || 'reading-note'}.html`
 }
 

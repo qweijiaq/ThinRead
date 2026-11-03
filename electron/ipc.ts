@@ -3,10 +3,13 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 
 import { app, BrowserWindow, ClipboardItem, clipboard, dialog, ipcMain, nativeImage, shell } from 'electron'
-import type { OpenDialogOptions } from 'electron'
+import type { IpcMainInvokeEvent, OpenDialogOptions } from 'electron'
 import { generateText } from 'ai'
 
 import { backupsDir, createBackup, deleteBackup, exportBackup, listBackups, restoreBackup } from './backup.js'
+import { buildDiagnosticsArchive } from './diagnostics.js'
+import { logErrorEvent } from './logger.js'
+import { bookStorageDir } from './safe-path.js'
 
 import {
   applyChapterFlags,
@@ -20,6 +23,10 @@ import {
   deleteChapterMark,
   deleteContent,
   deleteChapters,
+  listTrashedChapters,
+  restoreTrashedChapter,
+  purgeTrashedChapter,
+  emptyChapterTrash,
   trashNote,
   restoreTrashedNote,
   listTrashedNotes,
@@ -74,8 +81,12 @@ import {
   searchLibrary,
   setProgress,
   updateNote,
+  listBackgroundTasks,
+  upsertBackgroundTask,
+  updateBackgroundTask,
 } from './db.js'
 import { classifyChapters } from './ai/classify.js'
+import { optimizeShareCopy } from './ai/share-copy.js'
 import { auditXhsCoverage } from './ai/xhs-coverage.js'
 import { formatChapter as formatChapterWithAI } from './ai/format.js'
 import {
@@ -102,7 +113,7 @@ import { getActiveSettings, getBeatraToken, getReadwiseToken, getSettingsView, i
 import { fetchReadwiseEntries } from './readwise.js'
 import { parseWechatReadingNotes } from './parsers/wechat-reading.js'
 import { listBeatraVoices, readLocalBeatraCredential, synthesizeBeatra, testBeatra } from './beatra.js'
-import { getTtsStatus, kokoroModelDir, synthesizeTts } from './tts.js'
+import { getTtsStatus, synthesizeTts } from './tts.js'
 import { searchIndexAsync, searchIndexIds } from './search-index.js'
 import type {
   BookComposeOptions,
@@ -119,7 +130,6 @@ import type {
   ChatMode,
   ContentApplyAction,
   ContentFilter,
-  ContentKind,
   ContentStatus,
   ChatTurn,
   GeneratePartial,
@@ -127,8 +137,6 @@ import type {
   LabRequest,
   LibraryFilter,
   Note,
-  NoteDraft,
-  NotePatch,
   NoteReport,
   OcrDoneEvent,
   OcrErrorEvent,
@@ -139,14 +147,35 @@ import type {
   SaveImagesResult,
   SettingsPatch,
   TestResult,
-  TextImportInput,
   TtsSynthesisRequest,
   ReadingBookmark,
   ReadingBookmarkDraft,
   ReadingPositionInput,
   XhsCoverageRequest,
+  RendererErrorReport,
 } from '../shared/types.js'
 import type { TutorContext } from './ai/tutor.js'
+import type { z } from 'zod'
+import {
+  bookIdArgs,
+  labArtifactArgs,
+  mergeBooksArgs,
+  noteDraftArgs,
+  notePatchArgs,
+  saveTextArgs,
+  splitBookArgs,
+  textImportArgs,
+} from '../shared/ipc-schemas.js'
+
+/** 校验一组 IPC 参数；失败时写日志并抛出可读错误，不把原始 zod 错误抛给渲染层。 */
+function parseIpc<T>(channel: string, schema: z.ZodType<T>, args: unknown[]): T {
+  const parsed = schema.safeParse(args)
+  if (parsed.success) return parsed.data
+  const issue = parsed.error.issues[0]
+  const detail = issue ? `${issue.path.join('.') || 'args'}: ${issue.message}` : '参数无效'
+  logErrorEvent('ipc:invalid-args', `${channel} ${detail}`)
+  throw new Error(`参数无效：${detail}`)
+}
 
 type ReadwiseProbe = { status: number } | { error: string }
 
@@ -181,6 +210,35 @@ let activeFormat: AbortController | null = null
 let activeOcr: { controller: AbortController; fileName: string; jobId: string } | null = null
 let activeLab: AbortController | null = null
 
+interface NotesRun {
+  settings: ReturnType<typeof getActiveSettings>
+  controller: AbortController
+  send(channel: string, payload: unknown): void
+  release(): void
+}
+
+/** 单章生成和整本生成共用的启动逻辑：取消上一次、检查 Key、建立 controller 和事件通道。 */
+function beginNotesRun(event: IpcMainInvokeEvent, chapterId: string): NotesRun {
+  active?.controller.abort()
+  const settings = getActiveSettings('notes')
+  if (settings.provider !== 'demo' && !settings.apiKey) {
+    throw new Error('还没有配置 API Key。请打开右上角设置，选择模型并填入 Key。')
+  }
+  const controller = new AbortController()
+  active = { chapterId, controller }
+  const sender = event.sender
+  return {
+    settings,
+    controller,
+    send(channel, payload) {
+      if (!sender.isDestroyed()) sender.send(channel, payload)
+    },
+    release() {
+      if (active?.controller === controller) active = null
+    },
+  }
+}
+
 function beginLabSignal(): AbortSignal {
   activeLab?.abort()
   activeLab = new AbortController()
@@ -192,6 +250,7 @@ async function generateChapterToDb(
   settings: ReturnType<typeof getActiveSettings>,
   signal: AbortSignal,
   onPartial: (partial: GeneratePartial) => void,
+  options?: { fresh?: boolean },
 ): Promise<{ notes: Note[]; report: NoteReport }> {
   const chapter = getChapter(chapterId)
   const book = getBookSummary(chapter.bookId)
@@ -213,6 +272,8 @@ async function generateChapterToDb(
           content: item.content.slice(0, 300),
         })),
       demo: settings.provider === 'demo',
+      cacheDir: path.join(app.getPath('userData'), 'notes-cache'),
+      fresh: options?.fresh === true,
     },
     onPartial,
     signal,
@@ -397,10 +458,8 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     return importBookFile(result.filePaths[0]!, dataDir)
   })
 
-  ipcMain.handle('books:import-text', async (_event, input: TextImportInput) => {
-    if (!input || typeof input !== 'object' || typeof input.text !== 'string') {
-      throw new Error('文本导入参数无效。')
-    }
+  ipcMain.handle('books:import-text', async (_event, rawInput: unknown) => {
+    const [input] = parseIpc('books:import-text', textImportArgs, [rawInput])
     return importTextBook(input, dataDir)
   })
 
@@ -518,7 +577,9 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     return { book, chapters: getChapters(bookId), style: getBookStyle(bookId) }
   })
 
-  ipcMain.handle('books:rename', (_event, bookId: string, title: string) => renameBook(bookId, title))
+  ipcMain.handle('books:rename', (_event, bookId: string, title: string, author?: string) =>
+    renameBook(bookId, title, typeof author === 'string' ? author : undefined),
+  )
 
   ipcMain.handle('books:genre', (_event, bookId: string, genre: BookGenre) => setBookGenre(bookId, genre))
 
@@ -574,6 +635,14 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     }
 
     void (async () => {
+      const taskId = `format:${bookId}`
+      upsertBackgroundTask({
+        id: taskId,
+        kind: 'format',
+        bookId,
+        targets: targets.map((chapter) => ({ id: chapter.id, title: chapter.title })),
+        status: 'running',
+      })
       let formatted = 0
       const failed: BookFormatDoneEvent['failed'] = []
       for (let index = 0; index < targets.length; index++) {
@@ -602,6 +671,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
               done: index + 1,
               message: '正文太短，已跳过',
             } satisfies BookFormatProgress)
+            updateBackgroundTask(taskId, { done: index + 1, failures: failed })
             continue
           }
           const result = await formatChapterToDb(meta.id, undefined, controller.signal)
@@ -616,6 +686,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
             status: 'done',
             done: index + 1,
           } satisfies BookFormatProgress)
+          updateBackgroundTask(taskId, { done: index + 1, failures: failed })
         } catch (error) {
           if (controller.signal.aborted) break
           const message = error instanceof Error ? error.message : String(error)
@@ -630,8 +701,14 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
             done: index + 1,
             message,
           } satisfies BookFormatProgress)
+          updateBackgroundTask(taskId, { done: index + 1, failures: failed })
         }
       }
+      updateBackgroundTask(taskId, {
+        status: controller.signal.aborted ? 'paused' : failed.length > 0 ? 'error' : 'done',
+        done: formatted + skipped + failed.length,
+        failures: failed,
+      })
       send('book:format:done', {
         bookId,
         formatted,
@@ -665,25 +742,24 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     return replaceBookChapters(bookId, { title: parsed.title, author: parsed.author, chapters })
   })
 
-  ipcMain.handle('books:merge', async (_event, bookIds: string[], title: string, author: string) => {
-    if (!Array.isArray(bookIds) || bookIds.some((id) => typeof id !== 'string')) throw new Error('书籍参数无效。')
-    const ids = [...new Set(bookIds.filter(Boolean))]
-    if (ids.length < 2) throw new Error('至少选择两本书才能合并。')
+  ipcMain.handle('books:merge', async (_event, rawIds: unknown, rawTitle: unknown, rawAuthor: unknown) => {
+    const [bookIds, title, author] = parseIpc('books:merge', mergeBooksArgs, [rawIds, rawTitle, rawAuthor])
+    const ids = [...new Set(bookIds)]
     const target = getBookSummary(ids[0]!)
     if (!target) throw new Error('找不到要合并的第一本书。')
     await autoBackup(`合并 ${ids.length} 本书前`)
     const targetDir = path.join(dataDir, 'books', target.id)
     await fs.mkdir(targetDir, { recursive: true })
+    // 先校验所有要删除的目录，避免合并成功后才发现某个 id 非法、留下半套数据。
+    const removableDirs = ids.slice(1).map((id) => bookStorageDir(dataDir, id))
     const mergedText = ids
       .flatMap((id) => getChapters(id).map((chapter) => `# ${chapter.title}\n\n${getChapter(chapter.id).text}`))
       .join('\n\n')
     const mergedPath = path.join(targetDir, 'source-merged.txt')
     await fs.writeFile(mergedPath, mergedText, 'utf8')
     try {
-      const merged = mergeBooks(ids, title, author, mergedPath)
-      await Promise.all(
-        ids.slice(1).map((id) => fs.rm(path.join(dataDir, 'books', id), { recursive: true, force: true })),
-      )
+      const merged = mergeBooks(ids, title ?? '', author ?? '', mergedPath)
+      await Promise.all(removableDirs.map((dir) => fs.rm(dir, { recursive: true, force: true })))
       return merged
     } catch (error) {
       await fs.rm(mergedPath, { force: true })
@@ -691,8 +767,12 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     }
   })
 
-  ipcMain.handle('books:split', async (_event, bookId: string, fromChapterId: string, title: string) => {
-    if (typeof bookId !== 'string' || typeof fromChapterId !== 'string') throw new Error('拆分参数无效。')
+  ipcMain.handle('books:split', async (_event, rawBookId: unknown, rawChapterId: unknown, rawTitle: unknown) => {
+    const [bookId, fromChapterId, title] = parseIpc('books:split', splitBookArgs, [
+      rawBookId,
+      rawChapterId,
+      rawTitle,
+    ])
     const book = getBookSummary(bookId)
     if (!book) throw new Error('找不到这本书。')
     const chapters = getChapters(bookId)
@@ -717,14 +797,15 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
       .join('\n\n')
     await fs.writeFile(prefixPath, prefixText, 'utf8')
     try {
-      return splitBook(bookId, fromChapterId, title, storedPath, newBookId, prefixPath)
+      return splitBook(bookId, fromChapterId, title ?? '', storedPath, newBookId, prefixPath)
     } catch (error) {
       await fs.rm(bookDir, { recursive: true, force: true })
       throw error
     }
   })
 
-  ipcMain.handle('books:delete', async (_event, bookId: string) => {
+  ipcMain.handle('books:delete', async (_event, rawBookId: unknown) => {
+    const [bookId] = parseIpc('books:delete', bookIdArgs, [rawBookId])
     if (active) {
       try {
         if (getChapter(active.chapterId).bookId === bookId) {
@@ -737,8 +818,10 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     }
     const record = getBookRecord(bookId)
     if (record) await autoBackup(`删除《${record.title}》前`)
+    // 先解析并校验目录：非法 id 不能拼进 fs.rm，否则 ../../ 可以删到数据目录之外。
+    const bookDir = bookStorageDir(dataDir, bookId)
     deleteBookRow(bookId)
-    await fs.rm(path.join(dataDir, 'books', bookId), { recursive: true, force: true })
+    await fs.rm(bookDir, { recursive: true, force: true })
   })
 
   ipcMain.handle('chapters:get', (_event, chapterId: string) => getChapter(chapterId))
@@ -798,7 +881,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     return new Uint8Array(await fs.readFile(record.filePath))
   })
 
-  ipcMain.handle('tts:status', () => getTtsStatus(dataDir, Boolean(getBeatraToken())))
+  ipcMain.handle('tts:status', () => getTtsStatus(Boolean(getBeatraToken())))
 
   ipcMain.handle('tts:synthesize', async (_event, request: TtsSynthesisRequest) => {
     if (!request || typeof request !== 'object') throw new Error('语音参数无效。')
@@ -807,7 +890,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
       if (!token) throw new Error('请先在设置里配置 Beatra Device Token。')
       return synthesizeBeatra(token, request.text, request.voice, request.rate)
     }
-    return synthesizeTts(dataDir, request)
+    return synthesizeTts(request)
   })
 
   ipcMain.handle('tts:beatra-voices', async () => {
@@ -826,13 +909,6 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     const result = await testBeatra(token)
     if (result.ok) saveBeatraToken(token)
     return result
-  })
-
-  ipcMain.handle('tts:open-kokoro-dir', async () => {
-    const dir = kokoroModelDir(dataDir)
-    await fs.mkdir(dir, { recursive: true })
-    const error = await shell.openPath(dir)
-    if (error) throw new Error(error)
   })
 
   ipcMain.handle('books:cover', async (_event, bookId: string) => {
@@ -878,6 +954,22 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     deleteChapters(chapterIds)
   })
 
+  ipcMain.handle('chapters:trash-list', () => listTrashedChapters())
+
+  ipcMain.handle('chapters:trash-restore', (_event, chapterId: string) => {
+    if (typeof chapterId !== 'string') throw new Error('章节无效。')
+    return restoreTrashedChapter(chapterId)
+  })
+
+  ipcMain.handle('chapters:trash-purge', (_event, chapterId: string) => {
+    if (typeof chapterId !== 'string') throw new Error('章节无效。')
+    purgeTrashedChapter(chapterId)
+  })
+
+  ipcMain.handle('chapters:trash-empty', () => emptyChapterTrash())
+
+  ipcMain.handle('tasks:list', () => listBackgroundTasks())
+
   ipcMain.handle('library:search', async (_event, query: string) => {
     if (typeof query !== 'string') return []
     const term = query.replace(/\s+/g, ' ').trim()
@@ -913,26 +1005,6 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
 
   ipcMain.handle('library:tags', (_event, bookId?: string | null) =>
     listLibraryTags(typeof bookId === 'string' ? bookId : null),
-  )
-
-  ipcMain.handle(
-    'tutor:ask',
-    async (_event, chapterId: string, question: string, history: ChatTurn[], mode: ChatMode) => {
-      if (typeof chapterId !== 'string' || typeof question !== 'string') throw new Error('问题无效。')
-      const config = getActiveSettings()
-      return traceAsync(
-        { step: 'tutor-ask', scope: chapterId, model: config.model, promptVersion: 'tutor-v1' },
-        () =>
-          askChapter({
-            config,
-            demo: isDemoMode(),
-            context: tutorContextFor(chapterId),
-            question,
-            history: Array.isArray(history) ? history : [],
-            mode: mode === 'socratic' ? 'socratic' : 'answer',
-          }),
-      )
-    },
   )
 
   ipcMain.handle('tutor:evaluate', async (_event, chapterId: string, explanation: string) => {
@@ -1021,22 +1093,6 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     )
   })
 
-  ipcMain.handle('lab:chat', async (_event, request: LabRequest, history: ChatTurn[]) => {
-    if (!request || typeof request !== 'object') throw new Error('任务无效。')
-    const config = getActiveSettings('lab')
-    return traceAsync(
-      { step: `lab-chat:${request.tool}`, model: config.model, promptVersion: 'lab-chat-v1' },
-      () =>
-        labChat({
-          config,
-          demo: isDemoMode(),
-          request,
-          history: Array.isArray(history) ? history : [],
-          signal: beginLabSignal(),
-        }),
-    )
-  })
-
   ipcMain.handle('lab:chat-stream', async (event, request: LabRequest, history: ChatTurn[], requestId: string) => {
     if (!request || typeof request !== 'object') throw new Error('任务无效。')
     if (typeof requestId !== 'string') throw new Error('请求无效。')
@@ -1118,17 +1174,20 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     return mergeNotes(keepId, mergeId)
   })
 
-  ipcMain.handle('lab:relation-graph', async (_event, bookId: string) => {
+  ipcMain.handle('lab:relation-graph', async (event, bookId: string) => {
     if (typeof bookId !== 'string') throw new Error('书籍无效。')
     const config = getActiveSettings('lab')
     const graph = await traceAsync(
-      { step: 'lab-relation-graph', scope: bookId, model: config.model, promptVersion: 'relation-v1' },
+      { step: 'lab-relation-graph', scope: bookId, model: config.model, promptVersion: 'relation-v2' },
       () =>
         generateRelationGraph({
           config,
           demo: isDemoMode(),
           bookId,
           signal: beginLabSignal(),
+          onProgress: (stage) => {
+            if (!event.sender.isDestroyed()) event.sender.send('relation:progress', { stage })
+          },
         }),
     )
     saveLabArtifact({
@@ -1155,6 +1214,18 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
   ipcMain.handle('lab:cancel', () => {
     activeLab?.abort()
     activeLab = null
+  })
+
+  ipcMain.handle('share:optimize-copy', async (_event, input: { title?: unknown; body?: unknown; kind?: unknown }) => {
+    if (!input || typeof input !== 'object' || typeof input.body !== 'string') {
+      throw new Error('文案参数无效。')
+    }
+    return optimizeShareCopy({
+      config: getActiveSettings('notes'),
+      demo: isDemoMode(),
+      title: typeof input.title === 'string' ? input.title.slice(0, 120) : '',
+      body: input.body.slice(0, 20_000),
+    })
   })
 
   ipcMain.handle('xhs:coverage', async (_event, input: XhsCoverageRequest) => {
@@ -1189,25 +1260,10 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     typeof tool === 'string' ? listLabArtifacts(tool, typeof limit === 'number' ? limit : 30) : [],
   )
 
-  ipcMain.handle(
-    'lab:artifact-save',
-    (
-      _event,
-      input: {
-        tool: string
-        scope: string
-        title: string
-        content: string
-        meta?: string | null
-        kind?: ContentKind
-        bookId?: string | null
-        chapterId?: string | null
-      },
-    ) => {
-      if (!input || typeof input !== 'object') throw new Error('保存内容无效。')
-      return saveLabArtifact(input)
-    },
-  )
+  ipcMain.handle('lab:artifact-save', (_event, rawInput: unknown) => {
+    const [input] = parseIpc('lab:artifact-save', labArtifactArgs, [rawInput])
+    return saveLabArtifact(input)
+  })
 
   ipcMain.handle('lab:artifact-update', (_event, id: string, patch) => {
     if (typeof id !== 'string' || !patch || typeof patch !== 'object') throw new Error('生成内容参数无效。')
@@ -1283,9 +1339,15 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     }
   })
 
-  ipcMain.handle('notes:create', (_event, draft: NoteDraft) => createNote(draft))
+  ipcMain.handle('notes:create', (_event, rawDraft: unknown) => {
+    const [draft] = parseIpc('notes:create', noteDraftArgs, [rawDraft])
+    return createNote(draft)
+  })
 
-  ipcMain.handle('notes:update', (_event, noteId: string, patch: NotePatch) => updateNote(noteId, patch))
+  ipcMain.handle('notes:update', (_event, rawNoteId: unknown, rawPatch: unknown) => {
+    const [noteId, patch] = parseIpc('notes:update', notePatchArgs, [rawNoteId, rawPatch])
+    return updateNote(noteId, patch)
+  })
 
   ipcMain.handle('notes:delete', (_event, noteId: string) => {
     if (typeof noteId !== 'string') throw new Error('笔记无效。')
@@ -1306,56 +1368,42 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
 
   ipcMain.handle('notes:trash-empty', () => emptyNoteTrash())
 
-  ipcMain.handle('notes:generate', (event, chapterId: string) => {
-    active?.controller.abort()
+  ipcMain.handle('notes:generate', (event, chapterId: string, options?: { fresh?: boolean }) => {
     const chapter = getChapter(chapterId)
     const book = getBookSummary(chapter.bookId)
     if (!book) throw new Error('找不到章节所属的书')
 
-    const settings = getActiveSettings('notes')
-    if (settings.provider !== 'demo' && !settings.apiKey) {
-      throw new Error('还没有配置 API Key。请打开右上角设置，选择模型并填入 Key。')
-    }
-
-    const controller = new AbortController()
-    active = { chapterId, controller }
-    const sender = event.sender
-
-    const send = (channel: string, payload: unknown): void => {
-      if (!sender.isDestroyed()) sender.send(channel, payload)
-    }
+    const run = beginNotesRun(event, chapterId)
 
     void (async () => {
       try {
-        const result = await generateChapterToDb(chapterId, settings, controller.signal, (partial) =>
-          send('generation:partial', { chapterId, partial }),
+        const result = await generateChapterToDb(
+          chapterId,
+          run.settings,
+          run.controller.signal,
+          (partial) => run.send('generation:partial', { chapterId, partial }),
+          { fresh: options?.fresh === true },
         )
-        if (controller.signal.aborted) return
-        send('generation:done', { chapterId, notes: result.notes, report: result.report })
+        if (run.controller.signal.aborted) return
+        run.send('generation:done', { chapterId, notes: result.notes, report: result.report })
       } catch (error) {
-        if (controller.signal.aborted) {
-          send('generation:error', { chapterId, message: '生成已取消' })
+        if (run.controller.signal.aborted) {
+          run.send('generation:error', { chapterId, message: '生成已取消' })
         } else {
-          send('generation:error', {
+          run.send('generation:error', {
             chapterId,
             message: error instanceof Error ? error.message : String(error),
           })
         }
       } finally {
-        if (active?.controller === controller) active = null
+        run.release()
       }
     })()
   })
 
   ipcMain.handle('notes:generate-book', (event, bookId: string, options?: BookGenerationOptions) => {
-    active?.controller.abort()
     const book = getBookSummary(bookId)
     if (!book) throw new Error('找不到这本书')
-
-    const settings = getActiveSettings('notes')
-    if (settings.provider !== 'demo' && !settings.apiKey) {
-      throw new Error('还没有配置 API Key。请打开右上角设置，选择模型并填入 Key。')
-    }
 
     const visible = getChapters(bookId).filter((chapter) => !chapter.hidden)
     const onlyMissing = options?.onlyMissing !== false
@@ -1369,14 +1417,18 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     const targets = scope.filter((chapter) => !onlyMissing || !existing.has(chapter.id))
     const skippedByOption = scope.length - targets.length
 
-    const controller = new AbortController()
-    active = { chapterId: '', controller }
-    const sender = event.sender
-    const send = (channel: string, payload: unknown): void => {
-      if (!sender.isDestroyed()) sender.send(channel, payload)
-    }
+    const run = beginNotesRun(event, '')
+    const { settings, controller, send } = run
 
     void (async () => {
+      const taskId = `notes:${bookId}`
+      upsertBackgroundTask({
+        id: taskId,
+        kind: 'notes',
+        bookId,
+        targets: targets.map((chapter) => ({ id: chapter.id, title: chapter.title })),
+        status: 'running',
+      })
       let generated = 0
       let skipped = 0
       const failed: BookGenerationDoneEvent['failed'] = []
@@ -1406,10 +1458,15 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
               done: index + 1,
               message: '正文太短，已跳过',
             } satisfies BookGenerationProgress)
+            updateBackgroundTask(taskId, { done: index + 1, failures: failed })
             continue
           }
-          const result = await generateChapterToDb(meta.id, settings, controller.signal, (partial) =>
-            send('generation:partial', { chapterId: meta.id, partial }),
+          const result = await generateChapterToDb(
+            meta.id,
+            settings,
+            controller.signal,
+            (partial) => send('generation:partial', { chapterId: meta.id, partial }),
+            { fresh: options?.onlyMissing === false },
           )
           generated++
           send('generation:done', { chapterId: meta.id, notes: result.notes, report: result.report })
@@ -1423,6 +1480,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
             done: index + 1,
             notes: result.notes.length,
           } satisfies BookGenerationProgress)
+          updateBackgroundTask(taskId, { done: index + 1, failures: failed })
         } catch (error) {
           if (controller.signal.aborted) {
             send('generation:error', { chapterId: meta.id, message: '生成已取消' })
@@ -1441,8 +1499,14 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
             done: index + 1,
             message,
           } satisfies BookGenerationProgress)
+          updateBackgroundTask(taskId, { done: index + 1, failures: failed })
         }
       }
+      updateBackgroundTask(taskId, {
+        status: controller.signal.aborted ? 'paused' : failed.length > 0 ? 'error' : 'done',
+        done: generated + skipped + failed.length,
+        failures: failed,
+      })
       send('book:generation:done', {
         bookId,
         generated,
@@ -1451,8 +1515,20 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
         failed,
         cancelled: controller.signal.aborted,
       } satisfies BookGenerationDoneEvent)
-      if (active?.controller === controller) active = null
     })()
+      .catch((error: unknown) => {
+        // 任务初始化或收尾失败时也要给出最终事件，避免界面一直转圈。
+        logErrorEvent('notes:generate-book', error instanceof Error ? error.message : String(error))
+        send('book:generation:done', {
+          bookId,
+          generated: 0,
+          skipped: 0,
+          existing: 0,
+          failed: [{ chapterId: '', title: book.title, message: error instanceof Error ? error.message : String(error) }],
+          cancelled: false,
+        } satisfies BookGenerationDoneEvent)
+      })
+      .finally(() => run.release())
   })
 
   ipcMain.handle('notes:cancel', () => {
@@ -1522,6 +1598,33 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     await shell.openPath(dir)
   })
 
+  ipcMain.handle('app:export-diagnostics', async (): Promise<SaveFileResult> => {
+    const win = getWindow()
+    const options = {
+      title: '导出诊断包',
+      defaultPath: `ThinRead-diagnostics-${new Date().toISOString().slice(0, 10)}.zip`,
+      filters: [{ name: 'ZIP', extensions: ['zip'] }],
+    }
+    const result = win ? await dialog.showSaveDialog(win, options) : await dialog.showSaveDialog(options)
+    if (result.canceled || !result.filePath) return { saved: false, path: null }
+    const destination = result.filePath.toLowerCase().endsWith('.zip') ? result.filePath : `${result.filePath}.zip`
+    const archive = buildDiagnosticsArchive(dataDir)
+    await fs.writeFile(destination, Buffer.from(archive))
+    return { saved: true, path: destination }
+  })
+
+  ipcMain.handle('app:log-renderer-error', (_event, report: RendererErrorReport) => {
+    if (!report || typeof report !== 'object') return
+    const scope = typeof report.scope === 'string' && report.scope.trim() ? report.scope.trim().slice(0, 60) : 'app'
+    logErrorEvent(`renderer:${scope}`, String(report.message ?? '未知错误').slice(0, 2000), {
+      ...(typeof report.stack === 'string' ? { stack: report.stack.slice(0, 6000) } : {}),
+      ...(typeof report.componentStack === 'string'
+        ? { componentStack: report.componentStack.slice(0, 4000) }
+        : {}),
+      ...(typeof report.url === 'string' ? { url: report.url.slice(0, 300) } : {}),
+    })
+  })
+
   ipcMain.handle('backup:restore', async (_event, id: string) => {
     if (typeof id !== 'string') throw new Error('备份编号无效。')
     active?.controller.abort()
@@ -1531,7 +1634,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     activeFormat?.abort()
     activeFormat = null
     await autoBackup('恢复备份前')
-    restoreBackup(dataDir, id)
+    restoreBackup(dataDir, id, { safetyBackup: true })
     const window = getWindow()
     setTimeout(() => window?.webContents.reload(), 250)
   })
@@ -1644,8 +1747,8 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     clipboard.writeText(text)
   })
 
-  ipcMain.handle('app:save-markdown', async (_event, defaultName: string, content: string): Promise<SaveFileResult> => {
-    if (typeof content !== 'string') throw new Error('导出内容无效。')
+  ipcMain.handle('app:save-markdown', async (_event, rawName: unknown, rawContent: unknown): Promise<SaveFileResult> => {
+    const [defaultName, content] = parseIpc('app:save-markdown', saveTextArgs, [rawName, rawContent])
     const win = getWindow()
     const suggested = path.basename(typeof defaultName === 'string' && defaultName.trim() ? defaultName : 'reading-note.md')
     const options = {
@@ -1768,8 +1871,8 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     return { saved: true, path: filePath }
   })
 
-  ipcMain.handle('app:save-html', async (_event, defaultName: string, content: string): Promise<SaveFileResult> => {
-    if (typeof content !== 'string') throw new Error('导出内容无效。')
+  ipcMain.handle('app:save-html', async (_event, rawName: unknown, rawContent: unknown): Promise<SaveFileResult> => {
+    const [defaultName, content] = parseIpc('app:save-html', saveTextArgs, [rawName, rawContent])
     const win = getWindow()
     const suggested = path.basename(typeof defaultName === 'string' && defaultName.trim() ? defaultName : 'reading-note.html')
     const options = {
@@ -1784,8 +1887,9 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     return { saved: true, path: filePath }
   })
 
-  ipcMain.handle('app:save-pdf', async (_event, defaultName: string, html: string): Promise<SaveFileResult> => {
-    if (typeof html !== 'string' || !html.trim()) throw new Error('导出内容无效。')
+  ipcMain.handle('app:save-pdf', async (_event, rawName: unknown, rawHtml: unknown): Promise<SaveFileResult> => {
+    const [defaultName, html] = parseIpc('app:save-pdf', saveTextArgs, [rawName, rawHtml])
+    if (!html.trim()) throw new Error('导出内容无效。')
     const win = getWindow()
     const suggested = path.basename(typeof defaultName === 'string' && defaultName.trim() ? defaultName : 'reading-note.pdf')
     const options = {

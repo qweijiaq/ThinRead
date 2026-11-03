@@ -1,6 +1,6 @@
 {
   "name": "reading-notes",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "license": "MIT",
   "description": "页边 · ThinRead — 本地优先的 AI 读书笔记应用",
@@ -11,44 +11,29 @@
     "build:electron": "node scripts/build-electron.mjs",
     "build:renderer": "vite build",
     "build": "pnpm build:electron && pnpm build:renderer",
-    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.test.json",
+    "verify": "pnpm typecheck && pnpm test",
     "start": "electron .",
     "screenshot": "pnpm build && electron . --screenshot=./screenshot.png",
     "test": "node scripts/run-tests.mjs",
     "test:ui": "pnpm build && node scripts/test-ui.mjs",
-    "pack": "pnpm fetch:kokoro && pnpm build && electron-builder --dir",
-    "dist:mac": "pnpm fetch:kokoro && pnpm build && electron-builder --mac",
+    "pack": "pnpm build && electron-builder --dir",
+    "dist:mac": "pnpm build && electron-builder --mac",
     "test:e2e": "pnpm build && node scripts/test-e2e-real.mjs",
     "eval:real": "pnpm build && node scripts/eval-real.mjs",
     "test:ui:pdf": "pnpm build && node scripts/test-ui-pdf.mjs",
-    "fetch:kokoro": "node scripts/fetch-kokoro.mjs",
+    "test:packaged": "node scripts/test-packaged.mjs",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
-    "capture:storybook": "node scripts/capture-storybook.mjs"
+    "capture:storybook": "node scripts/capture-storybook.mjs",
+    "i18n:inventory": "node scripts/i18n-inventory.mjs",
+    "manual": "node scripts/build-manual.mjs"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^4.0.0",
-    "@ai-sdk/openai-compatible": "^3.0.0",
     "@huggingface/transformers": "^4.3.2",
-    "@lingo-reader/mobi-parser": "0.4.6",
     "@napi-rs/canvas": "^1.0.13",
-    "@uzen/kokoro-js": "^1.2.4",
-    "@xyflow/react": "^12.12.0",
-    "ai": "^7.0.0",
-    "cheerio": "^1.0.0",
-    "d3-force": "^3.0.0",
-    "electron-updater": "^6.8.11",
-    "fflate": "^0.8.2",
-    "html-to-image": "1.11.13",
-    "mermaid": "^12.2.0",
     "node-edge-tts": "^1.2.12",
-    "pdfjs-dist": "^5.0.0",
-    "react": "^19.3.1",
-    "react-dom": "^19.3.1",
-    "react-markdown": "^10.1.0",
-    "remark-gfm": "^4.0.1",
-    "sanitize-html": "^2.14.0",
-    "zod": "^3.25.76"
+    "pdfjs-dist": "^5.0.0"
   },
   "devDependencies": {
     "@storybook/addon-a11y": "10.6.5",
@@ -64,9 +49,27 @@
     "electron": "^44.0.0",
     "electron-builder": "^26.18.0",
     "esbuild": "^0.27.0",
+    "pixelmatch": "7.1.0",
     "storybook": "10.6.5",
     "typescript": "^5.7.0",
-    "vite": "^8.3.5"
+    "vite": "^8.3.5",
+    "@ai-sdk/anthropic": "^4.0.0",
+    "@ai-sdk/openai-compatible": "^3.0.0",
+    "@lingo-reader/mobi-parser": "0.4.6",
+    "@xyflow/react": "^12.12.0",
+    "ai": "^7.0.0",
+    "cheerio": "^1.0.0",
+    "d3-force": "^3.0.0",
+    "electron-updater": "^6.8.11",
+    "fflate": "^0.8.2",
+    "html-to-image": "1.11.13",
+    "mermaid": "^12.2.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "sanitize-html": "^2.14.0",
+    "zod": "^3.25.76"
   },
   "repository": {
     "type": "git",
@@ -84,7 +87,11 @@
       "dist/**/*",
       "dist-electron/**/*",
       "package.json",
-      "!**/*.map"
+      "!**/*.map",
+      "!node_modules/**/{docs,demo,examples,test,tests}/**",
+      "!node_modules/onnxruntime-web/**",
+      "!node_modules/onnxruntime-node/bin/napi-v6/linux/**",
+      "!node_modules/onnxruntime-node/bin/napi-v6/win32/**"
     ],
     "extraResources": [
       {
@@ -92,13 +99,6 @@
         "to": "scripts",
         "filter": [
           "*.swift"
-        ]
-      },
-      {
-        "from": "resources/kokoro",
-        "to": "kokoro",
-        "filter": [
-          "**/*"
         ]
       }
     ],
@@ -116,8 +116,19 @@
       ],
       "category": "public.app-category.productivity",
       "icon": "build/icon.png",
-      "identity": null
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist"
     },
+    "protocols": [
+      {
+        "name": "ThinRead Link",
+        "schemes": [
+          "thinread"
+        ]
+      }
+    ],
     "win": {
       "target": [
         "nsis"

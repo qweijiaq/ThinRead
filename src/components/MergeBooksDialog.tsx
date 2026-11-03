@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type JSX } from 'react'
+import { t, useLocale } from '../lib/i18n.js'
 import { useDialogFocus } from '../lib/useDialogFocus.js'
 
 import type { BookSummary } from '../../shared/types.js'
@@ -12,6 +13,7 @@ interface MergeBooksDialogProps {
 }
 
 export function MergeBooksDialog({ open, books, onClose, onMerged }: MergeBooksDialogProps): JSX.Element | null {
+  useLocale()
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [title, setTitle] = useState('')
   const [author, setAuthor] = useState('')
@@ -56,15 +58,15 @@ export function MergeBooksDialog({ open, books, onClose, onMerged }: MergeBooksD
         className="merge-dialog"
         role="dialog"
         aria-modal="true"
-        aria-label="合并书籍"
+        aria-label={t('合并书籍')}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="import-head">
           <div>
-            <h2>合并书籍</h2>
-            <p>把多本书的章节和笔记按顺序并入第一本选中的书。</p>
+            <h2>{t('合并书籍')}</h2>
+            <p>{t('把多本书的章节和笔记按顺序并入第一本选中的书。')}</p>
           </div>
-          <button type="button" className="icon-button" onClick={onClose} disabled={busy} aria-label="关闭">
+          <button type="button" className="icon-button" onClick={onClose} disabled={busy} aria-label={t('关闭')}>
             ×
           </button>
         </div>
@@ -82,11 +84,11 @@ export function MergeBooksDialog({ open, books, onClose, onMerged }: MergeBooksD
                     return next
                   })
                 }}
-                ariaLabel={`选择《${book.title}》`}
+                ariaLabel={`${t('选择')}《${book.title}》`}
               />
               <div className="merge-row-main">
                 <strong>{book.title}</strong>
-                <span>{book.author || '未知作者'} · {book.chapterCount} 节 · {(book.totalChars / 10000).toFixed(1)} 万字</span>
+                <span>{book.author || t('未知作者')} · {book.chapterCount} {t('节')} · {(book.totalChars / 10000).toFixed(1)} {t('万字')}</span>
               </div>
             </div>
           ))}
@@ -94,20 +96,20 @@ export function MergeBooksDialog({ open, books, onClose, onMerged }: MergeBooksD
 
         <div className="merge-fields">
           <label className="import-field">
-            合并后的书名
-            <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder={chosen[0]?.title ?? '默认使用第一本书的书名'} />
+            {t('合并后的书名')}
+            <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder={chosen[0]?.title ?? t('默认使用第一本书的书名')} />
           </label>
           <label className="import-field">
-            作者
-            <input value={author} onChange={(event) => setAuthor(event.target.value)} placeholder={chosen[0]?.author || '可选'} />
+            {t('作者')}
+            <input value={author} onChange={(event) => setAuthor(event.target.value)} placeholder={chosen[0]?.author || t('可选')} />
           </label>
         </div>
-        <p className="import-hint">合并会移动章节和笔记，其他选中的书会从书架移除；原文件不再单独保留。</p>
+        <p className="import-hint">{t('合并会移动章节和笔记，其他选中的书会从书架移除；原文件不再单独保留。')}</p>
         {error ? <div className="inline-error" role="alert">{error}</div> : null}
         <div className="merge-actions">
-          <span className="muted">已选 {chosen.length} 本</span>
+          <span className="muted">{t('已选')} {chosen.length} {t('本')}</span>
           <button type="button" className="primary-button" onClick={() => void merge()} disabled={busy || chosen.length < 2}>
-            {busy ? '正在合并…' : '合并书籍'}
+            {busy ? t('正在合并…') : t('合并书籍')}
           </button>
         </div>
       </div>

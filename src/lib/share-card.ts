@@ -1,4 +1,6 @@
-export type ShareTemplate = 'quote' | 'knowledge' | 'condensed' | 'book' | 'deck'
+import { getReadingSummary } from './reading-stats.js'
+
+export type ShareTemplate = 'quote' | 'knowledge' | 'condensed' | 'book' | 'deck' | 'badge'
 export type ShareTheme = 'paper' | 'ink'
 export type ShareRatio = 'portrait' | 'square'
 
@@ -34,6 +36,7 @@ export interface ShareCardInput {
   hideTags: boolean
   book: ShareBook | null
   deck: ShareNote[] | null
+  points?: string[] | null
 }
 
 interface Palette {
@@ -46,15 +49,19 @@ interface Palette {
   accent: string
 }
 
+export function sharePalette(theme: ShareTheme): Palette {
+  return PALETTES[theme]
+}
+
 const PALETTES: Record<ShareTheme, Palette> = {
   paper: {
-    background: '#e9e1d2',
-    sheet: '#faf6ec',
-    ink: '#26221b',
-    soft: '#4d4539',
-    muted: '#877a67',
-    line: '#ddd2be',
-    accent: '#a84a2b',
+    background: '#e8dfcd',
+    sheet: '#fcf8ef',
+    ink: '#221e18',
+    soft: '#4a4237',
+    muted: '#8c7f6b',
+    line: '#e0d4bf',
+    accent: '#a8452a',
   },
   ink: {
     background: '#111417',
@@ -76,6 +83,45 @@ const TEMPLATE_LABEL: Record<ShareTemplate, string> = {
   condensed: '读薄',
   book: '整本书',
   deck: '摘录集',
+  badge: '里程碑',
+}
+
+function toPlainText(markdown: string): string {
+  return markdown
+    .replace(/```[\s\S]*?```/g, (block) => block.replace(/```[a-z]*\n?/g, ''))
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/^>\s?/gm, '')
+    .replace(/^\s*[-*+]\s+/gm, '')
+    .replace(/^\s*\d+\.\s+/gm, '')
+    .replace(/(\*\*|__)(.*?)\1/g, '$2')
+    .replace(/(\*|_)(.*?)\1/g, '$2')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/^-{3,}$/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+export function keyPoints(text: string, limit: number): string[] {
+  const plain = toPlainText(text)
+  const sentences = plain
+    .split(/(?<=[。！？!?])/)
+    .map((sentence) => sentence.trim())
+    .filter((sentence) => sentence.replace(/\s/g, '').length >= 12)
+  if (sentences.length <= 1) return [plain]
+  const scored = sentences.map((sentence, index) => ({
+    sentence,
+    index,
+    score:
+      (/(不是|而是|真正|关键|方法|本质|应该|所以|只有|意味着)/.test(sentence) ? 2 : 0) +
+      Math.min(sentence.length / 60, 1),
+  }))
+  return scored
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .sort((a, b) => a.index - b.index)
+    .map((item) => item.sentence)
 }
 
 function tokenize(text: string): string[] {
@@ -91,6 +137,10 @@ function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number)
   for (const token of tokens) {
     if (token === ' ') {
       if (line && !line.endsWith(' ')) line += ' '
+      continue
+    }
+    if (!line.trim() && lines.length > 0 && /^[，。！？；：、）》」』】…·,.;:!?)]$/.test(token)) {
+      lines[lines.length - 1] += token
       continue
     }
     const next = line + token
@@ -218,6 +268,12 @@ function drawFooter(
 ): void {
   const left = 126
   const maxWidth = width - left - 120
+  ctx.strokeStyle = palette.line
+  ctx.lineWidth = 1.5
+  ctx.beginPath()
+  ctx.moveTo(left, height - 224)
+  ctx.lineTo(width - 120, height - 224)
+  ctx.stroke()
   let y = height - 178
   if (!input.hideTags && input.tags.length > 0) {
     ctx.fillStyle = palette.accent
@@ -252,7 +308,7 @@ function drawQuote(
   const left = 126
   const contentWidth = width - left - 120
   const compact = height < 1200
-  drawLabel(ctx, TEMPLATE_LABEL.quote, left, 226, palette)
+drawLabel(ctx, TEMPLATE_LABEL.quote, left, 226, palette)
 
   ctx.save()
   ctx.fillStyle = palette.accent
@@ -261,7 +317,7 @@ function drawQuote(
   ctx.fillText('“', left - 16, 246)
   ctx.restore()
 
-  const quoteBlock = fitBlock(ctx, input.quote || input.body || input.title, {
+  const quoteBlock = fitBlock(ctx, toPlainText(input.quote || input.body || input.title), {
     width: contentWidth,
     maxHeight: compact ? 470 : 590,
     maxSize: compact ? 58 : 68,
@@ -298,9 +354,15 @@ function drawKnowledge(
   const left = 126
   const contentWidth = width - left - 120
   const compact = height < 1200
-  drawLabel(ctx, TEMPLATE_LABEL.knowledge, left, 226, palette)
+  drawLabel(ctx, TEMPLATE_LABEL.knowledge, left, 214, palette)
+  const kicker = input.source.split(' · ')[0]?.trim()
+  if (kicker) {
+    ctx.fillStyle = palette.muted
+    ctx.font = `500 23px ${SANS}`
+    ctx.fillText(`《${kicker}》`, left, 250)
+  }
 
-  const titleBlock = fitBlock(ctx, input.title || input.body, {
+  const titleBlock = fitBlock(ctx, toPlainText(input.title || input.body), {
     width: contentWidth,
     maxHeight: compact ? 330 : 420,
     maxSize: compact ? 64 : 76,
@@ -309,20 +371,22 @@ function drawKnowledge(
     family: SERIF,
     weight: '600',
   })
-  const titleBottom = 300 + drawLines(ctx, titleBlock, left, 292, palette.ink)
-
-  if (input.body.trim() && input.body.trim() !== input.title.trim()) {
-    const bodyBlock = fitBlock(ctx, input.body, {
-      width: contentWidth,
-      maxHeight: height - titleBottom - 300,
-      maxSize: compact ? 34 : 38,
-      minSize: 26,
-      lineHeight: 1.78,
-      family: SERIF,
-      weight: '400',
-    })
-    drawLines(ctx, bodyBlock, left, titleBottom + 44, palette.soft)
-  }
+  const titleHeight = titleBlock.lines.length * titleBlock.lineHeight
+  const hasBody = input.body.trim() && input.body.trim() !== input.title.trim()
+  const bodyBlock = hasBody
+    ? fitBlock(ctx, toPlainText(input.body), {
+        width: contentWidth,
+        maxHeight: height - 300 - 300 - titleHeight,
+        maxSize: compact ? 34 : 38,
+        minSize: 26,
+        lineHeight: 1.78,
+        family: SERIF,
+        weight: '400',
+      })
+    : null
+  const top = 300 + Math.max(0, (height - 300 - 300 - titleHeight - 120) / 2)
+  drawLines(ctx, titleBlock, left, top, palette.ink)
+  if (bodyBlock) drawLines(ctx, bodyBlock, left, top + titleHeight + 44, palette.soft)
   drawFooter(ctx, input, palette, width, height)
 }
 
@@ -336,28 +400,67 @@ function drawCondensed(
   const left = 126
   const contentWidth = width - left - 120
   const compact = height < 1200
-  drawLabel(ctx, TEMPLATE_LABEL.condensed, left, 226, palette)
+  const label = TEMPLATE_LABEL.condensed
+  const sourceParts = input.source.split(' · ')
+  const kicker = sourceParts[0]?.trim()
+  const chapter = sourceParts[sourceParts.length - 1]?.trim()
+  let bodyText = toPlainText(input.body)
+  if (chapter && bodyText.startsWith(chapter)) bodyText = bodyText.slice(chapter.length).trim()
+  const points = input.points && input.points.length > 0 ? input.points : keyPoints(bodyText, compact ? 3 : 4)
+  const genericTitle = /读薄稿|摘录|知识点/.test(input.title)
+  const displayTitle = genericTitle && chapter ? chapter : input.title
 
-  const titleBlock = fitBlock(ctx, input.title, {
+  drawLabel(ctx, label, left, 200, palette)
+  if (kicker) {
+    ctx.fillStyle = palette.muted
+    ctx.font = `500 23px ${SANS}`
+    ctx.fillText(`《${kicker}》`, left, 238)
+  }
+
+  const titleBlock = fitBlock(ctx, toPlainText(displayTitle), {
     width: contentWidth,
-    maxHeight: compact ? 160 : 190,
-    maxSize: compact ? 42 : 48,
-    minSize: 30,
-    lineHeight: 1.35,
+    maxHeight: 210,
+    maxSize: compact ? 54 : 62,
+    minSize: 34,
+    lineHeight: 1.26,
     family: SERIF,
     weight: '600',
   })
-  const titleBottom = 286 + drawLines(ctx, titleBlock, left, 284, palette.ink)
-  const bodyBlock = fitBlock(ctx, input.body, {
-    width: contentWidth,
-    maxHeight: height - titleBottom - 290,
-    maxSize: compact ? 32 : 35,
-    minSize: 24,
-    lineHeight: 1.82,
-    family: SERIF,
-    weight: '400',
+  const titleTop = 282
+  drawLines(ctx, titleBlock, left, titleTop, palette.ink)
+  const titleBottom = titleTop + titleBlock.lines.length * titleBlock.lineHeight
+
+  ctx.strokeStyle = palette.accent
+  ctx.lineWidth = 3
+  ctx.beginPath()
+  ctx.moveTo(left, titleBottom + 26)
+  ctx.lineTo(left + 64, titleBottom + 26)
+  ctx.stroke()
+
+  let y = titleBottom + 62
+  points.forEach((point, index) => {
+    ctx.fillStyle = palette.accent
+    ctx.font = `600 24px ${SANS}`
+    ctx.fillText(String(index + 1).padStart(2, '0'), left, y + 4)
+
+    const block = fitBlock(ctx, point, {
+      width: contentWidth - 74,
+      maxHeight: 150,
+      maxSize: compact ? 30 : 34,
+      minSize: 24,
+      lineHeight: 1.62,
+      family: SERIF,
+      weight: '400',
+    })
+    drawLines(ctx, block, left + 70, y, palette.soft)
+    y += Math.max(block.lines.length * block.lineHeight, 44) + 24
   })
-  drawLines(ctx, bodyBlock, left, titleBottom + 38, palette.soft)
+
+  const chars = bodyText.replace(/\s/g, '').length
+  const minutes = Math.max(1, Math.round(chars / 400))
+  ctx.fillStyle = palette.muted
+  ctx.font = `400 19px ${SANS}`
+  ctx.fillText(`${chars.toLocaleString()} 字 · 约 ${minutes} 分钟`, left, height - 268)
   drawFooter(ctx, input, palette, width, height)
 }
 
@@ -371,7 +474,7 @@ function drawBook(
   const left = 126
   const contentWidth = width - left - 120
   const book = input.book
-  drawLabel(ctx, TEMPLATE_LABEL.book, left, 226, palette)
+drawLabel(ctx, TEMPLATE_LABEL.book, left, 226, palette)
 
   const titleBlock = fitBlock(ctx, input.title || book?.title || '', {
     width: contentWidth,
@@ -407,7 +510,7 @@ function drawBook(
     ctx.font = `600 26px ${SANS}`
     ctx.fillText(String(index + 1).padStart(2, '0'), left, y)
 
-    const cardTitle = fitBlock(ctx, card.title, {
+    const cardTitle = fitBlock(ctx, toPlainText(card.title), {
       width: contentWidth - 70,
       maxHeight: 76,
       maxSize: 30,
@@ -417,7 +520,7 @@ function drawBook(
       weight: '600',
     })
     const used = drawLines(ctx, cardTitle, left + 68, y - 2, palette.ink)
-    const body = fitBlock(ctx, card.content, {
+    const body = fitBlock(ctx, toPlainText(card.content), {
       width: contentWidth - 70,
       maxHeight: 90,
       maxSize: 23,
@@ -433,7 +536,7 @@ function drawBook(
   if (input.body.trim() && y < height - 300) {
     ctx.fillStyle = palette.soft
     ctx.font = `400 24px ${SERIF}`
-    const tail = fitBlock(ctx, input.body, {
+    const tail = fitBlock(ctx, toPlainText(input.body), {
       width: contentWidth,
       maxHeight: 80,
       maxSize: 24,
@@ -448,8 +551,8 @@ function drawBook(
 }
 
 function deckSection(note: ShareNote): { title: string; body: string } {
-  const title = note.title || note.content.replace(/\s+/g, ' ').slice(0, 40)
-  const body = note.quote?.trim() || note.content.trim()
+  const title = toPlainText(note.title) || note.content.replace(/\s+/g, ' ').slice(0, 40)
+  const body = toPlainText(note.quote?.trim() || note.content.trim())
   return { title, body }
 }
 
@@ -566,6 +669,56 @@ function renderDeck(canvas: HTMLCanvasElement, input: ShareCardInput): void {
   ctx.fillText('由页边 ThinRead 整理 · 书和笔记都留在本机', left, height - 98)
 }
 
+function drawBadges(
+  ctx: CanvasRenderingContext2D,
+  palette: Palette,
+  width: number,
+  height: number,
+): void {
+  const summary = getReadingSummary()
+  const left = 126
+  drawLabel(ctx, TEMPLATE_LABEL.badge, left, 226, palette)
+  ctx.fillStyle = palette.ink
+  ctx.font = `600 58px ${SERIF}`
+  ctx.fillText('阅读里程碑', left, 286)
+  ctx.fillStyle = palette.muted
+  ctx.font = `400 24px ${SANS}`
+  ctx.fillText(`连续阅读 ${summary.currentStreak} 天 · 最长 ${summary.longestStreak} 天`, left, 366)
+
+  const values = [7, 30, 100]
+  values.forEach((value, index) => {
+    const unlocked = summary.longestStreak >= value
+    const y = 530 + index * 250
+    ctx.beginPath()
+    ctx.arc(width / 2, y, 72, 0, Math.PI * 2)
+    ctx.fillStyle = unlocked ? palette.accent : palette.line
+    ctx.fill()
+
+    ctx.save()
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillStyle = unlocked ? palette.sheet : palette.muted
+    ctx.font = `58px ${SERIF}`
+    ctx.fillText(unlocked ? '★' : '☆', width / 2, y + 2)
+    ctx.restore()
+
+    ctx.save()
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'top'
+    ctx.fillStyle = unlocked ? palette.ink : palette.muted
+    ctx.font = `500 30px ${SERIF}`
+    ctx.fillText(`${value} 天`, width / 2, y + 100)
+    ctx.fillStyle = palette.muted
+    ctx.font = `400 19px ${SANS}`
+    ctx.fillText(unlocked ? '已达成' : '未解锁', width / 2, y + 138)
+    ctx.restore()
+  })
+
+  ctx.fillStyle = palette.muted
+  ctx.font = `400 18px ${SANS}`
+  ctx.fillText(`页边 · ${new Date().toLocaleDateString()}`, left, height - 98)
+}
+
 export function renderShareCard(canvas: HTMLCanvasElement, input: ShareCardInput): void {
   if (input.template === 'deck') {
     renderDeck(canvas, input)
@@ -584,7 +737,8 @@ export function renderShareCard(canvas: HTMLCanvasElement, input: ShareCardInput
   ctx.textBaseline = 'top'
   drawFrame(ctx, width, height, palette)
 
-  if (input.template === 'quote') drawQuote(ctx, input, palette, width, height)
+  if (input.template === 'badge') drawBadges(ctx, palette, width, height)
+  else if (input.template === 'quote') drawQuote(ctx, input, palette, width, height)
   else if (input.template === 'knowledge') drawKnowledge(ctx, input, palette, width, height)
   else if (input.template === 'condensed') drawCondensed(ctx, input, palette, width, height)
   else drawBook(ctx, input, palette, width, height)
@@ -598,6 +752,10 @@ export function shareText(input: ShareCardInput): string {
         return `${index + 1}. ${note.title}\n${note.quote?.trim() || note.content.trim()}\n—— ${source}`
       })
       .join('\n\n')
+  }
+  if (input.template === 'badge') {
+    const summary = getReadingSummary()
+    return `阅读里程碑\n连续阅读 ${summary.currentStreak} 天 · 最长 ${summary.longestStreak} 天`
   }
   if (input.template === 'quote') {
     const source = input.source.trim()

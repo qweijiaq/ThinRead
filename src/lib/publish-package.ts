@@ -1,6 +1,8 @@
 import { strToU8, zipSync } from 'fflate'
 
 import { bookDescription, buildBookBlogHtml } from './blog-export.js'
+import { apaCitation, bibtexCitation, risCitation } from './citations.js'
+import { t } from './i18n.js'
 import { coverBase64 } from './publish-cover.js'
 import type { PublishCoverStyle } from './publish-cover.js'
 
@@ -35,12 +37,13 @@ function safeName(value: string): string {
 
 function readme(input: PublishPackageInput): string {
   return [
-    `《${input.bookTitle}》读书笔记发布包`,
+    `${t('《')}${input.bookTitle}${t('》')}${t('读书笔记发布包')}`,
     '',
-    '把整个文件夹上传到任意静态托管即可（GitHub Pages、Netlify、Vercel、Cloudflare Pages 等）。',
-    'index.html 是文章首页；cover.png 同时用作页面封面和 Open Graph 图片。',
-    input.includeMarkdown ? 'notes.md 是未套版式的 Markdown 原稿，方便再编辑。' : '',
-    '页面不依赖外部字体、脚本或图片，可以直接离线打开。',
+    t('把整个文件夹上传到任意静态托管即可（GitHub Pages、Netlify、Vercel、Cloudflare Pages 等）。'),
+    t('index.html 是文章首页；cover.png 同时用作页面封面和 Open Graph 图片。'),
+    t('citation.bib / citation.ris / citation.txt 提供 BibTeX、RIS 和 APA 引用。'),
+    input.includeMarkdown ? t('notes.md 是未套版式的 Markdown 原稿，方便再编辑。') : '',
+    t('页面不依赖外部字体、脚本或图片，可以直接离线打开。'),
   ]
     .filter(Boolean)
     .join('\n')
@@ -81,10 +84,14 @@ export async function buildPublishPackage(input: PublishPackageInput): Promise<P
     if (!input.coverDataUrl) throw new Error('封面还没有生成完成，请稍等。')
     files['cover.png'] = Uint8Array.from(atob(coverBase64(input.coverDataUrl)), (char) => char.charCodeAt(0))
   }
+  const citation = { title: input.bookTitle, author: input.author, date: input.date }
+  files['citation.bib'] = strToU8(bibtexCitation(citation))
+  files['citation.ris'] = strToU8(risCitation(citation))
+  files['citation.txt'] = strToU8(`${apaCitation(citation)}\n`)
   if (input.includeMarkdown) files['notes.md'] = strToU8(input.markdown)
   return {
     archive: zipSync(files, { level: 6 }),
-    fileName: `${safeName(articleTitle)} 发布包.zip`,
+    fileName: `${safeName(articleTitle)} ${t('发布包')}.zip`,
     entries: Object.keys(files),
   }
 }

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type JSX } from 'react'
+import { t, useLocale } from '../lib/i18n.js'
 import { useDialogFocus } from '../lib/useDialogFocus.js'
 
 import type { BookSummary, ChapterMeta } from '../../shared/types.js'
@@ -13,6 +14,7 @@ interface SplitBookDialogProps {
 }
 
 export function SplitBookDialog({ open, book, chapters, onClose, onSplit }: SplitBookDialogProps): JSX.Element | null {
+  useLocale()
   const options = useMemo(
     () =>
       chapters.slice(1).map((chapter, index) => ({
@@ -29,7 +31,7 @@ export function SplitBookDialog({ open, book, chapters, onClose, onSplit }: Spli
   useEffect(() => {
     if (!open) return
     setFromChapterId(options[0]?.value ?? '')
-    setTitle(book ? `${book.title} · 下篇` : '')
+    setTitle(book ? `${book.title} · ${t('下篇')}` : '')
     setError(null)
   }, [open, book?.id, options])
 
@@ -41,7 +43,7 @@ export function SplitBookDialog({ open, book, chapters, onClose, onSplit }: Spli
     setBusy(true)
     setError(null)
     try {
-      const next = await window.api.splitBook(book.id, fromChapterId, title.trim() || `${book.title} · 下篇`)
+      const next = await window.api.splitBook(book.id, fromChapterId, title.trim() || `${book.title} · ${t('下篇')}`)
       onSplit(next)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -57,35 +59,35 @@ export function SplitBookDialog({ open, book, chapters, onClose, onSplit }: Spli
         className="split-dialog"
         role="dialog"
         aria-modal="true"
-        aria-label="拆分书籍"
+        aria-label={t('拆分书籍')}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="import-head">
           <div>
-            <h2>拆分书籍</h2>
-            <p>从选中的章节开始，把后面的章节和笔记移到一本新书。</p>
+            <h2>{t('拆分书籍')}</h2>
+            <p>{t('从选中的章节开始，把后面的章节和笔记移到一本新书。')}</p>
           </div>
-          <button type="button" className="icon-button" onClick={onClose} disabled={busy} aria-label="关闭">
+          <button type="button" className="icon-button" onClick={onClose} disabled={busy} aria-label={t('关闭')}>
             ×
           </button>
         </div>
         {options.length === 0 ? (
-          <p className="import-hint">这本书只有一章，暂时无法拆分。</p>
+          <p className="import-hint">{t('这本书只有一章，暂时无法拆分。')}</p>
         ) : (
           <>
             <label className="import-field">
-              新书从哪一章开始
-              <Select value={fromChapterId} onChange={setFromChapterId} options={options} ariaLabel="拆分位置" />
+              {t('新书从哪一章开始')}
+              <Select value={fromChapterId} onChange={setFromChapterId} options={options} ariaLabel={t('拆分位置')} />
             </label>
             <label className="import-field">
-              新书书名
+              {t('新书书名')}
               <input value={title} onChange={(event) => setTitle(event.target.value)} />
             </label>
-            <p className="import-hint">原书保留前面的章节；两本书共用同一份章节和笔记数据，之后可以分别改名。</p>
+            <p className="import-hint">{t('原书保留前面的章节；两本书共用同一份章节和笔记数据，之后可以分别改名。')}</p>
             <div className="merge-actions">
-              <span className="muted">原书：{book.title}</span>
+              <span className="muted">{t('原书')}：{book.title}</span>
               <button type="button" className="primary-button" onClick={() => void split()} disabled={busy || !fromChapterId}>
-                {busy ? '正在拆分…' : '拆分成两本'}
+                {busy ? t('正在拆分…') : t('拆分成两本')}
               </button>
             </div>
           </>

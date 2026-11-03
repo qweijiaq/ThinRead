@@ -8,73 +8,28 @@ importers:
 
   .:
     dependencies:
-      '@ai-sdk/anthropic':
-        specifier: ^4.0.0
-        version: 4.0.90(zod@3.25.76)
-      '@ai-sdk/openai-compatible':
-        specifier: ^3.0.0
-        version: 3.0.80(zod@3.25.76)
       '@huggingface/transformers':
         specifier: ^4.3.2
         version: 4.3.2(@types/node@22.20.5)
-      '@lingo-reader/mobi-parser':
-        specifier: 0.4.6
-        version: 0.4.6
       '@napi-rs/canvas':
         specifier: ^1.0.13
         version: 1.0.13
-      '@uzen/kokoro-js':
-        specifier: ^1.2.4
-        version: 1.2.4(@types/node@22.20.5)
-      '@xyflow/react':
-        specifier: ^12.12.0
-        version: 12.12.0(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
-      ai:
-        specifier: ^7.0.0
-        version: 7.0.155(zod@3.25.76)
-      cheerio:
-        specifier: ^1.0.0
-        version: 1.2.0
-      d3-force:
-        specifier: ^3.0.0
-        version: 3.0.0
-      electron-updater:
-        specifier: ^6.8.11
-        version: 6.8.11
-      fflate:
-        specifier: ^0.8.2
-        version: 0.8.3
-      html-to-image:
-        specifier: 1.11.13
-        version: 1.11.13
-      mermaid:
-        specifier: ^12.2.0
-        version: 12.2.0
       node-edge-tts:
         specifier: ^1.2.12
         version: 1.2.12
       pdfjs-dist:
         specifier: ^5.0.0
         version: 5.7.284
-      react:
-        specifier: ^19.3.1
-        version: 19.3.1
-      react-dom:
-        specifier: ^19.3.1
-        version: 19.3.1(react@19.3.1)
-      react-markdown:
-        specifier: ^10.1.0
-        version: 10.1.0(@types/react@19.3.0)(react@19.3.1)
-      remark-gfm:
-        specifier: ^4.0.1
-        version: 4.0.1
-      sanitize-html:
-        specifier: ^2.14.0
-        version: 2.18.1
-      zod:
-        specifier: ^3.25.76
-        version: 3.25.76
     devDependencies:
+      '@ai-sdk/anthropic':
+        specifier: ^4.0.0
+        version: 4.0.90(zod@3.25.76)
+      '@ai-sdk/openai-compatible':
+        specifier: ^3.0.0
+        version: 3.0.80(zod@3.25.76)
+      '@lingo-reader/mobi-parser':
+        specifier: 0.4.6
+        version: 0.4.6
       '@storybook/addon-a11y':
         specifier: 10.6.5
         version: 10.6.5(storybook@10.6.5(@types/react@19.3.0)(react@19.3.1))
@@ -102,18 +57,60 @@ importers:
       '@vitejs/plugin-react':
         specifier: ^6.1.2
         version: 6.1.2(vite@8.3.5(@types/node@22.20.5)(esbuild@0.27.7)(jiti@2.7.0))
+      '@xyflow/react':
+        specifier: ^12.12.0
+        version: 12.12.0(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
+      ai:
+        specifier: ^7.0.0
+        version: 7.0.155(zod@3.25.76)
       axe-core:
         specifier: 4.14.0
         version: 4.14.0
+      cheerio:
+        specifier: ^1.0.0
+        version: 1.2.0
+      d3-force:
+        specifier: ^3.0.0
+        version: 3.0.0
       electron:
         specifier: ^44.0.0
         version: 44.10.0
       electron-builder:
         specifier: ^26.18.0
         version: 26.18.0(electron-builder-squirrel-windows@26.18.0)
+      electron-updater:
+        specifier: ^6.8.11
+        version: 6.8.11
       esbuild:
         specifier: ^0.27.0
         version: 0.27.7
+      fflate:
+        specifier: ^0.8.2
+        version: 0.8.3
+      html-to-image:
+        specifier: 1.11.13
+        version: 1.11.13
+      mermaid:
+        specifier: ^12.2.0
+        version: 12.2.0
+      pixelmatch:
+        specifier: 7.1.0
+        version: 7.1.0
+      react:
+        specifier: ^19.3.1
+        version: 19.3.1
+      react-dom:
+        specifier: ^19.3.1
+        version: 19.3.1(react@19.3.1)
+      react-markdown:
+        specifier: ^10.1.0
+        version: 10.1.0(@types/react@19.3.0)(react@19.3.1)
+      remark-gfm:
+        specifier: ^4.0.1
+        version: 4.0.1
+      sanitize-html:
+        specifier: ^2.14.0
+        version: 2.18.1
       storybook:
         specifier: 10.6.5
         version: 10.6.5(@types/react@19.3.0)(react@19.3.1)
@@ -123,6 +120,9 @@ importers:
       vite:
         specifier: ^8.3.5
         version: 8.3.5(@types/node@22.20.5)(esbuild@0.27.7)(jiti@2.7.0)
+      zod:
+        specifier: ^3.25.76
+        version: 3.25.76
 
 packages:
 
@@ -1537,9 +1537,6 @@ packages:
 
   '@upsetjs/venn.js@2.0.0':
     resolution: {integrity: sha512-WbBhLrooyePuQ1VZxrJjtLvTc4NVfpOyKx0sKqioq9bX1C1m7Jgykkn8gLrtwumBioXIqam8DLxp88Adbue6Hw==}
-
-  '@uzen/kokoro-js@1.2.4':
-    resolution: {integrity: sha512-HcmNgCW1mTt7zhZhfrDCyrUIKzXXNjg1u7+ReyA5F5OEn3EWo09FD7DHB4BCEFGagGq4F8D5oUyA3eIoHUstfQ==}
 
   '@vercel/oidc@3.2.0':
     resolution: {integrity: sha512-UycprH3T6n3jH0k44NHMa7pnFHGu/N05MjojYr+Mc6I7obkoLIJujSWwin1pCvdy/eOxrI/l3uDLQsmcrOb4ug==}
@@ -3125,9 +3122,6 @@ packages:
     resolution: {integrity: sha512-eRWB5LBz7PpDu4PUlwT0PhnQfTQJlDDdPa35urV4Osrm0t0AqQFGn+UIkU3klZvwJ8KPO3VbBFsXquA6p6kqZw==}
     engines: {node: '>=12', npm: '>=6'}
 
-  phonemizer@1.2.1:
-    resolution: {integrity: sha512-v0KJ4mi2T4Q7eJQ0W15Xd4G9k4kICSXE8bpDeJ8jisL4RyJhNWsweKTOi88QXFc4r4LZlz5jVL5lCHhkpdT71A==}
-
   picocolors@1.1.1:
     resolution: {integrity: sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA==}
 
@@ -3135,8 +3129,9 @@ packages:
     resolution: {integrity: sha512-qcJu88Q2IWqJsDD529JKMdwGm/dvInW4HvQnRwiH9JtihJvzGOscDtHE3x1pBKeUOTysQ8kVmLnJ2kJu7yhcGA==}
     engines: {node: '>=12'}
 
-  pinyin-pro@3.29.5:
-    resolution: {integrity: sha512-Fk5YoRmtdHqJWqAuzYVG/NzvzeCbaG+ZEwbY6Nbps3QAIrvQQEtcm49frcyCM8i2b5najnzPDtYqrHRYTTiuwQ==}
+  pixelmatch@7.1.0:
+    resolution: {integrity: sha512-1wrVzJ2STrpmONHKBy228LM1b84msXDUoAzVEl0R8Mz4Ce6EPr+IVtxm8+yvrqLYMHswREkjYFaMxnyGnaY3Ng==}
+    hasBin: true
 
   pkijs@3.4.3:
     resolution: {integrity: sha512-V9kOzaItwDgqlryhXysQsAXUEKi5O7kqWUaP3dXI7MLvkPqWWMb4wVb1QAtmEDCKI+XIAINsZoNKMFF7sZb1eg==}
@@ -3148,6 +3143,10 @@ packages:
   plist@3.1.0:
     resolution: {integrity: sha512-uysumyrvkUX0rX/dEVqt8gC3sTBzd4zoWfLeS29nb53imdaXVvLINYXTI2GNqzaMuvacNx4uJQ8+b3zXR0pkgQ==}
     engines: {node: '>=10.4.0'}
+
+  pngjs@7.0.0:
+    resolution: {integrity: sha512-LKWqWJRhstyYo9pGvgor/ivk2w94eSjE3RGVuzLGlr3NmD8bf7RcYGze1mNdEHRP6TRP6rMuDHk5t44hnTRyow==}
+    engines: {node: '>=14.19.0'}
 
   points-on-curve@0.2.0:
     resolution: {integrity: sha512-0mYKnYYe9ZcqMCWhUjItv/oHjvgEsfKvnUTg8sAtnHr3GVy7rGkXCb6d5cSyqrWqL4k81b9CPg3urd+T7aop3A==}
@@ -5012,14 +5011,6 @@ snapshots:
     optionalDependencies:
       d3-selection: 3.0.0
       d3-transition: 3.0.1(d3-selection@3.0.0)
-
-  '@uzen/kokoro-js@1.2.4(@types/node@22.20.5)':
-    dependencies:
-      '@huggingface/transformers': 4.3.2(@types/node@22.20.5)
-      phonemizer: 1.2.1
-      pinyin-pro: 3.29.5
-    transitivePeerDependencies:
-      - '@types/node'
 
   '@vercel/oidc@3.2.0': {}
 
@@ -6974,13 +6965,13 @@ snapshots:
 
   pe-library@0.4.1: {}
 
-  phonemizer@1.2.1: {}
-
   picocolors@1.1.1: {}
 
   picomatch@4.0.7: {}
 
-  pinyin-pro@3.29.5: {}
+  pixelmatch@7.1.0:
+    dependencies:
+      pngjs: 7.0.0
 
   pkijs@3.4.3:
     dependencies:
@@ -6998,6 +6989,8 @@ snapshots:
       '@xmldom/xmldom': 0.8.15
       base64-js: 1.5.1
       xmlbuilder: 15.1.1
+
+  pngjs@7.0.0: {}
 
   points-on-curve@0.2.0: {}
 

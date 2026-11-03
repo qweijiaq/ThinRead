@@ -105,6 +105,7 @@ export const readerStyle: ReaderStyle = {
   paragraphSpacing: 1.15,
   indent: false,
   theme: 'folio',
+  maxWidth: 760,
 }
 
 export const shareQuoteNote: ShareNote = {

@@ -2,28 +2,92 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import { app, BrowserWindow, screen, shell } from 'electron'
+import { app, BrowserWindow, dialog, screen, shell } from 'electron'
 import { autoUpdater } from 'electron-updater'
 
 import { generateChapterNotes } from './ai/notes.js'
+import { installFetchReplay } from './ai/replay.js'
 import { initAiTrace } from './ai/trace.js'
 import { closeDatabase, createNote, getChapter, getChapters, initDatabase, insertBook, listBooks, markRunningOcrJobsInterrupted, replaceAiNotes, setProgress } from './db.js'
-import { ensureDailyBackup } from './backup.js'
+import { ensureDailyBackup, recoverCorruptDatabase, recoverInterruptedRestore } from './backup.js'
+import { buildDiagnosticsArchive } from './diagnostics.js'
 import { registerIpc } from './ipc.js'
+import { logError, logInfo, logWarn, initLogger } from './logger.js'
 import { importBookFile } from './import.js'
 import { parseEpub } from './parsers/epub.js'
 import { parseMobi } from './parsers/mobi.js'
 import { initSettings } from './settings.js'
-import { runRealE2e } from './e2e-real.js'
-import { runRealEval } from './eval-real.js'
+import { runRealE2e, runRealNotesE2e } from './e2e-real.js'
+import { runRealBookEval, runRealEval } from './eval-real.js'
 import { initSearchIndex, warmSearchIndex } from './search-index.js'
 import { runSmokeTest, sampleEpubBuffer } from './smoke.js'
+import { parseDeepLink, type DeepLinkTarget } from '../shared/deep-link.js'
 
 let mainWindow: BrowserWindow | null = null
+let pendingDeepLink: DeepLinkTarget | null = null
+// 恢复备份会触发 reload；did-finish-load 会再次执行，脚本只能跑一次。
+let execRan = false
+
+function deliverDeepLink(target: DeepLinkTarget, window: BrowserWindow | null = mainWindow): void {
+  pendingDeepLink = target
+  if (!window || window.isDestroyed() || window.webContents.isLoading()) return
+  pendingDeepLink = null
+  if (window.isMinimized()) window.restore()
+  window.show()
+  window.focus()
+  window.webContents.send('app:deep-link', target)
+}
+
+app.on('open-url', (event, url) => {
+  const target = parseDeepLink(url)
+  if (!target) return
+  event.preventDefault()
+  deliverDeepLink(target)
+})
+
+// 主进程兜底：未捕获异常、未处理的 Promise 和渲染进程崩溃都要落盘，
+// 否则用户只能报“白屏了”，诊断包里什么也看不到。
+process.on('uncaughtException', (error) => {
+  logError('main:uncaughtException', error)
+  // 未捕获异常后继续跑等于带着未知状态写用户数据；记完日志就退出，让下次启动走正常恢复。
+  try {
+    dialog.showErrorBox(
+      '页边遇到错误',
+      ['主进程发生了未处理的错误，应用将退出。', '', error instanceof Error ? error.message : String(error), '', '日志已写入数据目录的 logs/ 文件夹。'].join('\n'),
+    )
+  } catch {
+    // 对话框本身失败时至少保证日志和退出。
+  }
+  app.quit()
+})
+process.on('unhandledRejection', (reason) => {
+  logError('main:unhandledRejection', reason)
+})
+app.on('render-process-gone', (_event, _contents, details) => {
+  logError('main:render-process-gone', new Error(`渲染进程退出：${details.reason}`), {
+    reason: details.reason,
+    exitCode: details.exitCode,
+  })
+})
+app.on('child-process-gone', (_event, details) => {
+  logWarn('main:child-process-gone', `子进程退出：${details.type} / ${details.reason}`)
+})
+
+
+// 真实模型评测可以录制/回放网络响应；未设置环境变量时不改变任何行为。
+if (process.env.THINREAD_AI_REPLAY_DIR || process.env.THINREAD_AI_RECORD_DIR) {
+  installFetchReplay({
+    replayDir: process.env.THINREAD_AI_REPLAY_DIR || undefined,
+    recordDir: process.env.THINREAD_AI_RECORD_DIR || undefined,
+  })
+}
 
 const isSmoke = process.argv.includes('--smoke-test')
 const isRealE2e = process.argv.includes('--e2e-real')
+const isRealNotesE2e = process.argv.includes('--e2e-real-notes')
 const isRealEval = process.argv.includes('--eval-real')
+const bookEvalArg = process.argv.find((arg) => arg.startsWith('--eval-real-book'))
+const isRealBookEval = Boolean(bookEvalArg)
 const isSeed = process.argv.includes('--seed-demo')
 const openFirst = process.argv.includes('--open-first')
 const dumpDom = process.argv.includes('--dump-dom')
@@ -32,8 +96,29 @@ if (dataDirArg) app.setPath('userData', dataDirArg.slice('--data-dir='.length))
 const execFileArg = process.argv.find((arg) => arg.startsWith('--exec-file='))
 const importArg = process.argv.find((arg) => arg.startsWith('--import='))
 const writeSampleArg = process.argv.find((arg) => arg.startsWith('--write-sample='))
+const writeDiagnosticsArg = process.argv.find((arg) => arg.startsWith('--write-diagnostics='))
+const windowSizeArg = process.argv.find((arg) => arg.startsWith('--window-size='))
+const captureSizeArg = process.argv.find((arg) => arg.startsWith('--capture-size='))
 const screenshotArg = process.argv.find((arg) => arg.startsWith('--screenshot='))
 const screenshotPath = screenshotArg ? screenshotArg.slice('--screenshot='.length) : null
+
+/**
+ * 同一个数据目录只允许一个实例写入，否则两个进程会各自持有 SQLite 连接。
+ * 测试、截图和 --data-dir 隔离运行不参与锁，避免互相抢。
+ */
+const isolatedRun = Boolean(dataDirArg) || isSmoke || isRealE2e || isRealEval
+const hasSingleInstanceLock = isolatedRun ? true : app.requestSingleInstanceLock()
+if (!hasSingleInstanceLock) app.quit()
+
+app.on('second-instance', (_event, argv) => {
+  const url = argv.find((arg) => arg.startsWith('thinread://'))
+  const target = url ? parseDeepLink(url) : null
+  if (target) deliverDeepLink(target)
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
+})
 
 async function seedDemoLibrary(): Promise<void> {
   if (listBooks().length > 0) return
@@ -98,12 +183,18 @@ function ensureWindowVisible(window: BrowserWindow): void {
 function createWindow(): void {
   const headless = process.env.THINREAD_HEADLESS === '1'
   const appRoot = app.getAppPath()
+  const [windowWidth, windowHeight] = (() => {
+    const raw = windowSizeArg?.slice('--window-size='.length) ?? ''
+    const match = /^(\d{3,5})x(\d{3,5})$/.exec(raw)
+    return match ? [Number(match[1]), Number(match[2])] : [1440, 900]
+  })()
   const window = new BrowserWindow({
-    width: 1440,
-    height: 900,
+    width: windowWidth,
+    height: windowHeight,
     minWidth: 1080,
     minHeight: 680,
     show: false,
+    enableLargerThanScreen: true,
     backgroundColor: '#f5f0e6',
     title: '页边',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
@@ -168,16 +259,35 @@ function createWindow(): void {
   })
 
   window.webContents.on('did-finish-load', () => {
+    if (pendingDeepLink) deliverDeepLink(pendingDeepLink, window)
     if (!screenshotPath && !dumpDom) return
     setTimeout(() => {
       void (async () => {
         let failed = false
+        let debuggerAttached = false
+        const captureSize = (() => {
+          const match = /^(\d{3,5})x(\d{3,5})$/.exec(captureSizeArg?.slice('--capture-size='.length) ?? '')
+          return match ? { width: Number(match[1]), height: Number(match[2]) } : null
+        })()
         try {
+          if (captureSize) {
+            const dbg = window.webContents.debugger
+            if (!dbg.isAttached()) dbg.attach('1.3')
+            debuggerAttached = true
+            await dbg.sendCommand('Emulation.setDeviceMetricsOverride', {
+              width: captureSize.width,
+              height: captureSize.height,
+              deviceScaleFactor: 1,
+              mobile: false,
+            })
+            await new Promise((resolve) => setTimeout(resolve, 300))
+          }
           if (openFirst) {
             await window.webContents.executeJavaScript("document.querySelector('.book-card')?.click()")
             await new Promise((resolve) => setTimeout(resolve, 2600))
           }
-          if (execFileArg && !app.isPackaged) {
+          if (execFileArg && !app.isPackaged && !execRan) {
+            execRan = true
             const code = fs.readFileSync(execFileArg.slice('--exec-file='.length), 'utf8')
             const result = await window.webContents.executeJavaScript(code)
             console.log(`[exec] ${JSON.stringify(result)}`)
@@ -199,15 +309,32 @@ function createWindow(): void {
             console.log(`[dom] ${info}`)
           }
           if (!screenshotPath) return
-          const image = await window.webContents.capturePage()
           fs.mkdirSync(path.dirname(screenshotPath), { recursive: true })
-          fs.writeFileSync(screenshotPath, image.toPNG())
+          if (captureSize) {
+            const result = await window.webContents.debugger.sendCommand('Page.captureScreenshot', {
+              format: 'png',
+              clip: { x: 0, y: 0, width: captureSize.width, height: captureSize.height, scale: 1 },
+              captureBeyondViewport: true,
+            }) as { data: string }
+            fs.writeFileSync(screenshotPath, Buffer.from(result.data, 'base64'))
+          } else {
+            const image = await window.webContents.capturePage()
+            fs.writeFileSync(screenshotPath, image.toPNG())
+          }
           console.log(`[screenshot] ${screenshotPath}`)
           failed = false
         } catch (error) {
           console.error('[screenshot] failed', error)
           failed = true
         } finally {
+          if (debuggerAttached) {
+            try {
+              await window.webContents.debugger.sendCommand('Emulation.clearDeviceMetricsOverride')
+              window.webContents.debugger.detach()
+            } catch {
+              // debugger 可能已随页面关闭。
+            }
+          }
           if (failed) app.exit(1)
           else app.quit()
         }
@@ -220,8 +347,15 @@ function createWindow(): void {
   })
 }
 
+/**
+ * macOS 的自动更新由 Squirrel 安装，要求应用带有效的 Developer ID 签名。
+ * 当前发布产物是 ad-hoc 签名：开启后只会在后台下载几百 MB 再静默失败。
+ * 签名流程接通后把默认值改成 true；需要临时验证时用 THINREAD_UPDATER=1 启动。
+ */
+const updaterEnabled = process.env.THINREAD_UPDATER === '1'
+
 function setupAutoUpdater(): void {
-  if (!app.isPackaged) return
+  if (!app.isPackaged || !updaterEnabled) return
   const resources = (process as unknown as { resourcesPath?: string }).resourcesPath
   if (!resources || !fs.existsSync(path.join(resources, 'app-update.yml'))) return
   autoUpdater.autoDownload = true
@@ -237,6 +371,7 @@ function setupAutoUpdater(): void {
 }
 
 app.whenReady().then(async () => {
+  if (!hasSingleInstanceLock) return
   if (writeSampleArg) {
     const target = writeSampleArg.slice('--write-sample='.length)
     fs.mkdirSync(path.dirname(target), { recursive: true })
@@ -265,6 +400,42 @@ app.whenReady().then(async () => {
   }
 
   const dataDir = app.getPath('userData')
+  if (isRealNotesE2e) {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'reading-notes-e2e-notes-'))
+    try {
+      initDatabase(tempDir)
+      initSettings(dataDir)
+      await runRealNotesE2e()
+      console.log('[e2e-real-notes] PASSED')
+      app.exit(0)
+    } catch (error) {
+      console.error('[e2e-real-notes] FAILED', error)
+      app.exit(1)
+    } finally {
+      closeDatabase()
+      fs.rmSync(tempDir, { recursive: true, force: true })
+    }
+    return
+  }
+
+  if (isRealBookEval) {
+    const limit = Number(bookEvalArg?.split('=')[1] ?? 5) || 5
+    try {
+      initDatabase(dataDir)
+      initSettings(dataDir)
+      initAiTrace(dataDir)
+      await runRealBookEval(limit, process.env.THINREAD_EVAL_CHAPTER)
+      console.log('[eval-real-book] PASSED')
+      app.exit(0)
+    } catch (error) {
+      console.error('[eval-real-book] FAILED', error)
+      app.exit(1)
+    } finally {
+      closeDatabase()
+    }
+    return
+  }
+
   if (isRealE2e) {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'reading-notes-e2e-real-'))
     try {
@@ -296,11 +467,46 @@ app.whenReady().then(async () => {
     return
   }
 
-  initDatabase(dataDir)
+  initLogger(dataDir)
+  logInfo('app', '启动', {
+    version: app.getVersion(),
+    electron: process.versions.electron,
+    node: process.versions.node,
+    platform: process.platform,
+    arch: process.arch,
+    packaged: app.isPackaged,
+  })
+  // 上次恢复备份如果崩在中途，先把旧数据搬回来再打开数据库。
+  recoverInterruptedRestore(dataDir)
+  try {
+    initDatabase(dataDir)
+  } catch (error) {
+    const recovery = recoverCorruptDatabase(dataDir)
+    if (!recovery.recovered) throw error
+    logWarn('db', '数据库损坏，已从最近备份恢复', recovery)
+    initDatabase(dataDir)
+  }
   initSettings(dataDir)
   initAiTrace(dataDir)
   initSearchIndex(dataDir)
   markRunningOcrJobsInterrupted()
+
+  // 无头导出诊断包：用于自动化验证，也方便在打不开窗口时让用户取日志。
+  if (writeDiagnosticsArg) {
+    const target = writeDiagnosticsArg.slice('--write-diagnostics='.length)
+    try {
+      fs.mkdirSync(path.dirname(target), { recursive: true })
+      fs.writeFileSync(target, buildDiagnosticsArchive(dataDir))
+      console.log(`[diagnostics] ${target}`)
+      app.exit(0)
+    } catch (error) {
+      logError('diagnostics', error)
+      console.error('[diagnostics] failed', error)
+      app.exit(1)
+    }
+    return
+  }
+
   if (listBooks().length > 0) {
     ensureDailyBackup(dataDir)
     setInterval(() => {
@@ -353,12 +559,34 @@ app.whenReady().then(async () => {
 
   registerIpc(() => mainWindow, dataDir)
   if (isSeed) await seedDemoLibrary()
+  if (process.defaultApp && process.argv[1]) {
+    app.setAsDefaultProtocolClient('thinread', process.execPath, [path.resolve(process.argv[1])])
+  } else {
+    app.setAsDefaultProtocolClient('thinread')
+  }
   createWindow()
   setupAutoUpdater()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
+}).catch((error: unknown) => {
+  // 启动失败（迁移、数据库损坏、权限）以前是“进程活着但没有窗口”，用户完全无从下手。
+  logError('startup', error)
+  const dataDir = app.getPath('userData')
+  dialog.showErrorBox(
+    '页边无法启动',
+    [
+      '启动时遇到错误，应用已退出。',
+      '',
+      error instanceof Error ? error.message : String(error),
+      '',
+      `数据目录：${dataDir}`,
+      '如果数据库损坏，可以在设置或 backups/ 目录里用最近一次备份恢复。',
+      '日志在 logs/ 目录，也可以把它发给开发者。',
+    ].join('\n'),
+  )
+  app.exit(1)
 })
 
 app.on('window-all-closed', () => {

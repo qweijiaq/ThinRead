@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import { useDialogFocus } from '../lib/useDialogFocus.js'
 
+import { t, useLocale } from '../lib/i18n.js'
 import { Checkbox } from './Checkbox.js'
 
 import {
@@ -29,6 +30,7 @@ const TEMPLATE_OPTIONS: Array<{ value: ShareTemplate; label: string }> = [
   { value: 'condensed', label: '读薄卡' },
   { value: 'book', label: '整本书' },
   { value: 'deck', label: '长图' },
+  { value: 'badge', label: '里程碑' },
 ]
 
 const TEMPLATE_HINT: Record<ShareTemplate, string> = {
@@ -37,6 +39,7 @@ const TEMPLATE_HINT: Record<ShareTemplate, string> = {
   condensed: '一段读薄稿，适合分享一章的完整意思。',
   book: '书名 + 关键卡片，适合读完一本书后发总结。',
   deck: '把多张笔记排成一张长图，适合一次分享一组摘录。',
+  badge: '把连续阅读和 7/30/100 天徽章做成一张分享卡。',
 }
 
 function preferredTemplate(note: ShareNote): ShareTemplate {
@@ -61,6 +64,7 @@ function readPreference<T extends string>(key: string, allowed: readonly T[], fa
 }
 
 export function ShareDialog({ note, book, notes, initialTemplate, onClose }: ShareDialogProps): JSX.Element {
+  useLocale()
   const [template, setTemplate] = useState<ShareTemplate>(
     initialTemplate ?? (note ? preferredTemplate(note) : (notes?.length ?? 0) > 1 ? 'deck' : 'book'),
   )
@@ -70,18 +74,20 @@ export function ShareDialog({ note, book, notes, initialTemplate, onClose }: Sha
   const [ratio, setRatio] = useState<ShareRatio>(() =>
     readPreference<'portrait' | 'square'>('reading-notes-share-ratio', ['portrait', 'square'], 'portrait'),
   )
-  const [title, setTitle] = useState(note?.title ?? book?.title ?? ((notes?.length ?? 0) > 0 ? '读书摘录' : ''))
+  const [title, setTitle] = useState(note?.title ?? book?.title ?? ((notes?.length ?? 0) > 0 ? t('读书摘录') : ''))
   const [body, setBody] = useState(note?.content ?? '')
   const [quote, setQuote] = useState(note ? quoteFallback(note) : '')
   const [source, setSource] = useState(
     note
       ? `${note.bookTitle}${note.chapterTitle ? ` · ${note.chapterTitle}` : ''}`
-      : book?.author ?? ((notes?.length ?? 0) > 0 ? '我的读书摘录' : ''),
+      : book?.author ?? ((notes?.length ?? 0) > 0 ? t('我的读书摘录') : ''),
   )
   const [tags, setTags] = useState<string[]>(note?.tags ?? [])
   const [hideSource, setHideSource] = useState(false)
   const [hideTags, setHideTags] = useState(false)
   const [preview, setPreview] = useState('')
+  const [points, setPoints] = useState<string[] | null>(null)
+  const [optimizing, setOptimizing] = useState(false)
   const [busy, setBusy] = useState<'copy' | 'save' | 'text' | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -89,15 +95,16 @@ export function ShareDialog({ note, book, notes, initialTemplate, onClose }: Sha
 
   useEffect(() => {
     setTemplate(initialTemplate ?? (note ? preferredTemplate(note) : (notes?.length ?? 0) > 1 ? 'deck' : 'book'))
-    setTitle(note?.title ?? book?.title ?? ((notes?.length ?? 0) > 0 ? '读书摘录' : ''))
+    setTitle(note?.title ?? book?.title ?? ((notes?.length ?? 0) > 0 ? t('读书摘录') : ''))
     setBody(note?.content ?? '')
     setQuote(note ? quoteFallback(note) : '')
     setSource(
       note
         ? `${note.bookTitle}${note.chapterTitle ? ` · ${note.chapterTitle}` : ''}`
-        : book?.author ?? ((notes?.length ?? 0) > 0 ? '我的读书摘录' : ''),
+        : book?.author ?? ((notes?.length ?? 0) > 0 ? t('我的读书摘录') : ''),
     )
     setTags(note?.tags ?? [])
+    setPoints(null)
     setNotice(null)
     setError(null)
   }, [note?.id, book?.title, initialTemplate, notes?.length])
@@ -143,8 +150,9 @@ export function ShareDialog({ note, book, notes, initialTemplate, onClose }: Sha
       hideTags,
       book: book ?? null,
       deck: notes ?? null,
+      points,
     }),
-    [template, theme, ratio, title, body, quote, source, tags, hideSource, hideTags, book, notes],
+    [template, theme, ratio, title, body, quote, source, tags, hideSource, hideTags, book, notes, points],
   )
 
   useEffect(() => {
@@ -175,7 +183,7 @@ export function ShareDialog({ note, book, notes, initialTemplate, onClose }: Sha
     setError(null)
     try {
       await window.api.copyImage(preview)
-      setNotice('图片已复制，可以直接粘贴到聊天窗口或编辑器。')
+      setNotice(t('图片已复制，可以直接粘贴到聊天窗口或编辑器。'))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -189,7 +197,7 @@ export function ShareDialog({ note, book, notes, initialTemplate, onClose }: Sha
     setError(null)
     try {
       const result = await window.api.saveImage(preview, shareFilename(input))
-      if (result.saved) setNotice(`已保存到 ${result.path}`)
+      if (result.saved) setNotice(`${t('已保存到')} ${result.path}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -203,7 +211,7 @@ export function ShareDialog({ note, book, notes, initialTemplate, onClose }: Sha
     setError(null)
     try {
       await window.api.copyText(shareText(input))
-      setNotice('文字和出处已复制。')
+      setNotice(t('文字和出处已复制。'))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -219,15 +227,15 @@ export function ShareDialog({ note, book, notes, initialTemplate, onClose }: Sha
         className="share-modal"
         role="dialog"
         aria-modal="true"
-        aria-label="分享卡片"
+        aria-label={t('分享卡片')}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="share-head">
           <div>
-            <h2>做一张分享卡</h2>
-            <p>{TEMPLATE_HINT[template]}</p>
+            <h2>{t('做一张分享卡')}</h2>
+            <p>{t(TEMPLATE_HINT[template])}</p>
           </div>
-          <button type="button" className="icon-button" onClick={onClose} aria-label="关闭">
+          <button type="button" className="icon-button" onClick={onClose} aria-label={t('关闭')}>
             ×
           </button>
         </div>
@@ -235,17 +243,17 @@ export function ShareDialog({ note, book, notes, initialTemplate, onClose }: Sha
         <div className="share-layout">
           <div className="share-preview-pane">
             <div className={`share-preview-frame ratio-${ratio}${template === 'deck' ? ' is-deck' : ''}`}>
-              {preview ? <img src={preview} alt="分享卡预览" /> : <span className="muted">正在排版…</span>}
+              {preview ? <img src={preview} alt={t('分享卡预览')} /> : <span className="muted">{t('正在排版…')}</span>}
             </div>
             <div className="share-preview-actions">
               <button type="button" className="primary-button small" onClick={() => void copyImage()} disabled={!preview || busy !== null}>
-                {busy === 'copy' ? '复制中…' : '复制图片'}
+                {busy === 'copy' ? t('复制中…') : t('复制图片')}
               </button>
               <button type="button" className="ghost-button small" onClick={() => void saveImage()} disabled={!preview || busy !== null}>
-                {busy === 'save' ? '保存中…' : '保存 PNG'}
+                {busy === 'save' ? t('保存中…') : t('保存 PNG')}
               </button>
               <button type="button" className="ghost-button small" onClick={() => void copyText()} disabled={busy !== null}>
-                {busy === 'text' ? '复制中…' : '复制文字'}
+                {busy === 'text' ? t('复制中…') : t('复制文字')}
               </button>
             </div>
             {notice ? <div className="inline-notice" role="status" aria-live="polite">{notice}</div> : null}
@@ -253,8 +261,39 @@ export function ShareDialog({ note, book, notes, initialTemplate, onClose }: Sha
           </div>
 
           <div className="share-controls">
+          {template !== 'quote' && template !== 'badge' && template !== 'deck' ? (
+            <div className="share-optimize">
+              <button
+                type="button"
+                className="ghost-button small"
+                disabled={optimizing || !body.trim()}
+                onClick={() => {
+                  void (async () => {
+                    setOptimizing(true)
+                    setError(null)
+                    setNotice(null)
+                    try {
+                      const result = await window.api.optimizeShareCopy({ title, body, kind: template })
+                      setTitle(result.title)
+                      setBody(result.points.join('\n'))
+                      setPoints(result.points)
+                      setNotice(result.note ?? t('文案已优化，可继续手动修改。'))
+                    } catch (err) {
+                      setError(err instanceof Error ? err.message : String(err))
+                    } finally {
+                      setOptimizing(false)
+                    }
+                  })()
+                }}
+              >
+                {optimizing ? t('优化中…') : t('AI 优化文案')}
+              </button>
+              <span className="field-hint">{t('用当前模型改写成 3 条更适合分享的要点。')}</span>
+            </div>
+          ) : null}
+
             <div className="share-control-group">
-              <span className="share-control-label">模板</span>
+              <span className="share-control-label">{t('模板')}</span>
               <div className="share-segmented">
                 {templateOptions.map((option) => (
                   <button
@@ -263,7 +302,7 @@ export function ShareDialog({ note, book, notes, initialTemplate, onClose }: Sha
                     className={template === option.value ? 'active' : ''}
                     onClick={() => setTemplate(option.value)}
                   >
-                    {option.label}
+                    {t(option.label)}
                   </button>
                 ))}
               </div>
@@ -271,19 +310,19 @@ export function ShareDialog({ note, book, notes, initialTemplate, onClose }: Sha
 
             <div className="share-control-row">
               <div className="share-control-group">
-                <span className="share-control-label">主题</span>
+                <span className="share-control-label">{t('主题')}</span>
                 <div className="share-segmented compact">
                   <button type="button" className={theme === 'paper' ? 'active' : ''} onClick={() => setTheme('paper')}>
-                    纸
+                    {t('纸')}
                   </button>
                   <button type="button" className={theme === 'ink' ? 'active' : ''} onClick={() => setTheme('ink')}>
-                    墨
+                    {t('墨')}
                   </button>
                 </div>
               </div>
               {template === 'deck' ? null : (
                 <div className="share-control-group">
-                  <span className="share-control-label">比例</span>
+                  <span className="share-control-label">{t('比例')}</span>
                   <div className="share-segmented compact">
                     <button type="button" className={ratio === 'portrait' ? 'active' : ''} onClick={() => setRatio('portrait')}>
                       3:4
@@ -299,64 +338,70 @@ export function ShareDialog({ note, book, notes, initialTemplate, onClose }: Sha
             {template === 'deck' ? (
               <>
                 <label className="share-field">
-                  摘录集标题
+                  {t('摘录集标题')}
                   <input value={title} onChange={(event) => setTitle(event.target.value)} />
                 </label>
-                <p className="share-hint">已选 {notes?.length ?? 0} 张笔记，会排成一张长图；最多显示 12 张。</p>
+                <p className="share-hint">{t('已选')} {notes?.length ?? 0} {t('张笔记，会排成一张长图；最多显示 12 张。')}</p>
               </>
             ) : template === 'book' ? (
               <>
                 <label className="share-field">
-                  书名
+                  {t('书名')}
                   <input value={title} onChange={(event) => setTitle(event.target.value)} />
                 </label>
                 <label className="share-field">
-                  结尾一句
+                  {t('结尾一句')}
                   <textarea
                     value={body}
-                    onChange={(event) => setBody(event.target.value)}
+                    onChange={(event) => {
+                  setBody(event.target.value)
+                  setPoints(null)
+                }}
                     rows={3}
-                    placeholder="可选：读完这本书后最想留下的一句话。"
+                    placeholder={t('可选：读完这本书后最想留下的一句话。')}
                   />
                 </label>
               </>
             ) : template === 'quote' ? (
               <>
                 <label className="share-field">
-                  摘录
+                  {t('摘录')}
                   <textarea value={quote} onChange={(event) => setQuote(event.target.value)} rows={6} />
                 </label>
                 <label className="share-field">
-                  卡片署名
-                  <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="这张卡在说什么" />
+                  {t('卡片署名')}
+                  <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder={t('这张卡在说什么')} />
                 </label>
               </>
             ) : (
               <>
                 <label className="share-field">
-                  标题
+                  {t('标题')}
                   <textarea value={title} onChange={(event) => setTitle(event.target.value)} rows={2} />
                 </label>
                 <label className="share-field">
-                  正文
-                  <textarea value={body} onChange={(event) => setBody(event.target.value)} rows={7} />
+                  {t('正文')}
+                  <textarea value={body} onChange={(event) => {
+                  setBody(event.target.value)
+                  setPoints(null)
+                }} rows={7} />
                 </label>
               </>
             )}
 
             <label className="share-field">
-              出处
-              <input value={source} onChange={(event) => setSource(event.target.value)} placeholder="书名 · 章节" />
+              {t('出处')}
+              <input value={source} onChange={(event) => setSource(event.target.value)} placeholder={t('书名 · 章节')} />
             </label>
 
             <div className="share-toggles">
-              <Checkbox checked={hideSource} onChange={setHideSource} label="隐藏出处" />
+              <Checkbox checked={hideSource} onChange={setHideSource} label={t('隐藏出处')} />
               {template === 'book' || template === 'deck' ? null : (
-                <Checkbox checked={hideTags} onChange={setHideTags} label="隐藏标签" />
+                <Checkbox checked={hideTags} onChange={setHideTags} label={t('隐藏标签')} />
               )}
               {note && note.tags.length > 0 ? <span className="muted">{tags.slice(0, 4).join(' · ')}</span> : null}
             </div>
-            <p className="share-hint">文字会按卡片大小自动缩排；太长时保留开头，导出前可以再改。</p>
+            <p className="share-hint">{t('文字会按卡片大小自动缩排；太长时保留开头，导出前可以再改。')}</p>
           </div>
         </div>
         <canvas ref={canvasRef} className="share-canvas" aria-hidden="true" />

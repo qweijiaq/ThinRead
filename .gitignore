@@ -9,8 +9,12 @@ dist-electron/
 
 .test-build/
 release/
-resources/kokoro/*
-!resources/kokoro/README.md
 
 storybook-static/
 storybook-screenshots-current/
+
+# Local evaluation transcripts and generated marketing archives
+docs/real-book-eval*.json
+docs/raw-extract-cards.txt
+marketing/xhs-guide/*.zip
+marketing/xhs-guide/assets/raw-*.png

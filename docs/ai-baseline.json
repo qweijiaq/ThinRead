@@ -1,0 +1,16 @@
+{
+  "createdAt": "2026-11-02T08:49:00.000Z",
+  "provider": "deepseek",
+  "model": "deepseek-flash",
+  "mode": "standard",
+  "inputChars": 1674,
+  "durationMs": 53402,
+  "tokens": { "inputTokens": 3045, "outputTokens": 10203, "totalTokens": 13248 },
+  "condensedChars": 456,
+  "ratio": 3.671,
+  "cards": 3,
+  "divergences": 0,
+  "fidelityMissing": 0,
+  "cacheHitMs": 1,
+  "cacheHitTokens": 0
+}

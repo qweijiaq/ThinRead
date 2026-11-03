@@ -34,9 +34,11 @@ import {
 } from '../db.js'
 import { labQuizSchema, relationGraphSchema } from '../../shared/schemas.js'
 import { buildKnowledgeMap } from '../knowledge-map.js'
+import { candidateSnippets, extractCharacterCandidates } from './relation-candidates.js'
 import { genreRule } from './genre.js'
 import type { ModelConfig } from './provider.js'
 import { createLanguageModel } from './provider.js'
+import { tracedGenerateText } from './trace.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -108,6 +110,9 @@ const CHAT_SYSTEMS: Partial<Record<LabRequest['tool'], string>> = {
     '每个人都要引用或指向本章的具体内容，最后给用户留一个问题。',
   ].join('\n'),
 }
+
+const RELATION_NODE_TIMEOUT_MS = 5 * 60_000
+const RELATION_EDGE_TIMEOUT_MS = 5 * 60_000
 
 function labTimeout(parent: AbortSignal | undefined, ms: number): AbortSignal {
   const timeout = AbortSignal.timeout(ms)
@@ -696,10 +701,11 @@ function relationContext(bookId: string): { bookTitle: string; author: string; t
   if (!book) throw new Error('找不到这本书')
   const chapters = getChapters(bookId).filter((chapter) => !chapter.hidden)
   const notes = listNotes(bookId)
+  const chapterTexts = chapters.map((chapter) => getChapter(chapter.id).text)
   const notesText = notesDigest(notes).slice(0, 14_000)
   const allSnippets = chapters
-    .map((chapter) => {
-      const text = getChapter(chapter.id).text.replace(/\s+/g, ' ').trim().slice(0, 700)
+    .map((chapter, index) => {
+      const text = (chapterTexts[index] ?? '').replace(/\s+/g, ' ').trim().slice(0, 700)
       return `## ${chapter.title}\n${text}`
     })
     .join('\n\n')
@@ -708,15 +714,28 @@ function relationContext(bookId: string): { bookTitle: string; author: string; t
     allSnippets.length > 18_000
       ? `${allSnippets.slice(0, 9_000)}\n\n……（中间章节省略）……\n\n${allSnippets.slice(-9_000)}`
       : allSnippets
+  // 先用本地全文扫描找出配角候选和原文窗口；模型只负责核对和补全关系，不再只看到主角团。
+  const candidates = extractCharacterCandidates(
+    chapterTexts,
+    notes.map((note) => `${note.title}\n${note.content}`),
+  )
+  const candidateNames = candidates.slice(0, 120).map((item) => `${item.name}(${item.count})`).join('、')
+  const candidateSnippetText = candidateSnippets(
+    chapterTexts,
+    candidates.slice(0, 70).map((item) => item.name),
+    11_000,
+  )
   const text = [
     `书名《${book.title}》，作者 ${book.author || '未知'}。`,
     `章节：${chapters.map((chapter) => chapter.title).join('；')}`,
+    candidateNames ? `本地全文扫描的候选实体（人物、地点、组织；含配角，按出现频率和名字特征排序；请核对并尽量纳入）：\n${candidateNames}` : '',
+    candidateSnippetText ? `候选实体原文片段（用于核对身份和关系）：\n${candidateSnippetText}` : '',
     notesText ? `读者笔记：\n${notesText}` : '',
     snippets ? `章节摘录（包含开头和结尾）：\n${snippets}` : '',
   ]
     .filter(Boolean)
     .join('\n\n')
-    .slice(0, 32_000)
+    .slice(0, 48_000)
   return { bookTitle: book.title, author: book.author, text }
 }
 
@@ -787,8 +806,8 @@ export function mergeRelationAliases(graph: RelationGraph): RelationGraph {
     aliases.delete(primary.label)
     nodes.push({
       ...primary,
-      aliases: [...aliases].filter(Boolean).slice(0, 8),
-      chapters: [...chapters].slice(0, 8),
+      aliases: [...aliases].filter(Boolean).slice(0, 16),
+      chapters: [...chapters].slice(0, 16),
       importance: Math.max(...list.map((node) => node.importance)),
       identity: list.map((node) => node.identity).find(Boolean) ?? '',
       rank: list.map((node) => node.rank).find(Boolean) ?? '',
@@ -820,7 +839,7 @@ function normalizeRelationGraph(raw: unknown, bookTitle: string): RelationGraph 
   const byLabel = new Map<string, string>()
   const validNodeKinds: RelationNodeKind[] = ['person', 'organization', 'place', 'event', 'concept']
   const validRoles = new Set(['detective', 'killer', 'victim', 'witness', 'suspect', 'protagonist', 'supporting', 'other'])
-  for (const value of rawNodes.slice(0, 24)) {
+  for (const value of rawNodes.slice(0, 100)) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) continue
     const item = value as Record<string, unknown>
     const label = typeof item.label === 'string' ? item.label.trim() : ''
@@ -834,7 +853,7 @@ function normalizeRelationGraph(raw: unknown, bookTitle: string): RelationGraph 
     const importanceValue = Number(item.importance ?? 3)
     nodes.push({
       id,
-      label: label.slice(0, 40),
+      label: label.slice(0, 120),
       kind,
       role,
       importance: Number.isFinite(importanceValue) ? Math.min(5, Math.max(1, Math.round(importanceValue))) : 3,
@@ -842,19 +861,19 @@ function normalizeRelationGraph(raw: unknown, bookTitle: string): RelationGraph 
       rank: typeof item.rank === 'string' ? item.rank.trim().slice(0, 80) : '',
       affiliation: typeof item.affiliation === 'string' ? item.affiliation.trim().slice(0, 100) : '',
       aliases: Array.isArray(item.aliases)
-        ? item.aliases.filter((alias): alias is string => typeof alias === 'string').map((alias) => alias.trim()).filter(Boolean).slice(0, 6)
+        ? item.aliases.filter((alias): alias is string => typeof alias === 'string').map((alias) => alias.trim()).filter(Boolean).slice(0, 12)
         : [],
       realWorld: item.realWorld === true,
       encyclopedia: typeof item.encyclopedia === 'string' ? item.encyclopedia.trim().slice(0, 600) : '',
       description: typeof item.description === 'string' ? item.description.trim().slice(0, 300) : '',
-      chapters: normalizeStringList(item.chapters ?? item.chapterRefs ?? item.sources, 8),
+      chapters: normalizeStringList(item.chapters ?? item.chapterRefs ?? item.sources, 16),
     })
     byLabel.set(label, id)
   }
   const ids = new Set(nodes.map((node) => node.id))
   const validEdgeKinds = new Set(['family', 'ally', 'rival', 'suspect', 'motive', 'clue', 'event', 'other'])
   const edges: RelationEdge[] = []
-  for (const value of rawEdges.slice(0, 48)) {
+  for (const value of rawEdges.slice(0, 240)) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) continue
     const item = value as Record<string, unknown>
     const rawSource = typeof item.source === 'string' ? item.source.trim() : ''
@@ -874,7 +893,7 @@ function normalizeRelationGraph(raw: unknown, bookTitle: string): RelationGraph 
       reverseLabel,
       kind: validEdgeKinds.has(String(item.kind)) ? (item.kind as RelationEdge['kind']) : 'other',
       description: typeof item.description === 'string' ? item.description.trim().slice(0, 240) : '',
-      chapters: normalizeStringList(item.chapters ?? item.chapterRefs ?? item.sources, 8),
+      chapters: normalizeStringList(item.chapters ?? item.chapterRefs ?? item.sources, 16),
     })
   }
   return {
@@ -892,6 +911,7 @@ export async function generateRelationGraph(args: {
   config: ModelConfig
   demo: boolean
   bookId: string
+  onProgress?: (stage: 'nodes' | 'edges') => void
 }): Promise<RelationGraph> {
   const context = relationContext(args.bookId)
   if (args.demo) {
@@ -916,35 +936,85 @@ export async function generateRelationGraph(args: {
     })
   }
   const model = createLanguageModel(args.config)
+  args.onProgress?.('nodes')
   const book = getBookSummary(args.bookId)
   const genreHint = genreRule(book?.genre)
-  const prompt = [
+  const nodePrompt = [
     context.text,
     '',
     ...(genreHint ? [`读者把这本书标为：${genreHint}`] : []),
-    '请先判断这本书的体裁和叙事类型（历史、历史小说、传记、侦探、奇幻/神话、现实主义小说、非虚构等），再抽取人物、组织、地点和关键事件，做成一张关系图。',
-    '这不是只服务侦探小说的模板：同一套字段要能表达历史官阶、家族阵营、神话谱系、小说人物弧光和非虚构作者/理论。',
+    '请先判断这本书的体裁和叙事类型（历史、历史小说、传记、侦探、奇幻/神话、现实主义小说、非虚构等），再抽取人物、组织、地点和关键事件，做成一张关系图的**节点名单**。',
+    '这一轮只输出节点，不要输出 edges；关系会单独生成。',
     '要求：',
-    '1. 只使用上面给出的章节摘录和读者笔记来写书内关系，不要编造书里没有的亲缘、阵营或事件。',
-    '2. 节点总数控制在 6–24 个。人物用 kind=person；组织、地点、事件、概念分别用 organization/place/event/concept。',
-    '3. 只有人物才标注叙事 role：detective=侦探/调查者，killer=凶手，victim=被害人，witness=关键证人，suspect=嫌疑人，protagonist=主角，supporting=配角，other=其他。地点、事件、概念和普通组织一律 role=other，不要把它们标成配角。',
-    '4. 每个人物都要尽量填写 identity（身份/职业）、rank（官阶/职位/称号/神职，没有就留空）、affiliation（国家/阵营/家族/组织/神话谱系）和 aliases（别名、字号、封号）。历史/历史小说尤其要写清官阶和阵营，不能只写“将军”“官员”这种泛称。',
-    '5. 边表达明确关系：亲缘、盟友、敌对、嫌疑、动机、线索、事件牵连等；每条边写 label（source→target）、reverseLabel（target→source，例如“杀害/被杀害”“追查/被追查”“效忠/统领”）和一句具体依据，并在 chapters 里写出出现这一关系的章节/页码。',
-    '6. 根据体裁补充该类书的重点：历史/传记写官阶、阵营、继承、战争和转折；侦探写动机、时间线、物证、证词、误导和揭示；神话写神职、谱系、领域；现实主义小说写关系变化和人物弧光；非虚构写作者、机构、理论和论证关系。',
-    '7. 真实人物、真实地点或神话人物请把 realWorld 设为 true，并在 encyclopedia 中用 2–4 句提供公认的百科背景（生卒/时代/地点/身份/神话出处）。这是模型常识，不是书中原文；不确定的细节宁可留空，不要编造。虚构人物或地点 realWorld=false，encyclopedia 留空。',
-    '8. plot 用 3–8 句话按时间顺序概括完整情节链，必须标注「含剧透」；summary 只放一句话主题。',
-    '只输出 JSON 对象：{"title":"...","genre":"...","summary":"...","plot":"...","nodes":[{"id":"p1","label":"...","kind":"person|organization|place|event|concept","role":"detective|killer|victim|witness|suspect|protagonist|supporting|other","importance":5,"identity":"...","rank":"...","affiliation":"...","aliases":["..."],"realWorld":true,"encyclopedia":"...","description":"...","chapters":["第X章"]}],"edges":[{"source":"p1","target":"p2","label":"...","reverseLabel":"...","kind":"family|ally|rival|suspect|motive|clue|event|other","description":"...","chapters":["第X章"]}]}。不要输出 Markdown 代码块。',
+    '1. 只使用上面给出的章节摘录、候选原文片段和读者笔记来写书内关系，不要编造书里没有的亲缘、阵营或事件。',
+    '2. 根据篇幅把节点总数控制在 12–80 个；不要只抽主角和主线核心人物，有名字、与主线或其他角色发生关系的人物（包括配角、反派、阶段性角色）都尽量保留。人物用 kind=person；组织、地点、事件、概念分别用 organization/place/event/concept。',
+    '3. 只有人物才标注叙事 role：detective=侦探/调查者，killer=凶手，victim=被害人，witness=关键证人，suspect=嫌疑人，protagonist=主角，supporting=配角，other=其他。地点、事件、概念和普通组织一律 role=other。',
+    '4. 每个人物尽量填写 aliases（别名、字号、封号）和 chapters（出现章节）；长篇可以合并别名。description 只写一句很短的识别信息，不要写百科长文。',
+    '5. 对 importance>=4 的主要节点补充 identity/rank/affiliation/realWorld/encyclopedia（2–4 句）；其余节点可省略这些字段，先保持输出短。',
+    '6. 本地扫描会给出候选实体（人物、地点、组织）和原文片段；请逐个核对，候选里确实在本书出现的名字、地点和组织不要遗漏；扫描可能有误报，不要把不存在的人写进图。',
+    '7. plot 用 3–8 句话概括完整情节链，summary 一句话；节点名单和 plot 一起输出。',
+    '只输出 JSON 对象：{"title":"...","genre":"...","summary":"...","plot":"...","nodes":[{"id":"p1","label":"...","kind":"person|organization|place|event|concept","role":"detective|killer|victim|witness|suspect|protagonist|supporting|other","importance":5,"identity":"","rank":"","affiliation":"","realWorld":false,"encyclopedia":"","aliases":["..."],"description":"一句话","chapters":["第X章"]}]}。不要输出 edges，不要输出 Markdown 代码块。',
   ].join('\n')
-  const response = await generateText({
-    model,
-    system: '你是文学与历史图书的结构分析师，擅长把复杂人物关系整理成清晰、克制的图谱。',
-    prompt,
-    temperature: 0.3,
-    maxRetries: 1,
-    abortSignal: labTimeout(args.signal, 180_000),
-  })
-  const graph = mergeRelationAliases(normalizeRelationGraph(parseJsonObject(response.text), context.bookTitle))
-  if (graph.nodes.length < 2) throw new Error('没有抽出足够的人物或事件，请换一个模型或先补充章节笔记。')
+  const nodeResponse = await tracedGenerateText(
+    { step: 'relation-nodes', model: args.config.model, promptVersion: 'relation-v2' },
+    {
+      model,
+      system: '你是文学与历史图书的结构分析师，擅长把复杂人物关系整理成清晰、克制的图谱。',
+      prompt: nodePrompt,
+      temperature: 0.25,
+      maxRetries: 1,
+      abortSignal: labTimeout(args.signal, RELATION_NODE_TIMEOUT_MS),
+    },
+  )
+  const nodeRaw = parseJsonObject(nodeResponse.text)
+  const nodeBase = mergeRelationAliases(normalizeRelationGraph(nodeRaw, context.bookTitle))
+  if (nodeBase.nodes.length < 2) throw new Error('没有抽出足够的人物或事件，请换一个模型或先补充章节笔记。')
+
+  const nodeRoster = JSON.stringify(
+    nodeBase.nodes.map((node) => ({
+      id: node.id,
+      label: node.label,
+      kind: node.kind,
+      role: node.role,
+      aliases: node.aliases,
+    })),
+  )
+  const edgePrompt = [
+    context.text,
+    '',
+    '已确定的节点名单（source/target 必须使用这里的 id）：',
+    nodeRoster,
+    '',
+    ...(genreHint ? [`读者把这本书标为：${genreHint}`] : []),
+    '现在只抽取节点之间的有向关系边，不要新增或重复节点，不要输出 nodes。',
+    '每条边写 source、target、label（source→target）、reverseLabel（target→source，例如「杀害/被杀害」「追查/被追查」）、kind（family/ally/rival/suspect/motive/clue/event/other）、一句具体依据和 chapters。',
+    '优先保留能解释主线、阵营、亲缘、动机和关键事件的关系；最多 240 条，去重，不要编造。',
+    '只输出 JSON 对象：{"edges":[{"source":"p1","target":"p2","label":"...","reverseLabel":"...","kind":"other","description":"...","chapters":["第X章"]}]}。不要输出 Markdown 代码块。',
+  ].join('\n')
+  args.onProgress?.('edges')
+  let graph = nodeBase
+  try {
+    const edgeResponse = await tracedGenerateText(
+      { step: 'relation-edges', model: args.config.model, promptVersion: 'relation-v2' },
+      {
+        model,
+        system: '你是文学与历史图书的结构分析师，只负责给已确定的人物/组织/地点/事件标注关系。',
+        prompt: edgePrompt,
+        temperature: 0.2,
+        maxRetries: 1,
+        abortSignal: labTimeout(args.signal, RELATION_EDGE_TIMEOUT_MS),
+      },
+    )
+    const edgeRaw = parseJsonObject(edgeResponse.text)
+    const edgeGraph = mergeRelationAliases(
+      normalizeRelationGraph({ ...nodeRaw, nodes: nodeBase.nodes, edges: edgeRaw?.edges ?? [] }, context.bookTitle),
+    )
+    graph = { ...edgeGraph, nodes: nodeBase.nodes }
+  } catch (error) {
+    if (args.signal?.aborted) throw error
+    // 关系边失败时仍返回完整节点名单，用户可以重新生成或换模型。
+    graph = nodeBase
+  }
   return relationGraphSchema.parse(graph)
 }
 

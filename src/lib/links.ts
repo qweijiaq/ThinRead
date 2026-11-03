@@ -1,10 +1,5 @@
 import type { Note } from '../../shared/types.js'
 
-export function noteBacklinks(note: Note, allNotes: Note[]): Note[] {
-  const marker = `[[${note.title}]]`
-  return allNotes.filter((candidate) => candidate.id !== note.id && candidate.content.includes(marker))
-}
-
 export function relatedNotes(activeChapterId: string | null, notes: Note[], allNotes: Note[]): Note[] {
   const chapterNotes = notes.filter((note) => note.chapterId === activeChapterId)
   const tags = new Set(chapterNotes.flatMap((note) => note.tags))

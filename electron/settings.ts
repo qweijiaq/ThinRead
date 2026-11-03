@@ -23,6 +23,13 @@ interface StoredSettings {
   labModel: string
   readwise?: StoredKey
   beatra?: StoredKey
+  openaiTts?: {
+    baseUrl: string
+    model: string
+    voiceA: string
+    voiceB: string
+    key?: StoredKey
+  }
   keys: Partial<Record<ProviderId, StoredKey>>
 }
 
@@ -65,6 +72,7 @@ function readFile(): StoredSettings {
       labModel: typeof raw.labModel === 'string' ? raw.labModel : '',
       readwise: raw.readwise,
       beatra: raw.beatra,
+      openaiTts: raw.openaiTts,
       keys: raw.keys ?? {},
     }
   } catch {
@@ -127,6 +135,23 @@ export function getBeatraToken(): string | null {
   return readStoredKey(settings().beatra)
 }
 
+export function getOpenAiTtsConfig(): {
+  baseUrl: string
+  model: string
+  voiceA: string
+  voiceB: string
+  apiKey: string | null
+} {
+  const tts = settings().openaiTts
+  return {
+    baseUrl: tts?.baseUrl ?? '',
+    model: tts?.model ?? 'gpt-4o-mini-tts',
+    voiceA: tts?.voiceA ?? 'alloy',
+    voiceB: tts?.voiceB ?? 'verse',
+    apiKey: readStoredKey(tts?.key),
+  }
+}
+
 export function saveBeatraToken(token: string): void {
   settings().beatra = encodeKey(token.trim())
   persist()
@@ -157,6 +182,11 @@ export function getSettingsView(): SettingsView {
     labModel: current.labModel,
     readwiseConfigured: readStoredKey(current.readwise) !== null,
     beatraConfigured: readStoredKey(current.beatra) !== null,
+    openaiTtsConfigured: readStoredKey(current.openaiTts?.key) !== null && Boolean(current.openaiTts?.baseUrl),
+    openaiTtsBaseUrl: current.openaiTts?.baseUrl ?? '',
+    openaiTtsModel: current.openaiTts?.model ?? 'gpt-4o-mini-tts',
+    openaiTtsVoiceA: current.openaiTts?.voiceA ?? 'alloy',
+    openaiTtsVoiceB: current.openaiTts?.voiceB ?? 'verse',
   }
 }
 
@@ -185,6 +215,24 @@ export function saveSettings(patch: SettingsPatch): SettingsView {
   }
   if (patch.beatraToken && patch.beatraToken.trim()) {
     current.beatra = encodeKey(patch.beatraToken.trim())
+  }
+  if (
+    patch.openaiTtsBaseUrl !== undefined ||
+    patch.openaiTtsModel !== undefined ||
+    patch.openaiTtsVoiceA !== undefined ||
+    patch.openaiTtsVoiceB !== undefined ||
+    patch.openaiTtsKey !== undefined
+  ) {
+    current.openaiTts = {
+      baseUrl: (patch.openaiTtsBaseUrl ?? current.openaiTts?.baseUrl ?? '').trim(),
+      model: (patch.openaiTtsModel ?? current.openaiTts?.model ?? 'gpt-4o-mini-tts').trim(),
+      voiceA: (patch.openaiTtsVoiceA ?? current.openaiTts?.voiceA ?? 'alloy').trim(),
+      voiceB: (patch.openaiTtsVoiceB ?? current.openaiTts?.voiceB ?? 'verse').trim(),
+      key:
+        patch.openaiTtsKey && patch.openaiTtsKey.trim()
+          ? encodeKey(patch.openaiTtsKey.trim())
+          : current.openaiTts?.key,
+    }
   }
   if (patch.apiKey && patch.apiKey.trim()) {
     current.keys[patch.provider] = encodeKey(patch.apiKey.trim())

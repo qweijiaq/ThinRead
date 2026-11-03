@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type JSX } from 'react'
 
+import { t, useLocale } from '../lib/i18n.js'
 import { useDialogFocus } from '../lib/useDialogFocus.js'
 import { Checkbox } from './Checkbox.js'
 import { confirmDialog } from './ConfirmDialog.js'
@@ -33,6 +34,7 @@ interface OrganizeDialogProps {
   onClassify(): void
   onApply(flags: ChapterFlag[]): Promise<void>
   onDelete(chapterIds: string[]): Promise<void>
+  onOpenTrash(): void
 }
 
 function formatChars(chars: number): string {
@@ -50,7 +52,9 @@ export function OrganizeDialog({
   onClassify,
   onApply,
   onDelete,
+  onOpenTrash,
 }: OrganizeDialogProps): JSX.Element | null {
+  useLocale()
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [applying, setApplying] = useState(false)
 
@@ -111,9 +115,9 @@ export function OrganizeDialog({
   async function deleteSelected(): Promise<void> {
     if (selected.size === 0) return
     const confirmed = await confirmDialog({
-      title: '删除章节',
-      message: `删除选中的 ${selected.size} 节？这些章节的笔记也会一并删除，无法恢复。`,
-      confirmLabel: '删除',
+      title: t('删除章节'),
+      message: `${t('删除选中的')} ${selected.size} ${t('节？这些章节的笔记也会一并删除，无法恢复。')}`,
+      confirmLabel: t('删除'),
       danger: true,
     })
     if (!confirmed) return
@@ -133,33 +137,33 @@ export function OrganizeDialog({
         className="modal organize-modal"
         role="dialog"
         aria-modal="true"
-        aria-label="整理目录"
+        aria-label={t('整理目录')}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="modal-head">
           <div>
-            <h2>整理目录</h2>
-            <p className="modal-subtitle">识别目录、版权页、广告和乱码页；隐藏可恢复，删除不可撤销。</p>
+            <h2>{t('整理目录')}</h2>
+            <p className="modal-subtitle">{t('识别目录、版权页、广告和乱码页；隐藏可恢复，删除会进入章节回收站。')}</p>
           </div>
-          <button type="button" className="icon-button" onClick={onClose} aria-label="关闭">
+          <button type="button" className="icon-button" onClick={onClose} aria-label={t('关闭')}>
             ×
           </button>
         </div>
 
         <div className="organize-toolbar">
           <button type="button" className="ghost-button" onClick={onClassify} disabled={busy || applying}>
-            {busy ? '识别中…' : '✦ 识别无关章节'}
+            {busy ? t('识别中…') : t('✦ 识别无关章节')}
           </button>
           <span className="organize-mode">
             {busy
-              ? '正在判断每一节的内容…'
+              ? t('正在判断每一节的内容…')
               : mode === 'ai'
-                ? '已用 AI 判断，结果仅作建议'
+                ? t('已用 AI 判断，结果仅作建议')
                 : mode === 'demo'
-                  ? '演示模式使用本地规则识别'
+                  ? t('演示模式使用本地规则识别')
                   : mode === 'heuristic'
-                    ? '使用本地规则识别'
-                    : '尚未识别，可直接手动勾选'}
+                    ? t('使用本地规则识别')
+                    : t('尚未识别，可直接手动勾选')}
           </span>
         </div>
 
@@ -167,9 +171,9 @@ export function OrganizeDialog({
 
         <div className="organize-list">
           <div className="organize-row organize-row-head" onClick={toggleAll}>
-            <Checkbox checked={allSelected} onChange={toggleAll} ariaLabel="全选章节" />
-            <span className="organize-title">全部章节</span>
-            <span className="organize-chars">{chapters.length} 节</span>
+            <Checkbox checked={allSelected} onChange={toggleAll} ariaLabel={t('全选章节')} />
+            <span className="organize-title">{t('全部章节')}</span>
+            <span className="organize-chars">{chapters.length} {t('节')}</span>
           </div>
           {ordered.map((chapter, index) => {
             const suggestion = suggestionById.get(chapter.id)
@@ -183,36 +187,36 @@ export function OrganizeDialog({
                 <Checkbox
                   checked={selected.has(chapter.id)}
                   onChange={() => toggle(chapter.id)}
-                  ariaLabel={`选择 ${chapter.title}`}
+                  ariaLabel={`${t('选择')} ${chapter.title}`}
                 />
                 <span className="organize-index">{String(index + 1).padStart(2, '0')}</span>
                 <span className="organize-main">
                   <span className="organize-title">{chapter.title}</span>
                   <span className="organize-sub">
-                    {chapter.isPart ? '篇首 · ' : chapter.partTitle ? `${chapter.partTitle} · ` : ''}
+                    {chapter.isPart ? `${t('篇首')} · ` : chapter.partTitle ? `${chapter.partTitle} · ` : ''}
                     {formatChars(chapter.chars)}
                     {suggestion ? (
                       <>
                         {' · '}
-                        {suggestion.reason || KIND_LABEL[suggestion.kind]}
+                        {suggestion.reason || t(KIND_LABEL[suggestion.kind])}
                         {' · '}
                         {Math.round(suggestion.confidence * 100)}%
                       </>
                     ) : null}
                   </span>
                 </span>
-                <span className={`kind-tag kind-${kind}`}>{KIND_LABEL[kind]}</span>
+                <span className={`kind-tag kind-${kind}`}>{t(KIND_LABEL[kind])}</span>
                 <span className={`organize-status${chapter.hidden ? ' hidden' : ''}`}>
-                  {chapter.hidden ? '已隐藏' : '可见'}
+                  {chapter.hidden ? t('已隐藏') : t('可见')}
                 </span>
               </div>
             )
           })}
-          {ordered.length === 0 ? <p className="organize-empty">这本书没有可整理的章节。</p> : null}
+          {ordered.length === 0 ? <p className="organize-empty">{t('这本书没有可整理的章节。')}</p> : null}
         </div>
 
         <div className="organize-footer">
-          <span className="muted">已选 {selected.size} 节</span>
+          <span className="muted">{t('已选')} {selected.size} {t('节')}</span>
           <div className="organize-actions">
             <button
               type="button"
@@ -220,7 +224,7 @@ export function OrganizeDialog({
               onClick={() => void deleteSelected()}
               disabled={selected.size === 0 || applying}
             >
-              删除选中
+              {t('删除选中')}
             </button>
             <button
               type="button"
@@ -228,7 +232,7 @@ export function OrganizeDialog({
               onClick={() => void applySelected(false)}
               disabled={selected.size === 0 || applying}
             >
-              恢复选中
+              {t('恢复选中')}
             </button>
             <button
               type="button"
@@ -236,10 +240,13 @@ export function OrganizeDialog({
               onClick={() => void applySelected(true)}
               disabled={selected.size === 0 || applying}
             >
-              {applying ? '处理中…' : '隐藏选中'}
+              {applying ? t('处理中…') : t('隐藏选中')}
+            </button>
+            <button type="button" className="text-button muted" onClick={onOpenTrash}>
+              {t('章节回收站')}
             </button>
             <button type="button" className="text-button muted" onClick={onClose}>
-              关闭
+              {t('关闭')}
             </button>
           </div>
         </div>

@@ -1,11 +1,19 @@
+import { createHash } from 'node:crypto'
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import path from 'node:path'
+
+import type { ModelMessage } from 'ai'
+
 import * as cheerio from 'cheerio'
 
 import type {
   BookGenre,
+  DegradedStep,
   DivergenceType,
   GeneratedNote,
   GeneratePartial,
   GenerationMode,
+  GenerationStage,
   NoteDivergence,
   NoteReport,
   TokenUsage,
@@ -22,8 +30,94 @@ const MAX_SECTION_CHARS = 6_000
 const MAX_OMITTED = 30
 const CONCURRENCY = 4
 const MAX_DIVERGENCES = 3
-const NOTES_PROMPT_VERSION = 'notes-v5'
+const NOTES_PROMPT_VERSION = 'notes-v7'
 const EVIDENCE_SOURCE_CHARS = 12_000
+
+const NOTES_CACHE_VERSION = 1
+const NOTES_CACHE_TTL_MS = 14 * 24 * 60 * 60 * 1000
+
+interface NotesCacheEntry {
+  version: number
+  createdAt: string
+  notes: GeneratedNote[]
+  report: NoteReport
+  cards: Card[]
+  relatedHash: string
+}
+
+export function notesCacheKey(args: GenerateArgs): string {
+  return createHash('sha256')
+    .update(
+      JSON.stringify({
+        prompt: NOTES_PROMPT_VERSION,
+        provider: args.config.provider,
+        baseUrl: args.config.baseUrl,
+        model: args.config.model,
+        mode: args.mode ?? 'standard',
+        genre: args.genre ?? null,
+        book: args.bookTitle,
+        chapter: args.chapterTitle,
+        text: args.chapterText,
+        html: args.chapterHtml,
+      }),
+    )
+    .digest('hex')
+}
+
+function relatedHash(args: GenerateArgs, cards: Card[]): string {
+  const concepts = [...new Set(cards.flatMap((card) => card.concepts))]
+  const related = args.lookupRelatedNotes?.(concepts) ?? []
+  return createHash('sha256').update(JSON.stringify(related)).digest('hex')
+}
+
+export async function readNotesCache(args: GenerateArgs, signal: AbortSignal): Promise<GenerateResult | null> {
+  if (!args.cacheDir || args.demo || args.fresh || signal.aborted) return null
+  try {
+    const file = path.join(args.cacheDir, 'notes', `${notesCacheKey(args)}.json`)
+    const entry = JSON.parse(await readFile(file, 'utf8')) as NotesCacheEntry
+    if (entry.version !== NOTES_CACHE_VERSION) return null
+    if (Date.now() - Date.parse(entry.createdAt) > NOTES_CACHE_TTL_MS) return null
+    if (!Array.isArray(entry.notes) || !Array.isArray(entry.cards) || !entry.report) return null
+    if (relatedHash(args, entry.cards) !== entry.relatedHash) return null
+    const notes = generatedNoteListSchema.safeParse(entry.notes)
+    if (!notes.success) return null
+    return {
+      notes: notes.data,
+      report: {
+        ...entry.report,
+        cached: true,
+        cachedTokens: entry.report.usage?.totalTokens ?? 0,
+        durationMs: 0,
+        usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+        createdAt: new Date().toISOString(),
+      },
+    }
+  } catch {
+    return null
+  }
+}
+
+export async function writeNotesCache(args: GenerateArgs, result: GenerateResult, cards: Card[]): Promise<void> {
+  if (!args.cacheDir || args.demo) return
+  try {
+    const dir = path.join(args.cacheDir, 'notes')
+    await mkdir(dir, { recursive: true })
+    const file = path.join(dir, `${notesCacheKey(args)}.json`)
+    const temp = `${file}.${process.pid}.tmp`
+    const entry: NotesCacheEntry = {
+      version: NOTES_CACHE_VERSION,
+      createdAt: new Date().toISOString(),
+      notes: result.notes,
+      report: result.report,
+      cards,
+      relatedHash: relatedHash(args, cards),
+    }
+    await writeFile(temp, JSON.stringify(entry), 'utf8')
+    await rename(temp, file)
+  } catch {
+    // 缓存写入失败不影响生成结果。
+  }
+}
 
 function recordUsage(target: TokenUsage | undefined, usage: unknown): void {
   if (!target || !usage || typeof usage !== 'object') return
@@ -31,6 +125,39 @@ function recordUsage(target: TokenUsage | undefined, usage: unknown): void {
   target.inputTokens += Number(value.inputTokens) || 0
   target.outputTokens += Number(value.outputTokens) || 0
   target.totalTokens += Number(value.totalTokens) || 0
+}
+
+const NOTES_SYSTEM = '你是中文非虚构图书的阅读助手。严格依据用户给出的内容工作，不编造原文没有的事实；只输出请求的 JSON。'
+
+/**
+ * 把「固定说明 + 章节原文」做成可缓存前缀：
+ * - Anthropic 显式标 cache_control；
+ * - OpenAI-compatible 端点会按相同前缀自动命中缓存；
+ * - 不启用缓存时退回单条 prompt，避免 Anthropic 只写不读还多付 25%。
+ */
+function chapterRequest(
+  args: GenerateArgs,
+  task: string,
+  cache: boolean,
+  contextChars: number,
+): { prompt: string } | { system: string; messages: ModelMessage[] } {
+  const context = [
+    `书名《${args.bookTitle}》，本章「${args.chapterTitle}」。`,
+    '原文片段：',
+    args.chapterText.slice(0, contextChars),
+  ].join('\n')
+  if (!cache) return { prompt: [NOTES_SYSTEM, context, task].join('\n\n') }
+  return {
+    system: NOTES_SYSTEM,
+    messages: [
+      {
+        role: 'user',
+        content: context,
+        providerOptions: { anthropic: { cacheControl: { type: 'ephemeral' } } },
+      },
+      { role: 'user', content: task },
+    ] as ModelMessage[],
+  }
 }
 
 function requestTimeout(parent: AbortSignal, ms: number): AbortSignal {
@@ -95,6 +222,17 @@ export interface GenerateArgs {
   mode?: GenerationMode
   usage?: TokenUsage
   lookupRelatedNotes?: (concepts: string[]) => RelatedContext[]
+  /** 仅评测用：拿到模型原始响应，便于定位解析失败。 */
+  debugRaw?: (step: string, text: string) => void
+  /** 笔记缓存目录；不传则不缓存。 */
+  cacheDir?: string
+  /** 忽略缓存，强制重新调用模型。 */
+  fresh?: boolean
+  /**
+   * 内部使用：某个生成步骤失败时记录，让降级结果和完整结果可区分。
+   * 不参与持久化，由 generateChapterNotesInner 注入。
+   */
+  onStageError?: (stage: GenerationStage, error: unknown) => void
 }
 
 export interface GenerateResult {
@@ -110,6 +248,22 @@ export async function generateChapterNotes(
   const startedAt = Date.now()
   const scope = `${args.bookTitle} / ${args.chapterTitle}`
   try {
+    const cached = await readNotesCache(args, signal)
+    if (cached) {
+      onPartial({ progress: { phase: 'cards', done: 1, total: 1, cards: cached.report.cards } })
+      traceAiStep({
+        step: 'chapter-notes',
+        scope,
+        model: cached.report.model,
+        promptVersion: cached.report.promptVersion,
+        durationMs: Date.now() - startedAt,
+        inputTokens: 0,
+        outputTokens: 0,
+        totalTokens: 0,
+        ok: true,
+      })
+      return cached
+    }
     const result = await generateChapterNotesInner(args, onPartial, signal)
     traceAiStep({
       step: 'chapter-notes',
@@ -155,10 +309,26 @@ async function generateChapterNotesInner(
   if (sections.length === 0) throw new Error('这一章没有可读的正文。')
   const chunks = splitSections(sections)
 
+  // 记录失败步骤：只要 reduced 里有内容，这次结果就是降级的，不能当成完整生成展示。
+  const degraded: DegradedStep[] = []
+  const recordStageError = (stage: GenerationStage, error: unknown, total?: number, failed = 1): void => {
+    const message = error instanceof Error ? error.message : String(error)
+    const existing = degraded.find((item) => item.stage === stage)
+    if (existing) {
+      existing.failed += failed
+      if (!existing.message) existing.message = message.slice(0, 300)
+    } else {
+      degraded.push({ stage, failed, total, message: message.slice(0, 300) })
+    }
+  }
+  args.onStageError = (stage, error) => recordStageError(stage, error)
+
   // 阶段一：各小节并行读薄；阶段顺序不变，只是同一阶段内并发
   const condensedParts: CondenseOutput[] = chunks.map(() => ({ compressed: '', omitted: [] }))
   let nextChunk = 0
   let condensedDone = 0
+  let condenseFailed = 0
+  let firstCondenseError: unknown = null
   const condenseWorker = async (): Promise<void> => {
     while (true) {
       const index = nextChunk++
@@ -169,7 +339,15 @@ async function generateChapterNotesInner(
         condensedParts[index] = await condenseChunk(model, args, chunk, signal)
       } catch (error) {
         if (signal.aborted) throw error
-        condensedParts[index] = { compressed: chunk.text, omitted: [] }
+        try {
+          // 长章节偶尔会卡在单次请求超时；先重试一次，再退回原文，避免整章直接失败。
+          condensedParts[index] = await condenseChunk(model, args, chunk, signal)
+        } catch (retryError) {
+          if (signal.aborted) throw retryError
+          condenseFailed++
+          firstCondenseError ??= retryError
+          condensedParts[index] = { compressed: chunk.text, omitted: [] }
+        }
       }
       condensedDone++
       onPartial({
@@ -181,6 +359,15 @@ async function generateChapterNotesInner(
     Array.from({ length: Math.min(CONCURRENCY, chunks.length) }, condenseWorker),
   )
 
+  // 全部小节都失败时，继续写库只会把原文伪装成“读薄稿”，用户还以为成功了。
+  if (condenseFailed >= chunks.length) {
+    const reason = firstCondenseError instanceof Error ? firstCondenseError.message : String(firstCondenseError ?? '未知错误')
+    throw new Error(`读薄失败，没有写入任何笔记：${reason.slice(0, 300)}`)
+  }
+  if (condenseFailed > 0) {
+    recordStageError('condense', firstCondenseError, chunks.length, condenseFailed)
+  }
+
   const merged = mergeCondensed(args, sections, chunks, condensedParts)
   if (!merged.main.trim()) throw new Error('读薄稿为空，请重试或换一个模型。')
 
@@ -189,28 +376,33 @@ async function generateChapterNotesInner(
   // 快速模式跳过回查和延伸，精读模式并行补一轮细节回查。
   onPartial({ progress: { phase: 'cards', done: 0, total: 1, cards: 0 } })
   const range = cardRange(countChars(merged.main), mode)
-  const auditPromise =
-    mode === 'fast'
-      ? Promise.resolve([] as AuditMissing[])
-      : auditFidelity(model, args, merged.main, signal)
+  // 回查要重发整章原文，成本最高。短章或压缩率低（几乎没删东西）时省略，质量损失很小。
+  const sourceChars = countChars(args.chapterText)
+  const compressionRatio = countChars(merged.main) / Math.max(1, sourceChars)
+  const auditNeeded = mode !== 'fast' && sourceChars >= 2_500 && compressionRatio < 0.72
+  const cacheContext = mode === 'deep'
+  const extraction = await extractCardsWithAudit(model, args, merged.main, range, auditNeeded, cacheContext, signal)
+  let cards = extraction.cards.filter((card) => card.point.trim().length > 0)
+  const audit = extraction.missing
   const detailAuditPromise =
     mode === 'deep'
-      ? auditDetails(model, args, merged.main, signal)
+      ? auditDetails(model, args, merged.main, cacheContext, signal)
       : Promise.resolve([] as AuditMissing[])
-  let cards = await extractCards(model, args, merged.main, range, signal)
   if (cards.length > range.max) {
     cards = await refilterCards(model, args, cards, range.max, signal)
   }
-  if (cards.length === 0) cards = fallbackCards(merged.main)
+  if (cards.length === 0) {
+    args.onStageError?.('extract-cards', new Error('模型没有返回可解析的卡片，已使用本地兜底。'))
+    cards = fallbackCards(merged.main)
+  }
   onPartial({ progress: { phase: 'cards', done: 1, total: 1, cards: cards.length } })
 
   onPartial({ progress: { phase: 'expand', done: 0, total: cards.length, cards: cards.length } })
   const expandPromise =
-    mode === 'fast'
-      ? Promise.resolve(new Map<number, NoteDivergence[]>())
-      : expandCards(model, args, cards, signal)
-  const [audit, detailAudit, divergences] = await Promise.all([
-    auditPromise,
+    mode !== 'fast' && cards.length >= 4
+      ? expandCards(model, args, cards, signal)
+      : Promise.resolve(new Map<number, NoteDivergence[]>())
+  const [detailAudit, divergences] = await Promise.all([
     detailAuditPromise,
     expandPromise,
   ])
@@ -257,10 +449,13 @@ async function generateChapterNotesInner(
     mode,
     usage: { ...usage },
     promptVersion: NOTES_PROMPT_VERSION,
+    ...(degraded.length > 0 ? { degraded } : {}),
     model: args.config.model,
     createdAt: new Date().toISOString(),
   }
-  return { notes: validatedNotes(notes), report }
+  const result = { notes: validatedNotes(notes), report }
+  if (!report.degraded?.length) await writeNotesCache(args, result, cards)
+  return result
 }
 
 function validatedNotes(notes: GeneratedNote[]): GeneratedNote[] {
@@ -430,7 +625,10 @@ async function condenseChunk(
     return parsed
   }
 
-  return last ?? { compressed: chunk.text, omitted: [] }
+  if (last?.compressed) return last
+  // 两次都没拿到可用的读薄稿时，宁可让这一节失败（由调用方统计并按降级处理），
+  // 也不要把原文直接当成“读薄稿”写进报告。
+  throw new Error('模型没有返回可用的读薄稿，请重试或换一个模型。')
 }
 
 function normalizeCondense(text: string, title: string): CondenseOutput {
@@ -524,71 +722,33 @@ function mergeCondensed(
 
 // ─── 阶段一回查与补遗 ─────────────────────────────────────────────────────
 
-async function auditFidelity(
-  model: ReturnType<typeof createLanguageModel>,
-  args: GenerateArgs,
-  condensed: string,
-  signal: AbortSignal,
-): Promise<AuditMissing[]> {
-  if (signal.aborted) throw new Error('生成已取消')
-  // 回查只用于发现明显遗漏；截取前 24k 字能覆盖大多数章节，避免整章重复上送。
-  const original = args.chapterText.slice(0, 24_000)
-  const prompt = [
-    '下面是一本书的一章原文，以及一份要求“保留作者全部断言”的读薄稿。',
-    '请逐条断言回查：读薄稿有没有漏掉作者的主张、论证链、关键例子或边界条件？被有意压缩的重复内容和铺垫不算缺失，表达差异也不算。',
-    '只输出 JSON 对象：{"missing":[{"section":"...","point":"..."}]}。没有缺失就返回 {"missing":[]}。不要输出 Markdown 代码块。',
-    '',
-    '原文：',
-    original,
-    '',
-    '读薄稿：',
-    condensed,
-  ].join('\n')
-
-  try {
-    const response = await tracedGenerateText({ step: 'audit-fidelity', model: args.config.model, promptVersion: NOTES_PROMPT_VERSION }, {
-      model,
-      prompt,
-      temperature: 0.2,
-      maxRetries: 1,
-      abortSignal: requestTimeout(signal, 180_000),
-    })
-    recordUsage(args.usage, response.usage)
-    return normalizeAudit(parseJsonFromText(response.text)).slice(0, 12)
-  } catch (error) {
-    if (signal.aborted) throw error
-    return []
-  }
-}
-
 async function auditDetails(
   model: ReturnType<typeof createLanguageModel>,
   args: GenerateArgs,
   condensed: string,
+  cacheContext: boolean,
   signal: AbortSignal,
 ): Promise<AuditMissing[]> {
   if (signal.aborted) throw new Error('生成已取消')
   const hint = genreRule(args.genre)
-  const prompt = [
-    '下面是一本书的一章原文与读薄稿。请只做第二轮细节回查，找标准回查容易漏掉的内容：',
+  const task = [
+    '下面是本章的读薄稿。请只做第二轮细节回查，找标准回查容易漏掉的内容：',
     '定义之间的细微区别、限定条件、作者举出的反例、人物/事件的因果、以及被压缩后失去的语境。',
     hint,
-    '不要重复泛泛的主旨，不要把重复内容或纯铺垫算作缺失；没有就返回空数组。',
+    '结合上面的原文片段回查；不要重复泛泛的主旨，不要把重复内容或纯铺垫算作缺失；没有就返回空数组。',
     '只输出 JSON 对象：{"missing":[{"section":"...","point":"..."}]}。不要输出 Markdown 代码块。',
-    '',
-    '原文：',
-    args.chapterText.slice(0, 28_000),
     '',
     '读薄稿：',
     condensed,
   ]
     .filter(Boolean)
     .join('\n')
+  const request = chapterRequest(args, task, cacheContext, 24_000)
 
   try {
     const response = await tracedGenerateText({ step: 'audit-details', model: args.config.model, promptVersion: NOTES_PROMPT_VERSION }, {
       model,
-      prompt,
+      ...request,
       temperature: 0.25,
       maxRetries: 1,
       abortSignal: requestTimeout(signal, 180_000),
@@ -597,6 +757,7 @@ async function auditDetails(
     return normalizeAudit(parseJsonFromText(response.text)).slice(0, 8)
   } catch (error) {
     if (signal.aborted) throw error
+    args.onStageError?.('audit-details', error)
     return []
   }
 }
@@ -642,49 +803,63 @@ function cardRange(chars: number, mode: GenerationMode = 'standard'): { min: num
   return { min: 15, max: mode === 'fast' ? 18 : 25 }
 }
 
-async function extractCards(
+async function extractCardsWithAudit(
   model: ReturnType<typeof createLanguageModel>,
   args: GenerateArgs,
   compressed: string,
   range: { min: number; max: number },
+  includeAudit: boolean,
+  cacheContext: boolean,
   signal: AbortSignal,
-): Promise<Card[]> {
+): Promise<{ cards: Card[]; missing: AuditMissing[] }> {
   const hint = genreRule(args.genre)
   const prompt = [
-    `书名《${args.bookTitle}》，本章「${args.chapterTitle}」。下面是本章的读薄稿：`,
+    `书名《${args.bookTitle}》，本章「${args.chapterTitle}」。下面是本章的读薄稿与原文片段：`,
     ...(hint ? [hint] : []),
+    '读薄稿：',
     compressed.slice(0, 26_000),
     '',
-    '请只从这份读薄稿里提炼知识点卡片；下面的原文只用于填写 evidence，不要从原文新增卡片。',
+    '任务一：从读薄稿里提炼知识点卡片，原文片段只用于填写 evidence，不要从原文新增卡片。',
     `卡片数量：根据读薄稿字数，只保留 ${range.min}-${range.max} 张（读薄稿约 ${countChars(compressed)} 字）。`,
     '什么样才算知识点：用一句话测试——不知道它，会影响对全文的理解吗？会，才收；不会但有意思，留在读薄稿里；原文的每个案例细节不是知识点，是索引。',
-    '本章原文（只用于 evidence 逐字引用）：',
-    args.chapterText.slice(0, EVIDENCE_SOURCE_CHARS),
-    '',
     '每张卡片必须填满：',
     '1. point：一句话知识点（用作者的语言或自己的话，选更准确的）。',
     '2. role：它在全文中的作用——支撑什么结论、处于论证链的哪一环。',
-    '3. evidence：从上面原文中逐字复制一句能支撑 point 的话，必须与原文一致；可省略首尾标点，不要改写，不要只写段落号；找不到就留空。',
+    '3. evidence：从上面原文片段中逐字复制一句能支撑 point 的话，必须与原文一致；可省略首尾标点，不要改写，找不到就留空。',
     '4. section：所属小节。',
     '5. concepts：术语数组。',
     '6. importance：1-5。',
     '如果候选超过上限，合并重复、删掉次要的；不要为了凑数保留案例细节。',
-    '只输出 JSON 对象：{"cards":[...]}。不要输出 Markdown 代码块或额外解释。',
+    ...(includeAudit
+      ? [
+          '',
+          '任务二：只针对上面提供的原文片段做断言回查。读薄稿有没有漏掉作者的主张、论证链、关键例子或边界条件？被有意压缩的重复内容和铺垫不算缺失，表达差异也不算。',
+          '只输出 JSON 对象：{"cards":[...],"missing":[{"section":"...","point":"..."}]}。没有缺失就返回空数组。不要输出 Markdown 代码块。',
+        ]
+      : ['只输出 JSON 对象：{"cards":[...]}。不要输出 Markdown 代码块或额外解释。']),
   ].join('\n')
+  const request = chapterRequest(args, prompt, cacheContext, cacheContext ? 24_000 : EVIDENCE_SOURCE_CHARS)
 
   try {
-    const response = await tracedGenerateText({ step: 'extract-cards', model: args.config.model, promptVersion: NOTES_PROMPT_VERSION }, {
+    const response = await tracedGenerateText({ step: includeAudit ? 'extract-cards-audit' : 'extract-cards', model: args.config.model, promptVersion: NOTES_PROMPT_VERSION }, {
       model,
-      prompt,
+      ...request,
       temperature: 0.2,
       maxRetries: 1,
-      abortSignal: requestTimeout(signal, 180_000),
+      abortSignal: requestTimeout(signal, includeAudit ? 240_000 : 180_000),
     })
     recordUsage(args.usage, response.usage)
-    return normalizeCards(parseJsonFromText(response.text), args.chapterText).slice(0, range.max)
+    args.debugRaw?.('extract-cards', response.text)
+    const parsed = parseJsonFromText(response.text)
+    const object = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as { cards?: unknown; missing?: unknown }) : null
+    return {
+      cards: normalizeCards(object?.cards ?? parsed, args.chapterText).slice(0, range.max),
+      missing: includeAudit ? normalizeAudit(object?.missing).slice(0, 12) : [],
+    }
   } catch (error) {
     if (signal.aborted) throw error
-    return []
+    args.onStageError?.('extract-cards', error)
+    return { cards: [], missing: [] }
   }
 }
 
@@ -724,14 +899,17 @@ async function refilterCards(
     if (filtered.length > 0) return filtered
   } catch (error) {
     if (signal.aborted) throw error
+    args.onStageError?.('refilter-cards', error)
   }
 
   return [...cards].sort((a, b) => b.importance - a.importance).slice(0, max)
 }
 
-function normalizeCards(raw: unknown, chapterText: string): Card[] {
+export function normalizeCards(raw: unknown, chapterText: string): Card[] {
   const obj = isRecord(raw) ? raw : {}
-  const list = listOfValues(pickField(obj, ['cards', 'points', 'knowledgePoints', 'knowledge_points', '知识点']))
+  const list = Array.isArray(raw)
+    ? raw
+    : listOfValues(pickField(obj, ['cards', 'points', 'knowledgePoints', 'knowledge_points', '知识点']))
   const cards: Card[] = []
   for (const item of list) {
     const card = cardFromValue(item, chapterText)
@@ -742,7 +920,7 @@ function normalizeCards(raw: unknown, chapterText: string): Card[] {
 
 function cardFromValue(value: unknown, chapterText: string): Card | null {
   if (typeof value === 'string') {
-    const point = stripBullet(value)
+    const point = cleanPoint(value)
     return point
       ? {
           point,
@@ -757,18 +935,22 @@ function cardFromValue(value: unknown, chapterText: string): Card | null {
       : null
   }
   if (!isRecord(value)) return null
-  const point = textOfValue(
-    pickField(value, ['point', 'claim', 'content', 'knowledge', 'statement', 'idea', 'text']),
+  const point = cleanPoint(
+    textOfValue(pickField(value, ['point', 'claim', 'content', 'knowledge', 'statement', 'idea', 'text'])),
   )
   if (!point) return null
-  const evidence = textOfValue(pickField(value, ['evidence', 'quote', 'source', '依据', 'citation'])).slice(0, 400)
+  const section = textOfValue(pickField(value, ['section', 'chapter', '小节']))
+  if (section && cleanPoint(section) === point) return null
+  const rawEvidence = textOfValue(pickField(value, ['evidence', 'quote', 'source', '依据', 'citation'])).slice(0, 400)
+  const matched = rawEvidence ? bestEvidence(rawEvidence, chapterText) : ''
+  const evidence = matched || findSupportingSentence(point, chapterText)
   const importanceValue = Number(pickField(value, ['importance', 'weight', 'score', 'priority']) ?? 3)
   return {
     point,
     role: textOfValue(pickField(value, ['role', 'function', '作用', 'position'])),
     evidence,
     evidenceVerified: evidence ? verifyQuote(evidence, chapterText) : false,
-    section: textOfValue(pickField(value, ['section', 'chapter', '小节'])),
+    section,
     concepts: coerceStrings(pickField(value, ['concepts', 'keywords', 'terms', '概念']), 6),
     importance: Number.isFinite(importanceValue)
       ? Math.min(5, Math.max(1, Math.round(importanceValue)))
@@ -785,11 +967,12 @@ function fallbackCards(compressed: string): Card[] {
     const heading = lines[0]?.replace(/^##\s*/, '').trim() ?? ''
     const body = lines.slice(1).join(' ').trim()
     const first = (body.split(/(?<=[。！？!?])/)[0] ?? body).trim()
-    if (!first) continue
+    const point = cleanPoint(first)
+    if (!point) continue
     cards.push({
-      point: first.slice(0, 120),
+      point: point.slice(0, 120),
       role: '',
-      evidence: heading,
+      evidence: '',
       evidenceVerified: false,
       section: heading,
       concepts: [],
@@ -841,6 +1024,7 @@ async function expandCards(
     return normalizeDivergences(parseJsonFromText(response.text), items)
   } catch (error) {
     if (signal.aborted) throw error
+    args.onStageError?.('expand-cards', error)
     return new Map()
   }
 }
@@ -995,7 +1179,7 @@ function buildNotes(condensed: string, cards: Card[]): GeneratedNote[] {
       kind: 'point',
       title: deriveTitle('point', card.point),
       content: card.point,
-      quote: card.evidence || null,
+      quote: card.evidenceVerified ? card.evidence : null,
       quoteVerified: card.evidenceVerified,
       tags: card.concepts,
       section: card.section || null,
@@ -1147,6 +1331,72 @@ function stripBullet(value: string): string {
   return value.replace(/^[-*•\d.、\s]+/, '').trim()
 }
 
+export function cleanPoint(value: string): string {
+  // 模型有时把整段列表塞进 point：跳过标题行，取第一条真正的主张。
+  for (const line of value.split(/\n+/)) {
+    if (/^#{1,6}\s/.test(line)) continue
+    const cleaned = stripBullet(line).replace(/\*\*/g, '').trim()
+    if (cleaned) return cleaned
+  }
+  return ''
+}
+
+/** 找出原文里与模型引文最接近的整句；找不到就返回空，绝不保留改写过的“假引用”。 */
+/** 当模型引文是改写时，用知识点本身去找原文里最接近的整句；找不到就不给引用。 */
+export function findSupportingSentence(point: string, chapterText: string): string {
+  const needle = normalizeForMatch(point)
+  if (needle.length < 8) return ''
+  const grams = new Set<string>()
+  for (let index = 0; index < needle.length - 1; index++) grams.add(needle.slice(index, index + 2))
+  if (grams.size === 0) return ''
+  const sentences = chapterText
+    .split(/(?<=[。！？!?])|\n+/)
+    .map((sentence) => sentence.trim())
+    .filter((sentence) => sentence.length >= 8 && sentence.length <= 260)
+  let best = ''
+  let bestScore = 0
+  for (const sentence of sentences) {
+    const hay = normalizeForMatch(sentence)
+    const hayGrams = new Set<string>()
+    for (let index = 0; index < hay.length - 1; index++) hayGrams.add(hay.slice(index, index + 2))
+    let hits = 0
+    for (const gram of grams) if (hayGrams.has(gram)) hits++
+    const score = hits / Math.sqrt(grams.size * Math.max(1, hayGrams.size))
+    if (hits >= 4 && score > bestScore) {
+      bestScore = score
+      best = sentence
+    }
+  }
+  return bestScore >= 0.25 ? best : ''
+}
+
+export function bestEvidence(quote: string, chapterText: string): string {
+  const trimmed = quote.trim().replace(/^[“”"'‘’「」『』]+|[“”"'‘’「」『』]+$/g, '').trim()
+  if (!trimmed) return ''
+  if (verifyQuote(trimmed, chapterText)) return trimmed
+  const needle = normalizeForMatch(trimmed)
+  if (needle.length < 6) return ''
+  const sentences = chapterText
+    .split(/(?<=[。！？!?])|\n+/)
+    .map((sentence) => sentence.trim())
+    .filter((sentence) => sentence.length >= 8 && sentence.length <= 260)
+  const grams = new Set<string>()
+  for (let index = 0; index < needle.length - 1; index++) grams.add(needle.slice(index, index + 2))
+  let best = ''
+  let bestScore = 0
+  for (const sentence of sentences) {
+    const hay = normalizeForMatch(sentence)
+    let hits = 0
+    for (const gram of grams) if (hay.includes(gram)) hits++
+    const score = grams.size > 0 ? hits / grams.size : 0
+    if (score > bestScore) {
+      bestScore = score
+      best = sentence
+    }
+  }
+  return bestScore >= 0.72 ? best : ''
+}
+
 function listOfValues(value: unknown): unknown[] {
   if (isRecord(value) && ('point' in value || 'claim' in value || 'content' in value || 'text' in value)) {
     return [value]
@@ -1209,8 +1459,8 @@ export function verifyQuote(quote: string, chapterText: string): boolean {
   const needle = normalizeForMatch(quote)
   if (needle.length < 6) return false
   const haystack = normalizeForMatch(chapterText)
-  if (haystack.includes(needle)) return true
-  return haystack.includes(needle.slice(0, 24))
+  // 必须整段命中；只匹配前 24 字会把“前半句真、后半句编”的引用误判为已校验。
+  return haystack.includes(needle)
 }
 
 const STOPWORDS = new Set([

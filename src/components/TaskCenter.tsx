@@ -1,5 +1,7 @@
 import { useState, type JSX } from 'react'
 
+import { t, useLocale } from '../lib/i18n.js'
+
 export interface TaskFailure {
   chapterId: string
   title: string
@@ -19,7 +21,7 @@ export interface BackgroundTask {
   detail: string
   done: number
   total: number
-  status: 'running' | 'done' | 'error' | 'cancelled'
+  status: 'running' | 'paused' | 'done' | 'error' | 'cancelled'
   failures?: TaskFailure[]
   retry?: TaskRetry
 }
@@ -33,16 +35,20 @@ interface TaskCenterProps {
 
 const STATUS_LABEL: Record<BackgroundTask['status'], string> = {
   running: '进行中',
+  paused: '已暂停',
   done: '已完成',
   error: '有失败',
   cancelled: '已取消',
 }
 
 export function TaskCenter({ tasks, onCancel, onRetry, onDismiss }: TaskCenterProps): JSX.Element | null {
+  useLocale()
   const [open, setOpen] = useState(false)
   if (tasks.length === 0) return null
   const running = tasks.filter((task) => task.status === 'running').length
-  const finished = tasks.filter((task) => task.status !== 'running').length
+  const finished = tasks.filter(
+    (task) => task.status === 'done' || task.status === 'error' || task.status === 'cancelled',
+  ).length
 
   return (
     <div className={`task-center${open ? ' is-open' : ''}`} aria-live="polite">
@@ -53,20 +59,20 @@ export function TaskCenter({ tasks, onCancel, onRetry, onDismiss }: TaskCenterPr
         aria-expanded={open}
       >
         <span className={`task-dot${running > 0 ? ' is-running' : ''}`} />
-        任务
-        {running > 0 ? ` · ${running} 进行中` : finished > 0 ? ` · ${finished} 已结束` : ''}
+        {t('任务')}
+        {running > 0 ? ` · ${running} ${t('进行中')}` : finished > 0 ? ` · ${finished} ${t('已结束')}` : ''}
       </button>
       {open ? (
         <div className="task-center-panel">
           <div className="task-center-head">
-            <strong>后台任务</strong>
+            <strong>{t('后台任务')}</strong>
             {finished > 0 ? (
               <button
                 type="button"
                 className="text-button muted"
-                onClick={() => tasks.filter((task) => task.status !== 'running').forEach((task) => onDismiss(task.id))}
+                onClick={() => tasks.filter((task) => task.status !== 'running' && task.status !== 'paused').forEach((task) => onDismiss(task.id))}
               >
-                清除已结束
+                {t('清除已结束')}
               </button>
             ) : null}
           </div>
@@ -76,7 +82,7 @@ export function TaskCenter({ tasks, onCancel, onRetry, onDismiss }: TaskCenterPr
               <div key={task.id} className={`task-row status-${task.status}`}>
                 <div className="task-row-head">
                   <span>{task.title}</span>
-                  <em>{STATUS_LABEL[task.status]}</em>
+                  <em>{t(STATUS_LABEL[task.status])}</em>
                 </div>
                 {task.detail ? <p>{task.detail}</p> : null}
                 {task.failures && task.failures.length > 0 ? (
@@ -102,17 +108,17 @@ export function TaskCenter({ tasks, onCancel, onRetry, onDismiss }: TaskCenterPr
                   ) : <span />}
                   {task.status === 'running' ? (
                     <button type="button" className="text-button muted" onClick={() => onCancel(task)}>
-                      取消
+                      {task.kind === 'import' ? t('取消') : t('暂停')}
                     </button>
                   ) : (
                     <span className="task-row-buttons">
-                      {task.status === 'error' && task.retry && task.retry.chapterIds.length > 0 ? (
+                      {task.retry && task.retry.chapterIds.length > 0 && (task.status === 'error' || task.status === 'paused') ? (
                         <button type="button" className="text-button" onClick={() => onRetry(task)}>
-                          重试失败章节
+                          {task.status === 'paused' ? t('继续') : t('重试失败章节')}
                         </button>
                       ) : null}
                       <button type="button" className="text-button muted" onClick={() => onDismiss(task.id)}>
-                        移除
+                        {t('移除')}
                       </button>
                     </span>
                   )}

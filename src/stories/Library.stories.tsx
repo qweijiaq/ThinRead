@@ -27,6 +27,7 @@ const meta = {
     onCompose: fn(),
     onMerge: fn(),
     onSettings: fn(),
+    onStats: fn(),
     demo: false,
   },
   tags: ['autodocs'],

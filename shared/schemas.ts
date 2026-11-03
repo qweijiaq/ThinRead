@@ -153,6 +153,7 @@ export const readerStyleSchema = z.object({
   paragraphSpacing: z.number(),
   indent: z.boolean(),
   theme: z.enum(['paper', 'plain', 'warm', 'folio']),
+  maxWidth: z.number().min(520).max(980),
 }) satisfies z.ZodType<ReaderStyle>
 
 export const removedPartSchema = z.object({
@@ -177,6 +178,23 @@ export const noteReportSchema = z.object({
     .object({ inputTokens: z.number(), outputTokens: z.number(), totalTokens: z.number() })
     .optional(),
   promptVersion: z.string().optional(),
+  degraded: z
+    .array(
+      z.object({
+        stage: z.enum([
+          'condense',
+          'audit-fidelity',
+          'audit-details',
+          'extract-cards',
+          'refilter-cards',
+          'expand-cards',
+        ]),
+        failed: z.number(),
+        total: z.number().optional(),
+        message: z.string().optional(),
+      }),
+    )
+    .optional(),
   model: z.string(),
   createdAt: z.string(),
 }) satisfies z.ZodType<NoteReport>

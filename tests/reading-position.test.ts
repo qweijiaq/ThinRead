@@ -51,6 +51,16 @@ test('stores reading positions and bookmarks per chapter', () => {
     })
     assert.equal(listBookmarks(book.id).length, 1)
     assert.equal(listBookmarks(book.id)[0]!.chapterTitle, chapter.title)
+    const duplicate = createBookmark({
+      bookId: book.id,
+      chapterId: chapter.id,
+      scrollRatio: 0.43,
+      scrollTop: 430,
+      label: '同一位置附近',
+      quote: '正文内容',
+    })
+    assert.equal(duplicate.id, bookmark.id)
+    assert.equal(listBookmarks(book.id).length, 1)
     deleteBookmark(bookmark.id)
     assert.equal(listBookmarks(book.id).length, 0)
   } finally {

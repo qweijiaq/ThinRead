@@ -28,7 +28,9 @@ test('audits missing knowledge points through an OpenAI-compatible endpoint', as
       }),
     )
   })
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  await new Promise<void>((resolve) => {
+    server.listen(0, '127.0.0.1', resolve)
+  })
   const address = server.address()
   const port = typeof address === 'object' && address ? address.port : 0
   try {

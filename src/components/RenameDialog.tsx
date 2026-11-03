@@ -6,12 +6,15 @@ interface RenameDialogProps {
   title: string
   label: string
   value: string
-  onSave(value: string): Promise<void>
+  secondaryLabel?: string
+  secondaryValue?: string
+  onSave(value: string, secondary?: string): Promise<void>
   onClose(): void
 }
 
-export function RenameDialog({ open, title, label, value, onSave, onClose }: RenameDialogProps): JSX.Element | null {
+export function RenameDialog({ open, title, label, value, secondaryLabel, secondaryValue, onSave, onClose }: RenameDialogProps): JSX.Element | null {
   const [draft, setDraft] = useState(value)
+  const [secondaryDraft, setSecondaryDraft] = useState(secondaryValue ?? '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement | null>(null)
@@ -19,6 +22,7 @@ export function RenameDialog({ open, title, label, value, onSave, onClose }: Ren
   useEffect(() => {
     if (!open) return
     setDraft(value)
+    setSecondaryDraft(secondaryValue ?? '')
     setError(null)
     setSaving(false)
     const timer = window.setTimeout(() => {
@@ -26,7 +30,7 @@ export function RenameDialog({ open, title, label, value, onSave, onClose }: Ren
       inputRef.current?.select()
     }, 30)
     return () => window.clearTimeout(timer)
-  }, [open, value])
+  }, [open, value, secondaryValue])
 
   const dialogRef = useDialogFocus<HTMLFormElement>(open, onClose, 'input')
 
@@ -37,7 +41,7 @@ export function RenameDialog({ open, title, label, value, onSave, onClose }: Ren
     setSaving(true)
     setError(null)
     try {
-      await onSave(draft)
+      await onSave(draft, secondaryLabel ? secondaryDraft : undefined)
       onClose()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -79,6 +83,21 @@ export function RenameDialog({ open, title, label, value, onSave, onClose }: Ren
             aria-label={label}
           />
         </div>
+        {secondaryLabel ? (
+          <div className="form-row">
+            <label>{secondaryLabel}</label>
+            <input
+              value={secondaryDraft}
+              onChange={(event) => setSecondaryDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') onClose()
+              }}
+              maxLength={200}
+              aria-label={secondaryLabel}
+              placeholder="留空表示未知作者"
+            />
+          </div>
+        ) : null}
         {error ? <div className="inline-error" role="alert">{error}</div> : null}
         <div className="modal-footer">
           <span className="modal-meta">最多 200 个字</span>

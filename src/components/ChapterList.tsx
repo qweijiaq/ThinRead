@@ -2,6 +2,7 @@ import { useEffect, useState, type JSX } from 'react'
 
 import type { ChapterMeta } from '../../shared/types.js'
 import type { BookmarkView } from '../lib/bookmarks.js'
+import { t, useLocale } from '../lib/i18n.js'
 import { confirmDialog } from './ConfirmDialog.js'
 
 interface ChapterListProps {
@@ -68,6 +69,7 @@ export function ChapterList({
   onOpenBookmark,
   onDeleteBookmark,
 }: ChapterListProps): JSX.Element {
+  useLocale()
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const visible = chapters.filter((chapter) => !chapter.hidden)
   const hiddenCount = chapters.length - visible.length
@@ -98,7 +100,7 @@ export function ChapterList({
   function renderChapter(entry: ChapterEntry): JSX.Element {
     const { chapter, number } = entry
     const count = noteCounts[chapter.id] ?? 0
-    const displayTitle = chapter.isPart ? '篇首页' : chapter.title
+    const displayTitle = chapter.isPart ? t('篇首页') : chapter.title
     return (
       <div key={chapter.id} className={`chapter-row${chapter.id === currentId ? ' active' : ''}`}>
         <button type="button" className="chapter-item" onClick={() => onSelect(chapter)} title={chapter.title}>
@@ -110,8 +112,8 @@ export function ChapterList({
           <button
             type="button"
             className="chapter-rename"
-            title="重命名本章"
-            aria-label={`重命名 ${chapter.title}`}
+            title={t('重命名本章')}
+            aria-label={`${t('重命名')} ${chapter.title}`}
             onClick={() => onRename(chapter)}
           >
             ✎
@@ -120,13 +122,13 @@ export function ChapterList({
         <button
           type="button"
           className="chapter-delete"
-          title="删除本章"
-          aria-label={`删除 ${chapter.title}`}
+          title={t('删除本章')}
+          aria-label={`${t('删除')} ${chapter.title}`}
           onClick={() => {
             void confirmDialog({
-              title: '删除章节',
-              message: `删除「${chapter.title}」？这一章的笔记也会一并删除，且无法恢复。`,
-              confirmLabel: '删除',
+              title: t('删除章节'),
+              message: `${t('删除')}「${chapter.title}」${t('？这一章的笔记也会一并删除，且无法恢复。')}`,
+              confirmLabel: t('删除'),
               danger: true,
             }).then((confirmed) => {
               if (confirmed) onDelete(chapter)
@@ -142,14 +144,14 @@ export function ChapterList({
   return (
     <aside className="sidebar">
       <div className="sidebar-head">
-        <span>目录</span>
+        <span>{t('目录')}</span>
         <button type="button" className="text-button" onClick={onOrganize}>
-          整理
+          {t('整理')}
         </button>
       </div>
       <div className="sidebar-meta">
-        <span>{visible.length} 节</span>
-        {hiddenCount > 0 ? <span>已隐藏 {hiddenCount} 节</span> : null}
+        <span>{visible.length} {t('节')}</span>
+        {hiddenCount > 0 ? <span>{t('已隐藏')} {hiddenCount} {t('节')}</span> : null}
       </div>
       <div className="progress-track sidebar-progress">
         <div className="progress-fill" style={{ width: `${Math.round(progress * 100)}%` }} />
@@ -157,7 +159,7 @@ export function ChapterList({
       {bookmarks.length > 0 ? (
         <div className="sidebar-bookmarks">
           <div className="sidebar-bookmarks-head">
-            <span>书签</span>
+            <span>{t('书签')}</span>
             <span>{bookmarks.length}</span>
           </div>
           {bookmarks.slice(0, 8).map((bookmark) => (
@@ -169,7 +171,7 @@ export function ChapterList({
               <button
                 type="button"
                 className="chapter-delete"
-                aria-label={`删除书签 ${bookmark.label}`}
+                aria-label={`${t('删除书签')} ${bookmark.label}`}
                 onClick={() => onDeleteBookmark(bookmark.id)}
               >
                 ×
@@ -193,7 +195,7 @@ export function ChapterList({
                 <button
                   type="button"
                   className="chapter-rename part-rename"
-                  title="重命名分篇"
+                  title={t('重命名分篇')}
                   aria-label={`重命名 ${block.title}`}
                   onClick={() => {
                     const partIndex = block.chapters[0]?.chapter.partIndex
@@ -210,7 +212,7 @@ export function ChapterList({
       </nav>
       {hiddenCount > 0 ? (
         <button type="button" className="hidden-chapters" onClick={onOrganize}>
-          已隐藏 {hiddenCount} 节 · 管理
+          {t('已隐藏')} {hiddenCount} {t('节')} · {t('管理')}
         </button>
       ) : null}
     </aside>

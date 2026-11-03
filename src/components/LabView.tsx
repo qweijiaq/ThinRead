@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type JSX } from 'react'
 import type { BookSummary, ChapterMeta, LabToolId } from '../../shared/types.js'
+import { t, useLocale } from '../lib/i18n.js'
 import { LAB_TOOLS, labTool } from '../lib/lab-tools.js'
 import { LabChat } from './LabChat.js'
 import { LabDuplicateCards } from './LabDuplicateCards.js'
@@ -13,11 +14,13 @@ interface LabViewProps {
   books: BookSummary[]
   onBack(): void
   onSaveReport(title: string, markdown: string, bookId: string, chapterId: string): Promise<void>
-  onListen(title: string, text: string): void
+  initialToolId?: LabToolId
+  onListen?(title: string, text: string): void
 }
 
-export function LabView({ books, onBack, onSaveReport, onListen }: LabViewProps): JSX.Element {
-  const [toolId, setToolId] = useState<LabToolId>('library-research')
+export function LabView({ books, onBack, onSaveReport, initialToolId, onListen }: LabViewProps): JSX.Element {
+  useLocale()
+  const [toolId, setToolId] = useState<LabToolId>(initialToolId ?? 'library-research')
   const [bookIds, setBookIds] = useState<string[]>([])
   const [bookId, setBookId] = useState(books.find((book) => book.chapterCount > 0)?.id ?? books[0]?.id ?? '')
   const [chapters, setChapters] = useState<ChapterMeta[]>([])
@@ -67,18 +70,18 @@ export function LabView({ books, onBack, onSaveReport, onListen }: LabViewProps)
   const sourceHint =
     tool.books === 'multi'
       ? bookIds.length > 0
-        ? `已选 ${bookIds.length} 本书`
-        : '未选书时使用全库'
+        ? `${t('已选')} ${bookIds.length} ${t('本书')}`
+        : t('未选书时使用全库')
       : tool.books === 'single'
-        ? selectedBook?.title ?? '还没有书'
+        ? selectedBook?.title ?? t('还没有书')
         : null
 
   return (
     <main className="lab-view">
       <header className="lab-header">
         <div>
-          <h1>AI 阅读工作台</h1>
-          <p>研究、深读、练习和整理，四类任务共用同一份书与笔记。</p>
+          <h1>{t('AI 阅读工作台')}</h1>
+          <p>{t('研究、深读、练习和整理，四类任务共用同一份书与笔记。')}</p>
         </div>
         <div className="lab-header-actions">
           <button
@@ -87,10 +90,10 @@ export function LabView({ books, onBack, onSaveReport, onListen }: LabViewProps)
             onClick={() => setRailCollapsed((value) => !value)}
             aria-pressed={railCollapsed}
           >
-            {railCollapsed ? '展开工具' : '收起工具'}
+            {railCollapsed ? t('展开工具') : t('收起工具')}
           </button>
           <button type="button" className="ghost-button" onClick={onBack}>
-            返回
+            {t('返回')}
           </button>
         </div>
       </header>
@@ -99,7 +102,7 @@ export function LabView({ books, onBack, onSaveReport, onListen }: LabViewProps)
         <nav className="lab-rail">
           {groups.map((group) => (
             <div key={group} className="lab-rail-group">
-              <span>{group}</span>
+              <span>{t(group)}</span>
               {LAB_TOOLS.filter((item) => item.group === group).map((item) => (
                 <button
                   key={item.id}
@@ -112,9 +115,9 @@ export function LabView({ books, onBack, onSaveReport, onListen }: LabViewProps)
                       setBookIds([bookId || books[0]!.id])
                     }
                   }}
-                  title={item.description}
+                  title={t(item.description)}
                 >
-                  {item.title}
+                  {t(item.title)}
                 </button>
               ))}
             </div>
@@ -124,17 +127,17 @@ export function LabView({ books, onBack, onSaveReport, onListen }: LabViewProps)
         <section className="lab-main">
           <div className="lab-tool-head">
             <div>
-              <h2>{tool.title}</h2>
-              <p>{tool.description}</p>
+              <h2>{t(tool.title)}</h2>
+              <p>{t(tool.description)}</p>
             </div>
-            <span className="lab-tool-group">{tool.group}</span>
+            <span className="lab-tool-group">{t(tool.group)}</span>
           </div>
 
           {tool.kind === 'chat' || tool.kind === 'report' || tool.kind === 'quiz' ? (
             <div className="lab-sources">
               {tool.books === 'multi' ? (
                 <div className="lab-source-block">
-                  <span className="lab-source-label">选择书 <em>{sourceHint}</em></span>
+                  <span className="lab-source-label">{t('选择书')} <em>{sourceHint}</em></span>
                   <div className="lab-book-chips">
                     {books.map((book) => (
                       <button
@@ -152,11 +155,11 @@ export function LabView({ books, onBack, onSaveReport, onListen }: LabViewProps)
 
               {tool.books === 'single' ? (
                 <label className="lab-source-block lab-inline-source">
-                  <span className="lab-source-label">书</span>
+                  <span className="lab-source-label">{t('书')}</span>
                   <Select
                     value={bookId}
                     onChange={setBookId}
-                    ariaLabel="选择书"
+                    ariaLabel={t('选择书')}
                     options={books.map((book) => ({ value: book.id, label: book.title }))}
                   />
                 </label>
@@ -164,11 +167,11 @@ export function LabView({ books, onBack, onSaveReport, onListen }: LabViewProps)
 
               {needsChapter ? (
                 <label className="lab-source-block lab-inline-source">
-                  <span className="lab-source-label">章节</span>
+                  <span className="lab-source-label">{t('章节')}</span>
                   <Select
                     value={chapterId}
                     onChange={setChapterId}
-                    ariaLabel="选择章节"
+                    ariaLabel={t('选择章节')}
                     options={chapters.map((chapter) => ({ value: chapter.id, label: chapter.title }))}
                   />
                 </label>
@@ -176,11 +179,11 @@ export function LabView({ books, onBack, onSaveReport, onListen }: LabViewProps)
 
               {tool.kind === 'report' && tool.question ? (
                 <label className="lab-source-block">
-                  <span className="lab-source-label">{tool.questionLabel ?? '输入'}</span>
+                  <span className="lab-source-label">{t(tool.questionLabel ?? '输入')}</span>
                   <textarea
                     value={question}
                     onChange={(event) => setQuestion(event.target.value)}
-                    placeholder={tool.questionPlaceholder}
+                    placeholder={t(tool.questionPlaceholder ?? '')}
                     rows={tool.id === 'margin-note' ? 3 : 2}
                   />
                 </label>
@@ -199,12 +202,12 @@ export function LabView({ books, onBack, onSaveReport, onListen }: LabViewProps)
               const sourceLabel = item.chapter
                 ? `${chapters.find((chapter) => chapter.id === chapterId)?.title ?? ''}${item.id === 'margin-note' && paneQuestion.trim() ? ` · ${paneQuestion.trim().slice(0, 24)}` : ''}`
                 : item.books === 'multi'
-                  ? `${selectedBooks.length > 0 ? selectedBooks.join('、') : '全库'}${paneQuestion.trim() ? ` · ${paneQuestion.trim().slice(0, 24)}` : ''}`
+                  ? `${selectedBooks.length > 0 ? selectedBooks.join('、') : t('全库')}${paneQuestion.trim() ? ` · ${paneQuestion.trim().slice(0, 24)}` : ''}`
                   : item.books === 'single'
                     ? books.find((book) => book.id === bookId)?.title ?? ''
                     : item.id === 'view-timeline' || item.id === 'margin-note'
                       ? paneQuestion.trim().slice(0, 32)
-                      : '全库'
+                      : t('全库')
               return (
                 <div key={id} className={`lab-tool-pane${id === toolId ? ' is-active' : ''}`}>
                   {item.kind === 'chat' ? (
@@ -237,14 +240,14 @@ export function LabView({ books, onBack, onSaveReport, onListen }: LabViewProps)
                       chapterTitle={chapters.find((item) => item.id === chapterId)?.title ?? ''}
                     />
                     ) : (
-                      <p className="lab-empty">先选择一章，才能出题。</p>
+                      <p className="lab-empty">{t('先选择一章，才能出题。')}</p>
                     )
                   ) : item.kind === 'merge' ? (
                     <LabMergeConcepts />
                   ) : item.kind === 'dedupe' ? (
                     <LabDuplicateCards />
                   ) : (
-                    <p className="lab-empty">这个工具已经停用。</p>
+                    <p className="lab-empty">{t('这个工具已经停用。')}</p>
                   )}
                 </div>
               )

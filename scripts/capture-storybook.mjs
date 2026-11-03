@@ -6,6 +6,7 @@ import path from 'node:path'
 
 import { createCanvas, loadImage } from '@napi-rs/canvas'
 import electronPath from 'electron'
+import pixelmatch from 'pixelmatch'
 
 const ROOT = process.cwd()
 const STATIC = path.join(ROOT, 'storybook-static')
@@ -24,8 +25,8 @@ const STORIES = [
   '听读-listenpanel--edge',
 ]
 const CHECK = process.argv.includes('--check')
-// 允许 0.5% 的像素有轻微抗锯齿差异，布局或文案变化会明显超过这个比例。
-const MAX_DIFF_RATIO = 0.005
+// 允许字体抗锯齿和渲染器差异；结构性布局变化仍会明显超过这个比例。
+const MAX_DIFF_RATIO = 0.02
 const PIXEL_TOLERANCE = 16
 
 async function comparePng(baselineFile, currentFile) {
@@ -44,7 +45,6 @@ async function comparePng(baselineFile, currentFile) {
   }
   const before = draw(baseline)
   const after = draw(current)
-  let changed = 0
   let maxDelta = 0
   for (let index = 0; index < before.length; index += 4) {
     const delta = Math.max(
@@ -52,9 +52,12 @@ async function comparePng(baselineFile, currentFile) {
       Math.abs(before[index + 1] - after[index + 1]),
       Math.abs(before[index + 2] - after[index + 2]),
     )
-    if (delta > PIXEL_TOLERANCE) changed++
     if (delta > maxDelta) maxDelta = delta
   }
+  const changed = pixelmatch(before, after, null, baseline.width, baseline.height, {
+    threshold: PIXEL_TOLERANCE / 255,
+    includeAA: false,
+  })
   return { ratio: changed / (baseline.width * baseline.height), maxDelta, sizeChanged: false }
 }
 

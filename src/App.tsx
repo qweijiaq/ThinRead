@@ -1,26 +1,26 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 
-import { DEFAULT_READER_STYLE } from '../shared/types.js'
+import { useBookshelf, type BookshelfActions } from './hooks/useBookshelf.js'
+import { useFormatPanel } from './hooks/useFormatPanel.js'
+import { useTasks } from './hooks/useTasks.js'
+import { useGeneration } from './hooks/useGeneration.js'
+import { useImportFlow } from './hooks/useImportFlow.js'
+import { useOrganize } from './hooks/useOrganize.js'
+import { useNavigation } from './hooks/useNavigation.js'
+import { useNoteActions } from './hooks/useNoteActions.js'
+import { useNoteStore } from './hooks/useNoteStore.js'
+import { useReaderSession } from './hooks/useReaderSession.js'
+import { useReaderStyle } from './hooks/useReaderStyle.js'
+import { useRename } from './hooks/useRename.js'
+import { useViews, type MainView } from './hooks/useViews.js'
+import { useShare } from './hooks/useShare.js'
+import { useToast } from './hooks/useToast.js'
+import { t, useLocale } from './lib/i18n.js'
 import type {
   AppInfo,
-  BookSummary,
-  ChapterContent,
-  ChapterFlag,
-  ChapterMeta,
-  ChapterSuggestion,
-  ClassifyResult,
-  GeneratePartial,
-  HighlightImportResult,
-  LibraryNote,
-  KnowledgeMapNode,
-  Note,
-  NoteDraft,
-  NotePatch,
-  ReaderMark,
-  ReaderMarkStyle,
+  LabToolId,
   ReaderStyle,
   RelatedNote,
-  SearchResult,
   SettingsView,
 } from '../shared/types.js'
 import { ConfirmHost, confirmDialog } from './components/ConfirmDialog.js'
@@ -30,152 +30,287 @@ import { FeynmanPanel } from './components/FeynmanPanel.js'
 import { FormatPanel } from './components/FormatPanel.js'
 import { ImportDialog } from './components/ImportDialog.js'
 import { MergeBooksDialog } from './components/MergeBooksDialog.js'
-import type { FormatMessage } from './components/FormatPanel.js'
 import { Library } from './components/Library.js'
 import { ListenPanel } from './components/ListenPanel.js'
 import { MarginNoteDialog } from './components/MarginNoteDialog.js'
 import { NotesPanel } from './components/NotesPanel.js'
+import { ChapterTrashDialog } from './components/ChapterTrashDialog.js'
 import { OrganizeDialog } from './components/OrganizeDialog.js'
 import { Reader } from './components/Reader.js'
 import { RenameDialog } from './components/RenameDialog.js'
 import { SearchDialog } from './components/SearchDialog.js'
 import { ShareDialog } from './components/ShareDialog.js'
 import { SettingsDialog } from './components/SettingsDialog.js'
+import { OnboardingDialog, SAMPLE_BOOK } from './components/OnboardingDialog.js'
+import { ManualView } from './components/ManualView.js'
 import { SplitBookDialog } from './components/SplitBookDialog.js'
 import { TaskCenter } from './components/TaskCenter.js'
-import type { BackgroundTask, TaskFailure } from './components/TaskCenter.js'
 import { TopBar } from './components/TopBar.js'
-import type { BookmarkDraft, BookmarkView } from './lib/bookmarks.js'
-import { noteDisplayTitle, titleRepeatsContent } from './lib/note-display.js'
-import type { ShareBook, ShareNote, ShareTemplate } from './lib/share-card.js'
-import type { XhsScope } from './lib/xhs-carousel.js'
-
-function messageOf(error: unknown): string {
-  const raw = error instanceof Error ? error.message : String(error)
-  return raw.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
-}
+import { messageOf } from './lib/errors.js'
+import { isoWeekLabel } from './lib/week.js'
 
 const BookCompose = lazy(async () => ({ default: (await import('./components/BookCompose.js')).BookCompose }))
 const ContentView = lazy(async () => ({ default: (await import('./components/ContentView.js')).ContentView }))
 const KnowledgeMap = lazy(async () => ({ default: (await import('./components/KnowledgeMap.js')).KnowledgeMap }))
 const LabView = lazy(async () => ({ default: (await import('./components/LabView.js')).LabView }))
 const NotesLibrary = lazy(async () => ({ default: (await import('./components/NotesLibrary.js')).NotesLibrary }))
+const StatsView = lazy(async () => ({ default: (await import('./components/StatsView.js')).StatsView }))
+const WeeklyReviewsView = lazy(async () => ({ default: (await import('./components/WeeklyReviewsView.js')).WeeklyReviewsView }))
 const XhsCarouselDialog = lazy(async () => ({ default: (await import('./components/XhsCarouselDialog.js')).XhsCarouselDialog }))
 
-const THEME_KEY = 'reading-notes-theme'
-const TASKS_KEY = 'reading-notes-background-tasks'
-
-function failureSummary(failures: TaskFailure[]): string {
-  const titles = failures.slice(0, 3).map((failure) => `「${failure.title}」`)
-  return `失败 ${failures.length} 节：${titles.join('、')}${failures.length > titles.length ? ' 等' : ''}`
-}
-
-type RenameTarget =
-  | { kind: 'book'; bookId: string; value: string }
-  | { kind: 'chapter'; chapterId: string; value: string }
-  | { kind: 'part'; bookId: string; partIndex: number; value: string }
-
-function loadStoredTheme(): ReaderStyle['theme'] {
-  try {
-    const stored = localStorage.getItem(THEME_KEY)
-    if (stored === 'paper' || stored === 'plain' || stored === 'warm' || stored === 'folio') {
-      return stored
-    }
-  } catch {
-    // localStorage 不可用时使用默认主题。
-  }
-  return DEFAULT_READER_STYLE.theme
-}
-
-
-function loadBackgroundTasks(): BackgroundTask[] {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(TASKS_KEY) ?? '[]') as unknown
-    if (!Array.isArray(parsed)) return []
-    return parsed
-      .filter((item): item is BackgroundTask => Boolean(item && typeof item === 'object' && typeof item.id === 'string'))
-      .slice(0, 6)
-      .map((task) =>
-        task.status === 'running'
-          ? { ...task, status: 'cancelled' as const, detail: '应用重启，任务已中断' }
-          : task,
-      )
-  } catch {
-    return []
-  }
-}
-
 export function App(): JSX.Element {
-  const [books, setBooks] = useState<BookSummary[]>([])
-  const [book, setBook] = useState<BookSummary | null>(null)
-  const [chapters, setChapters] = useState<ChapterMeta[]>([])
-  const [chapter, setChapter] = useState<ChapterContent | null>(null)
-  const [notes, setNotes] = useState<Note[]>([])
-  const [allNotes, setAllNotes] = useState<Note[]>([])
-  const [readerMarks, setReaderMarks] = useState<ReaderMark[]>([])
+  useLocale()
+  const shelfActions = useRef<BookshelfActions>({
+    appTheme: 'folio',
+    refreshNotes: async () => undefined,
+    resetNotes: () => undefined,
+    resetChapterView: () => undefined,
+    resetBookView: () => undefined,
+    setStyle: () => undefined,
+    refreshBookmarks: () => undefined,
+    notify: () => undefined,
+  })
+  const {
+    books,
+    setBooks,
+    book,
+    setBook,
+    chapters,
+    setChapters,
+    chapter,
+    setChapter,
+    readerMarks,
+    setReaderMarks,
+    clearBook,
+    loadingChapter,
+    openBook,
+    openBookAt,
+    openChapter,
+    refreshBook,
+    deleteBook,
+  } = useBookshelf(shelfActions)
+  const { appTheme, setAppTheme, readerStyle, setReaderStyle, updateReaderStyle } = useReaderStyle(book?.id ?? null)
+  const { notes, allNotes, setNotes, setAllNotes, refreshNotes, resetNotes, patchNote } = useNoteStore()
   const [settings, setSettings] = useState<SettingsView | null>(null)
-  const [backgroundTasks, setBackgroundTasks] = useState<BackgroundTask[]>(loadBackgroundTasks)
+  const [booksLoaded, setBooksLoaded] = useState(false)
+  const [onboardingOpen, setOnboardingOpen] = useState(false)
+  const [sampleBookId, setSampleBookId] = useState<string | null>(null)
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null)
-  const [loadingChapter, setLoadingChapter] = useState(false)
-  const [importing, setImporting] = useState(false)
-  const [importOpen, setImportOpen] = useState(false)
-  const [mergeOpen, setMergeOpen] = useState(false)
-  const [splitOpen, setSplitOpen] = useState(false)
-  const [generating, setGenerating] = useState(false)
-  const [partial, setPartial] = useState<GeneratePartial | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [toast, setToast] = useState<{
-    kind: 'error' | 'info'
-    text: string
-    action?: { label: string; onClick(): void }
-  } | null>(null)
-  const [settingsOpen, setSettingsOpen] = useState(false)
-  const [searchOpen, setSearchOpen] = useState(false)
-  const [mainView, setMainView] = useState<'reader' | 'notes' | 'map' | 'lab' | 'compose' | 'content'>('reader')
-  const [labMounted, setLabMounted] = useState(false)
-  const [contentFocusId, setContentFocusId] = useState<string | null>(null)
-  const [shareTarget, setShareTarget] = useState<{
-    note?: ShareNote
-    book?: ShareBook
-    notes?: ShareNote[]
-    initialTemplate?: ShareTemplate
-  } | null>(null)
-  const [xhsTarget, setXhsTarget] = useState<{ scope: XhsScope; chapterId?: string | null } | null>(null)
-  const [bookmarks, setBookmarks] = useState<BookmarkView[]>([])
-  const [positionTarget, setPositionTarget] = useState<{ chapterId: string; ratio: number; key: number } | null>(null)
-  const [listen, setListen] = useState<{ title: string; text: string } | null>(null)
-  const [marginQuote, setMarginQuote] = useState<string | null>(null)
-  const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null)
-  const [focusNote, setFocusNote] = useState<{ id: string; key: number } | null>(null)
-  const [pendingNoteId, setPendingNoteId] = useState<string | null>(null)
-  const [scrollTarget, setScrollTarget] = useState<{ quote: string; key: number } | null>(null)
-  const [organizeOpen, setOrganizeOpen] = useState(false)
-  const [suggestions, setSuggestions] = useState<ChapterSuggestion[]>([])
-  const [classifyMode, setClassifyMode] = useState<ClassifyResult['mode'] | null>(null)
-  const [classifyError, setClassifyError] = useState<string | null>(null)
-  const [classifying, setClassifying] = useState(false)
-  const [sideTab, setSideTab] = useState<'notes' | 'chat' | 'feynman' | 'format'>('notes')
-  const [chatSeed, setChatSeed] = useState<{ text: string; key: number } | null>(null)
-  const [appTheme, setAppTheme] = useState<ReaderStyle['theme']>(loadStoredTheme)
-  const [readerStyle, setReaderStyle] = useState<ReaderStyle>(DEFAULT_READER_STYLE)
-  const [formatBusy, setFormatBusy] = useState(false)
-  const [formatError, setFormatError] = useState<string | null>(null)
-  const [formatNote, setFormatNote] = useState<string | null>(null)
-  const [formatMessages, setFormatMessages] = useState<FormatMessage[]>([])
-  const [expandingNoteId, setExpandingNoteId] = useState<string | null>(null)
-  const [crossBookNotes, setCrossBookNotes] = useState<RelatedNote[]>([])
-  const [semanticTick, setSemanticTick] = useState(0)
-  const styleSaveTimer = useRef<number | null>(null)
-  const formatTokenRef = useRef(0)
+  const [toast, setToast] = useToast()
+  const applyReaderStyle = useCallback(
+    (style: Partial<ReaderStyle>) => setReaderStyle((current) => ({ ...current, ...style })),
+    [setReaderStyle],
+  )
+  const {
+    generating,
+    partial,
+    error,
+    generate,
+    cancelGeneration,
+    resetGeneration,
+  } = useGeneration({
+    chapterId: chapter?.id ?? null,
+    bookId: book?.id ?? null,
+    setNotes,
+    setAllNotes,
+    setChapter,
+    setBooks,
+    applyStyle: applyReaderStyle,
+    notify: setToast,
+  })
+  const handleBooksChanged = useCallback(() => {
+    void window.api
+      .listBooks()
+      .then(setBooks)
+      .catch(() => undefined)
+  }, [setBooks])
+
+  const finishOnboarding = useCallback(() => {
+    try {
+      localStorage.setItem('reading-notes-onboarding-done', '1')
+    } catch {
+      // 本地标记写入失败时，下次仍会显示引导。
+    }
+    setOnboardingOpen(false)
+  }, [])
 
   useEffect(() => {
-    document.documentElement.className = `theme-${appTheme}`
+    if (!booksLoaded || books.length > 0) return
     try {
-      localStorage.setItem(THEME_KEY, appTheme)
+      if (localStorage.getItem('reading-notes-onboarding-done') === '1') return
     } catch {
-      // 忽略存储失败；当前会话仍然使用这个主题。
+      // 存储不可用时仍然显示。
     }
-  }, [appTheme])
+    setOnboardingOpen(true)
+  }, [books.length, booksLoaded])
+
+  const importSampleBook = useCallback(async () => {
+    const imported = await window.api.importText(SAMPLE_BOOK)
+    setBooks((current) => [imported, ...current.filter((item) => item.id !== imported.id)])
+    setSampleBookId(imported.id)
+  }, [setBooks])
+
+  const { tasks: backgroundTasks, setTasks: setBackgroundTasks } = useTasks({
+    notify: setToast,
+    onBooksChanged: handleBooksChanged,
+  })
+  const {
+    busy: formatBusy,
+    error: formatError,
+    note: formatNote,
+    messages: formatMessages,
+    formatCurrentChapter,
+    resetChapterFormat,
+    resetFormatState,
+  } = useFormatPanel({
+    chapterId: chapter?.id ?? null,
+    setChapter,
+    setStyle: setReaderStyle,
+  })
+  const {
+    organizeOpen,
+    setOrganizeOpen,
+    chapterTrashOpen,
+    setChapterTrashOpen,
+    suggestions,
+    classifyMode,
+    classifyError,
+    classifying,
+    openOrganize,
+    classifyChaptersForBook,
+    applyChapterFlags,
+    deleteChapterList,
+    resetOrganize,
+  } = useOrganize({ bookId: book?.id ?? null, refreshBook, notify: setToast })
+  const {
+    importing,
+    importOpen,
+    setImportOpen,
+    mergeOpen,
+    setMergeOpen,
+    splitOpen,
+    setSplitOpen,
+    importFile,
+    handleImported,
+    handleOcrStarted,
+    handleHighlightsImported,
+    handleMerged,
+    handleSplit,
+  } = useImportFlow({
+    bookId: book?.id ?? null,
+    openBook,
+    refreshBook,
+    setBooks,
+    setTasks: setBackgroundTasks,
+    notify: setToast,
+  })
+  const {
+    bookmarks,
+    positionTarget,
+    setPositionTarget,
+    listen,
+    setListen,
+    marginQuote,
+    setMarginQuote,
+    focusNote,
+    setFocusNote,
+    setPendingNoteId,
+    scrollTarget,
+    setScrollTarget,
+    sideTab,
+    setSideTab,
+    chatSeed,
+    refreshBookmarks,
+    createReaderMark,
+    clearReaderMarks,
+    deleteReaderMark,
+    askAboutSelection,
+    listenSelection,
+    listenChapter,
+    jumpToQuote,
+    openNote,
+    createReaderBookmark,
+    deleteReaderBookmark,
+    openBookmark,
+  } = useReaderSession({
+    book,
+    chapter,
+    chapters,
+    notes,
+    setReaderMarks,
+    openChapter,
+    notify: setToast,
+  })
+  const { renameTarget, setRenameTarget, startRenameBook, startRenameChapter, startRenamePart, saveRename } =
+    useRename({ bookId: book?.id ?? null, setBooks, setBook, setChapters, setChapter })
+  const {
+    settingsOpen,
+    setSettingsOpen,
+    searchOpen,
+    setSearchOpen,
+    mainView,
+    setMainView,
+    labMounted,
+    contentFocusId,
+    setContentFocusId,
+    leaveReader,
+    openLab,
+    openCompose,
+  } = useViews({ bookId: book?.id ?? null, openBook, clearBook, resetGeneration, resetOrganize })
+  const [manualReturn, setManualReturn] = useState<MainView>('reader')
+  const openSampleBook = useCallback(async () => {
+    if (!sampleBookId) return
+    await openBook(sampleBookId)
+    setMainView('reader')
+    finishOnboarding()
+  }, [finishOnboarding, openBook, sampleBookId, setMainView])
+  const openManual = useCallback(() => {
+    setManualReturn(mainView === 'manual' ? 'reader' : mainView)
+    setSettingsOpen(false)
+    setMainView('manual')
+  }, [mainView, setMainView, setSettingsOpen])
+  const {
+    expandingNoteId,
+    setExpandingNoteId,
+    createNote,
+    saveTutorNote,
+    saveLabReport,
+    saveMarginNote,
+    updateNote,
+    removeNote,
+    expandNote,
+  } = useNoteActions({
+    book,
+    chapter,
+    books,
+    marginQuote,
+    refreshNotes,
+    patchNote,
+    setNotes,
+    setAllNotes,
+    setChapter,
+    setFocusNote,
+    notify: setToast,
+  })
+  const { openRelatedNote, openSearchResult, openLibraryNote, openMapNote, openMapBook } = useNavigation({
+    book,
+    chapter,
+    chapters,
+    openBook,
+    openBookAt,
+    openChapter,
+    setPendingNoteId,
+    setFocusNote,
+    setSearchOpen,
+    setMainView,
+    setContentFocusId,
+    setScrollTarget,
+    notify: setToast,
+  })
+  const [crossBookNotes, setCrossBookNotes] = useState<RelatedNote[]>([])
+  const [readerFocus, setReaderFocus] = useState(false)
+  const [labTool, setLabTool] = useState<LabToolId>('library-research')
+  const [semanticTick, setSemanticTick] = useState(0)
 
   useEffect(() => {
     function onKey(event: KeyboardEvent): void {
@@ -191,269 +326,56 @@ export function App(): JSX.Element {
   useEffect(() => window.api.onSemanticReady(() => setSemanticTick((value) => value + 1)), [])
 
   useEffect(() => {
+    if (mainView !== 'reader' || !book) setReaderFocus(false)
+  }, [book, mainView])
+
+  const toggleReaderFocus = useCallback(() => setReaderFocus((value) => !value), [])
+
+  useEffect(() => {
     void Promise.all([window.api.listBooks(), window.api.getSettings(), window.api.getAppInfo()])
       .then(([nextBooks, nextSettings, info]) => {
         setBooks(nextBooks)
         setSettings(nextSettings)
         setAppInfo(info)
+        setBooksLoaded(true)
       })
       .catch((err: unknown) => setToast({ kind: 'error', text: messageOf(err) }))
+      .finally(() => setBooksLoaded(true))
   }, [])
 
-  useEffect(() => {
-    if (!toast) return
-    const timer = window.setTimeout(() => setToast(null), toast.action ? 9000 : 5200)
-    return () => window.clearTimeout(timer)
-  }, [toast])
+  const resetChapterView = useCallback(() => {
+    resetGeneration()
+    resetFormatState()
+    setExpandingNoteId(null)
+    setPositionTarget(null)
+    setReaderMarks([])
+  }, [resetFormatState, resetGeneration, setPositionTarget, setReaderMarks])
 
-  useEffect(() => {
-    function upsert(task: BackgroundTask): void {
-      setBackgroundTasks((current) => {
-        const exists = current.some((item) => item.id === task.id)
-        return exists ? current.map((item) => (item.id === task.id ? task : item)) : [task, ...current].slice(0, 6)
-      })
-    }
-    function patch(id: string, update: Partial<BackgroundTask>): void {
-      setBackgroundTasks((current) => current.map((task) => (task.id === id ? { ...task, ...update } : task)))
-    }
-    const offNotesProgress = window.api.onBookGenerationProgress((event) => {
-      const id = `notes:${event.bookId}`
-      upsert({
-        id,
-        kind: 'notes',
-        title: '整本生成',
-        detail: event.title ? `${event.title}${event.message ? ` · ${event.message}` : ''}` : '正在准备',
-        done: event.done,
-        total: event.total,
-        status: 'running',
-      })
-    })
-    const offNotesDone = window.api.onBookGenerationDone((event) => {
-      patch(`notes:${event.bookId}`, {
-        status: event.cancelled ? 'cancelled' : event.failed.length > 0 ? 'error' : 'done',
-        done: event.generated + event.skipped + event.failed.length,
-        detail: event.cancelled
-          ? '已取消'
-          : `新生成 ${event.generated} 节${event.skipped > 0 ? ` · 跳过 ${event.skipped} 节` : ''}${event.failed.length > 0 ? ` · ${failureSummary(event.failed)}` : ''}`,
-        failures: event.failed,
-        retry: event.failed.length > 0
-          ? { kind: 'notes', bookId: event.bookId, chapterIds: event.failed.map((failure) => failure.chapterId) }
-          : undefined,
-      })
-    })
-    const offFormatProgress = window.api.onBookFormatProgress((event) => {
-      upsert({
-        id: `format:${event.bookId}`,
-        kind: 'format',
-        title: '整本 AI 排版',
-        detail: event.title ? `${event.title}${event.message ? ` · ${event.message}` : ''}` : '正在准备',
-        done: event.done,
-        total: event.total,
-        status: 'running',
-      })
-    })
-    const offFormatDone = window.api.onBookFormatDone((event) => {
-      patch(`format:${event.bookId}`, {
-        status: event.cancelled ? 'cancelled' : event.failed.length > 0 ? 'error' : 'done',
-        done: event.formatted + event.skipped + event.failed.length,
-        detail: event.cancelled
-          ? '已取消'
-          : `完成 ${event.formatted} 节${event.skipped > 0 ? ` · 跳过 ${event.skipped} 节` : ''}${event.failed.length > 0 ? ` · ${failureSummary(event.failed)}` : ''}`,
-        failures: event.failed,
-        retry: event.failed.length > 0
-          ? { kind: 'format', bookId: event.bookId, chapterIds: event.failed.map((failure) => failure.chapterId) }
-          : undefined,
-      })
-    })
-    const offOcrProgress = window.api.onOcrProgress((event) => {
-      upsert({
-        id: 'ocr',
-        kind: 'import',
-        title: '扫描版 PDF OCR',
-        detail: `正在识别第 ${event.page} 页`,
-        done: event.current,
-        total: event.total,
-        status: 'running',
-      })
-    })
-    const offOcrDone = window.api.onOcrDone((event) => {
-      setBackgroundTasks((current) =>
-        current.map((task) =>
-          task.id === 'ocr'
-            ? {
-                ...task,
-                status: 'done',
-                done: task.total,
-                detail: `已导入《${event.book.title}》 · ${Math.round(event.durationMs / 1000)}s`,
-              }
-            : task,
-        ),
-      )
-      setToast({
-        kind: 'info',
-        text: `OCR 导入完成：《${event.book.title}》，共 ${event.book.chapterCount} 节。`,
-      })
-      void window.api.listBooks().then(setBooks).catch(() => undefined)
-    })
-    const offOcrError = window.api.onOcrError((event) => {
-      patch('ocr', { status: event.cancelled ? 'cancelled' : 'error', detail: event.message })
-      setToast({ kind: event.cancelled ? 'info' : 'error', text: event.message })
-    })
-    return () => {
-      offNotesProgress()
-      offNotesDone()
-      offFormatProgress()
-      offFormatDone()
-      offOcrProgress()
-      offOcrDone()
-      offOcrError()
-    }
-  }, [])
+  const resetBookView = useCallback(() => {
+    resetOrganize()
+  }, [resetOrganize])
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(TASKS_KEY, JSON.stringify(backgroundTasks.slice(0, 6)))
-    } catch {
-      // 本地任务历史只是辅助信息，存储失败不影响当前任务。
-    }
-  }, [backgroundTasks])
-
-  const refreshNotes = useCallback(async (bookId: string, chapterId: string | null) => {
-    const [chapterNotes, all] = await Promise.all([
-      chapterId ? window.api.listNotes(bookId, chapterId) : Promise.resolve([]),
-      window.api.listNotes(bookId),
-    ])
-    setNotes(chapterNotes)
-    setAllNotes(all)
-  }, [])
-
-  const refreshBookmarks = useCallback(async (bookId: string) => {
-    try {
-      setBookmarks(await window.api.listBookmarks(bookId))
-    } catch {
-      setBookmarks([])
-    }
-  }, [])
-
-  const openChapter = useCallback(
-    async (bookId: string, meta: ChapterMeta, chapterList: ChapterMeta[]) => {
-      void window.api.cancelGeneration()
-      formatTokenRef.current += 1
-      setLoadingChapter(true)
-      setError(null)
-      setGenerating(false)
-      setPartial(null)
-      setFormatBusy(false)
-      setFormatError(null)
-      setFormatNote(null)
-      setFormatMessages([])
-      setExpandingNoteId(null)
-      setReaderMarks([])
-      setPositionTarget(null)
-      try {
-        const [content, marks] = await Promise.all([
-          window.api.getChapter(meta.id),
-          window.api.listChapterMarks(meta.id),
-        ])
-        setChapter(content)
-        setReaderMarks(marks)
-        await refreshNotes(bookId, meta.id)
-        await window.api.setProgress(bookId, meta.id)
-        const visibleChapters = chapterList.filter((item) => !item.hidden)
-        const position = visibleChapters.findIndex((item) => item.id === meta.id)
-        const progress = visibleChapters.length === 0 ? 0 : position >= 0 ? (position + 1) / visibleChapters.length : 0
-        setBook((current) =>
-          current && current.id === bookId
-            ? { ...current, currentChapterId: meta.id, currentChapterIdx: meta.idx, progress }
-            : current,
-        )
-        setBooks((current) =>
-          current.map((item) =>
-            item.id === bookId ? { ...item, currentChapterId: meta.id, currentChapterIdx: meta.idx, progress } : item,
-          ),
-        )
-      } catch (err) {
-        setToast({ kind: 'error', text: messageOf(err) })
-      } finally {
-        setLoadingChapter(false)
-      }
-    },
-    [refreshNotes],
-  )
-
-  const openBook = useCallback(
-    async (bookId: string) => {
-      try {
-        const opened = await window.api.openBook(bookId)
-        setBook(opened.book)
-        setChapters(opened.chapters)
-        void refreshBookmarks(opened.book.id)
-        setReaderStyle({ ...opened.style, theme: appTheme })
-        setSuggestions([])
-        setClassifyMode(null)
-        setClassifyError(null)
-        setOrganizeOpen(false)
-        if (opened.chapters.length > 0 && opened.chapters.every((item) => item.classifiedBy === null)) {
-          setToast({
-            kind: 'info',
-            text: '这本书还没有整理过目录。点左侧「整理」可以识别目录、版权页、广告等无关页面。',
-          })
-        }
-        const visible = opened.chapters.filter((item) => !item.hidden)
-        const target =
-          visible.find((item) => item.id === opened.book.currentChapterId) ??
-          visible.find((item) => item.kind === 'content') ??
-          visible[0] ??
-          null
-        if (target) await openChapter(opened.book.id, target, opened.chapters)
-        else {
-          setChapter(null)
-          setNotes([])
-          setAllNotes([])
-          setToast({ kind: 'info', text: '这本书的章节都被隐藏了，打开「整理」可以恢复。' })
-        }
-      } catch (err) {
-        setToast({ kind: 'error', text: messageOf(err) })
-      }
-    },
-    [openChapter, appTheme],
-  )
-
-  const refreshBook = useCallback(
-    async (bookId: string) => {
-      const opened = await window.api.openBook(bookId)
-      setBook(opened.book)
-      setChapters(opened.chapters)
+  // 这些动作依赖 generation / format / notes / session，用 ref 交给 useBookshelf，避免 hook 初始化顺序耦合。
+  shelfActions.current = {
+    appTheme,
+    refreshNotes,
+    resetNotes,
+    resetChapterView,
+    resetBookView,
+    setStyle: setReaderStyle,
+    refreshBookmarks: (bookId: string) => {
       void refreshBookmarks(bookId)
-      setBooks((current) => current.map((item) => (item.id === bookId ? opened.book : item)))
-      const visible = opened.chapters.filter((item) => !item.hidden)
-      const currentIdx = chapter?.idx ?? -1
-      const target =
-        visible.find((item) => item.id === chapter?.id) ??
-        visible.find((item) => item.idx >= currentIdx && item.kind === 'content') ??
-        visible.find((item) => item.idx >= currentIdx) ??
-        [...visible].reverse().find((item) => item.kind === 'content') ??
-        visible[visible.length - 1] ??
-        null
-      if (!target) {
-        setChapter(null)
-        setNotes([])
-        setAllNotes([])
-        return
-      }
-      if (target.id !== chapter?.id) await openChapter(bookId, target, opened.chapters)
-      else await refreshNotes(bookId, target.id)
     },
-    [chapter?.id, openChapter, refreshBookmarks, refreshNotes],
-  )
+    notify: setToast,
+  }
 
   const reparseBook = useCallback(async () => {
     if (!book) return
     const confirmed = await confirmDialog({
-      title: '重新解析目录',
+      title: t('重新解析目录'),
       message:
-        '重新解析会用新的章节切分替换目录。已有笔记会先按原文引用、再按章节标题重新归属；匹配不上的笔记会保留，但不再显示在章节里。继续？',
-      confirmLabel: '继续解析',
+        t('重新解析会用新的章节切分替换目录。已有笔记会先按原文引用、再按章节标题重新归属；匹配不上的笔记会保留，但不再显示在章节里。继续？'),
+      confirmLabel: t('继续解析'),
       danger: true,
     })
     if (!confirmed) return
@@ -461,571 +383,49 @@ export function App(): JSX.Element {
       const updated = await window.api.reparseBook(book.id)
       setBooks((current) => current.map((item) => (item.id === updated.id ? updated : item)))
       await openBook(updated.id)
-      setToast({ kind: 'info', text: '已重新解析目录，笔记已尽量保留。' })
+      setToast({ kind: 'info', text: t('已重新解析目录，笔记已尽量保留。') })
     } catch (err) {
       setToast({ kind: 'error', text: messageOf(err) })
     }
   }, [book, openBook])
-
-  const importFile = useCallback(async (): Promise<BookSummary | null> => {
-    setImporting(true)
-    try {
-      return await window.api.importBook()
-    } finally {
-      setImporting(false)
-    }
-  }, [])
-
-  const handleImported = useCallback(
-    async (imported: BookSummary) => {
-      setBooks((current) => [imported, ...current.filter((item) => item.id !== imported.id)])
-      const hiddenNote =
-        imported.hiddenChapterCount > 0 ? `，自动隐藏了 ${imported.hiddenChapterCount} 个疑似目录/版权页` : ''
-      setToast({
-        kind: 'info',
-        text: `已导入《${imported.title}》，共 ${imported.chapterCount} 节${hiddenNote}`,
-      })
-      setImportOpen(false)
-      await openBook(imported.id)
-    },
-    [openBook],
-  )
-
-  function handleOcrStarted(fileName: string): void {
-    const task: BackgroundTask = {
-      id: 'ocr',
-      kind: 'import',
-      title: '扫描版 PDF OCR',
-      detail: fileName,
-      done: 0,
-      total: 0,
-      status: 'running',
-    }
-    setBackgroundTasks((current) => {
-      const existing = current.find((item) => item.id === 'ocr')
-      if (existing) {
-        return current.map((item) =>
-          item.id === 'ocr'
-            ? {
-                ...item,
-                title: task.title,
-                detail: fileName,
-                status: 'running',
-                done: item.status === 'running' ? item.done : 0,
-                total: item.status === 'running' ? item.total : 0,
-              }
-            : item,
-        )
-      }
-      return [task, ...current].slice(0, 6)
-    })
-    setImportOpen(false)
-    setToast({ kind: 'info', text: `已开始 OCR：《${fileName}》，进度在右下角任务中心。` })
-  }
-
-  const handleHighlightsImported = useCallback(
-    async (result: HighlightImportResult) => {
-      setBooks(await window.api.listBooks())
-      setToast({
-        kind: 'info',
-        text: `已导入 ${result.books.length} 本书的 ${result.highlights} 条划线。`,
-      })
-      setImportOpen(false)
-      if (result.books.length === 1 && result.books[0]) await openBook(result.books[0].id)
-    },
-    [openBook],
-  )
-
-  const handleMerged = useCallback(
-    async (merged: BookSummary) => {
-      try {
-        setBooks(await window.api.listBooks())
-        setMergeOpen(false)
-        setToast({ kind: 'info', text: `已合并为《${merged.title}》。` })
-        await openBook(merged.id)
-      } catch (err) {
-        setToast({ kind: 'error', text: messageOf(err) })
-      }
-    },
-    [openBook],
-  )
-
-  const handleSplit = useCallback(
-    async (newBook: BookSummary) => {
-      try {
-        setBooks(await window.api.listBooks())
-        setSplitOpen(false)
-        setToast({ kind: 'info', text: `已拆出《${newBook.title}》。` })
-        if (book) await refreshBook(book.id)
-      } catch (err) {
-        setToast({ kind: 'error', text: messageOf(err) })
-      }
-    },
-    [book, refreshBook],
-  )
-
-  const deleteBook = useCallback(
-    async (bookId: string) => {
-      try {
-        await window.api.deleteBook(bookId)
-        setBooks((current) => current.filter((item) => item.id !== bookId))
-        if (book?.id === bookId) {
-          setBook(null)
-          setChapters([])
-          setChapter(null)
-          setNotes([])
-          setAllNotes([])
-        }
-      } catch (err) {
-        setToast({ kind: 'error', text: messageOf(err) })
-      }
-    },
-    [book?.id],
-  )
-
-  useEffect(() => {
-    const offPartial = window.api.onGenerationPartial((event) => {
-      if (event.chapterId !== chapter?.id) return
-      setGenerating(true)
-      setPartial(event.partial)
-      setError(null)
-    })
-    const offDone = window.api.onGenerationDone((event) => {
-      if (event.chapterId === chapter?.id) {
-        setGenerating(false)
-        setPartial(null)
-        setNotes(event.notes)
-        setChapter((current) =>
-          current && current.id === event.chapterId ? { ...current, noteReport: event.report } : current,
-        )
-      }
-      if (book) {
-        void window.api
-          .listNotes(book.id)
-          .then((items) => {
-            setAllNotes(items)
-            setBooks((current) =>
-              current.map((item) => (item.id === book.id ? { ...item, noteCount: items.length } : item)),
-            )
-          })
-          .catch(() => undefined)
-      }
-    })
-    const offError = window.api.onGenerationError((event) => {
-      if (event.chapterId !== chapter?.id) return
-      setGenerating(false)
-      setPartial(null)
-      setError(event.message)
-    })
-    const offFormatted = window.api.onChapterFormatted((event) => {
-      if (event.chapterId !== chapter?.id) return
-      setChapter((current) =>
-        current && current.id === event.chapterId
-          ? { ...current, formattedHtml: event.html, removed: event.removed }
-          : current,
-      )
-      setReaderStyle((current) => ({ ...current, ...event.style }))
-    })
-    const offBookDone = window.api.onBookGenerationDone((event) => {
-      if (event.bookId !== book?.id) return
-      setToast({
-        kind: event.failed.length > 0 ? 'error' : 'info',
-        text: event.cancelled
-          ? '整本生成已取消。'
-          : `整本生成完成：新生成 ${event.generated} 节${event.failed.length > 0 ? `，失败 ${event.failed.length} 节` : ''}。`,
-      })
-      void window.api
-        .listNotes(event.bookId)
-        .then((items) => {
-          setAllNotes(items)
-          setBooks((current) =>
-            current.map((item) => (item.id === event.bookId ? { ...item, noteCount: items.length } : item)),
-          )
-        })
-        .catch(() => undefined)
-    })
-    return () => {
-      offPartial()
-      offDone()
-      offError()
-      offBookDone()
-      offFormatted()
-    }
-  }, [chapter?.id, book?.id])
-
-  useEffect(() => {
-    if (!pendingNoteId) return
-    if (!notes.some((note) => note.id === pendingNoteId)) return
-    setFocusNote({ id: pendingNoteId, key: Date.now() })
-    setPendingNoteId(null)
-  }, [notes, pendingNoteId])
-
-  const generate = useCallback(async () => {
-    if (!chapter) return
-    setError(null)
-    setGenerating(true)
-    setPartial(null)
-    try {
-      await window.api.generateNotes(chapter.id)
-    } catch (err) {
-      setGenerating(false)
-      setPartial(null)
-      setError(messageOf(err))
-    }
-  }, [chapter])
-
-  const cancelGeneration = useCallback(async () => {
-    await window.api.cancelGeneration()
-    setGenerating(false)
-    setPartial(null)
-  }, [])
-
-  const createNote = useCallback(
-    async (draft: NoteDraft): Promise<Note> => {
-      const created = await window.api.createNote(draft)
-      if (book) await refreshNotes(book.id, chapter?.id ?? null)
-      setFocusNote({ id: created.id, key: Date.now() })
-      return created
-    },
-    [book, chapter?.id, refreshNotes],
-  )
-
-  const saveTutorNote = useCallback(
-    async (title: string, content: string): Promise<void> => {
-      if (!book || !chapter) throw new Error('先打开一章。')
-      await createNote({
-        bookId: book.id,
-        chapterId: chapter.id,
-        kind: 'thought',
-        title,
-        content,
-      })
-    },
-    [book, chapter, createNote],
-  )
-
-  const saveLabReport = useCallback(
-    async (title: string, markdown: string, targetBookId: string, targetChapterId: string): Promise<void> => {
-      const ownerId = targetBookId || book?.id || books[0]?.id
-      if (!ownerId) throw new Error('还没有导入书。')
-      await window.api.createNote({
-        bookId: ownerId,
-        chapterId: targetChapterId || null,
-        kind: 'summary',
-        title,
-        content: markdown,
-      })
-      if (book?.id === ownerId && (!targetChapterId || chapter?.id === targetChapterId)) {
-        await refreshNotes(ownerId, chapter?.id ?? null)
-      }
-      setToast({ kind: 'info', text: '已存为笔记。' })
-    },
-    [book, books, chapter?.id, refreshNotes],
-  )
-
-  const saveMarginNote = useCallback(
-    async (markdown: string): Promise<void> => {
-      if (!chapter || !marginQuote) throw new Error('先选中一段原文。')
-      await createNote({
-        bookId: chapter.bookId,
-        chapterId: chapter.id,
-        kind: 'thought',
-        title: `AI 边注 · ${marginQuote.slice(0, 16)}`,
-        content: markdown,
-        quote: marginQuote,
-      })
-      setToast({ kind: 'info', text: '边注已保存。' })
-    },
-    [chapter, marginQuote, createNote],
-  )
-
-  const startRenameBook = useCallback((target: BookSummary) => {
-    setRenameTarget({ kind: 'book', bookId: target.id, value: target.title })
-  }, [])
-
-  const startRenameChapter = useCallback((target: ChapterMeta) => {
-    setRenameTarget({ kind: 'chapter', chapterId: target.id, value: target.title })
-  }, [])
-
-  const startRenamePart = useCallback(
-    (partIndex: number, title: string) => {
-      if (!book) return
-      setRenameTarget({ kind: 'part', bookId: book.id, partIndex, value: title })
-    },
-    [book],
-  )
-
-  const saveRename = useCallback(
-    async (value: string): Promise<void> => {
-      if (!renameTarget) return
-      const title = value.replace(/\s+/g, ' ').trim()
-      if (!title) throw new Error('标题不能为空。')
-      if (renameTarget.kind === 'book') {
-        const updated = await window.api.renameBook(renameTarget.bookId, title)
-        setBooks((current) => current.map((item) => (item.id === updated.id ? updated : item)))
-        setBook((current) => (current?.id === updated.id ? updated : current))
-        return
-      }
-      if (renameTarget.kind === 'chapter') {
-        await window.api.renameChapter(renameTarget.chapterId, title)
-        setChapters((current) =>
-          current.map((item) => (item.id === renameTarget.chapterId ? { ...item, title } : item)),
-        )
-        setChapter((current) => (current?.id === renameTarget.chapterId ? { ...current, title } : current))
-        return
-      }
-      await window.api.renamePart(renameTarget.bookId, renameTarget.partIndex, title)
-      setChapters((current) =>
-        current.map((item) => (item.partIndex === renameTarget.partIndex ? { ...item, partTitle: title } : item)),
-      )
-      setChapter((current) =>
-        current && current.partIndex === renameTarget.partIndex ? { ...current, partTitle: title } : current,
-      )
-    },
-    [renameTarget],
-  )
-
-  const updateNote = useCallback(    async (noteId: string, patch: NotePatch) => {
-      await window.api.updateNote(noteId, patch)
-      if (book) await refreshNotes(book.id, chapter?.id ?? null)
-    },
-    [book, chapter?.id, refreshNotes],
-  )
-
-  const removeNote = useCallback(
-    async (noteId: string) => {
-      await window.api.deleteNote(noteId)
-      if (book) await refreshNotes(book.id, chapter?.id ?? null)
-      setToast({
-        kind: 'info',
-        text: '笔记已删除，可撤销。',
-        action: {
-          label: '撤销',
-          onClick: () => {
-            void window.api
-              .restoreNote(noteId)
-              .then((restored) => {
-                if (!restored) throw new Error('笔记所在的书或章节已经不存在，无法恢复。')
-                if (book) return refreshNotes(book.id, chapter?.id ?? null)
-                return undefined
-              })
-              .then(() => setToast({ kind: 'info', text: '笔记已恢复。' }))
-              .catch((err: unknown) => setToast({ kind: 'error', text: messageOf(err) }))
-          },
-        },
-      })
-    },
-    [book, chapter?.id, refreshNotes],
-  )
-
-  const expandNote = useCallback(async (noteId: string) => {
-    setExpandingNoteId(noteId)
-    try {
-      const updated = await window.api.expandNote(noteId)
-      setNotes((current) => current.map((note) => (note.id === noteId ? updated : note)))
-      setAllNotes((current) => current.map((note) => (note.id === noteId ? updated : note)))
-      setChapter((current) =>
-        current && current.noteReport
-          ? {
-              ...current,
-              noteReport: {
-                ...current.noteReport,
-                divergences: current.noteReport.divergences + updated.divergences.length,
-              },
-            }
-          : current,
-      )
-    } catch (err) {
-      setToast({ kind: 'error', text: messageOf(err) })
-    } finally {
-      setExpandingNoteId(null)
-    }
-  }, [])
-
-  const createReaderMark = useCallback(
-    async (style: ReaderMarkStyle, text: string): Promise<void> => {
-      if (!chapter) return
-      try {
-        const mark = await window.api.createChapterMark({ chapterId: chapter.id, quote: text, style })
-        setReaderMarks((current) => [...current, mark])
-      } catch (err) {
-        setToast({ kind: 'error', text: messageOf(err) })
-      }
-    },
-    [chapter],
-  )
-
-  const clearReaderMarks = useCallback(async (ids: string[]): Promise<void> => {
-    try {
-      await Promise.all(ids.map((id) => window.api.deleteChapterMark(id)))
-      setReaderMarks((current) => current.filter((mark) => !ids.includes(mark.id)))
-    } catch (err) {
-      setToast({ kind: 'error', text: messageOf(err) })
-    }
-  }, [])
-
-  const askAboutSelection = useCallback((text: string): void => {
-    setChatSeed({ text, key: Date.now() })
-    setSideTab('chat')
-  }, [])
-
-  const shareQuote = useCallback(
-    (text: string): void => {
-      if (!book || !chapter) return
-      setShareTarget({
-        note: {
-          id: `quote:${Date.now()}`,
-          title: '原文摘录',
-          content: text,
-          quote: text,
-          tags: [],
-          bookTitle: book.title,
-          chapterTitle: chapter.title,
-          kind: 'highlight',
-        },
-      })
-    },
-    [book, chapter],
-  )
-
-  const listenSelection = useCallback((text: string): void => {
-    setListen({ title: '朗读 · 选中文本', text })
-  }, [])
-
-  const formatCurrentChapter = useCallback(
-    async (instruction?: string) => {
-      if (!chapter) return
-      const chapterId = chapter.id
-      const token = ++formatTokenRef.current
-      setFormatBusy(true)
-      setFormatError(null)
-      setFormatNote(null)
-      if (instruction?.trim()) {
-        setFormatMessages((previous) => [...previous, { role: 'user', text: instruction.trim() }])
-      }
-      try {
-        const result = await window.api.formatChapter(chapterId, instruction)
-        if (token !== formatTokenRef.current) return
-        setChapter((current) =>
-          current && current.id === chapterId
-            ? { ...current, formattedHtml: result.html, removed: result.removed }
-            : current,
-        )
-        setReaderStyle(result.style)
-        setFormatNote(result.note)
-        if (instruction?.trim()) {
-          setFormatMessages((previous) => [...previous, { role: 'ai', text: result.note }])
-        }
-      } catch (err) {
-        if (token !== formatTokenRef.current) return
-        setFormatError(messageOf(err))
-      } finally {
-        if (token === formatTokenRef.current) setFormatBusy(false)
-      }
-    },
-    [chapter],
-  )
-
-  const resetChapterFormat = useCallback(async () => {
-    if (!chapter) return
-    const chapterId = chapter.id
-    formatTokenRef.current += 1
-    setFormatBusy(false)
-    setFormatError(null)
-    setFormatNote(null)
-    setFormatMessages([])
-    try {
-      await window.api.resetChapterFormat(chapterId)
-      setChapter((current) =>
-        current && current.id === chapterId ? { ...current, formattedHtml: null, removed: [] } : current,
-      )
-    } catch (err) {
-      setFormatError(messageOf(err))
-    }
-  }, [chapter])
 
   const changeAppTheme = useCallback((theme: ReaderStyle['theme']) => {
     setAppTheme(theme)
     setReaderStyle((current) => ({ ...current, theme }))
   }, [])
 
-  const updateReaderStyle = useCallback(
-    (patch: Partial<ReaderStyle>) => {
-      setReaderStyle((current) => {
-        const next = { ...current, ...patch }
-        if (book) {
-          if (styleSaveTimer.current) window.clearTimeout(styleSaveTimer.current)
-          styleSaveTimer.current = window.setTimeout(() => {
-            void window.api.saveStyle(book.id, next)
-          }, 250)
-        }
-        return next
-      })
-    },
-    [book?.id],
-  )
-
-  const openNote = useCallback(
-    async (note: Note) => {
-      if (!book) return
-      if (note.chapterId && note.chapterId !== chapter?.id) {
-        const meta = chapters.find((item) => item.id === note.chapterId)
-        if (!meta) return
-        await openChapter(book.id, meta, chapters)
-        setPendingNoteId(note.id)
-        return
-      }
-      setFocusNote({ id: note.id, key: Date.now() })
-    },
-    [book, chapter?.id, chapters, openChapter],
-  )
-
-  const openOrganize = useCallback(() => setOrganizeOpen(true), [])
-
-  const classifyChaptersForBook = useCallback(async () => {
-    if (!book) return
-    setClassifying(true)
-    setClassifyError(null)
-    try {
-      const result = await window.api.classifyChapters(book.id)
-      setSuggestions(result.suggestions)
-      setClassifyMode(result.mode)
-      setClassifyError(result.error ?? null)
-    } catch (err) {
-      setClassifyError(messageOf(err))
-    } finally {
-      setClassifying(false)
-    }
-  }, [book])
-
-  const applyChapterFlags = useCallback(
-    async (flags: ChapterFlag[]) => {
-      try {
-        await window.api.applyChapterFlags(flags)
-        if (book) await refreshBook(book.id)
-      } catch (err) {
-        setToast({ kind: 'error', text: messageOf(err) })
-      }
-    },
-    [book, refreshBook],
-  )
-
-  const deleteChapterList = useCallback(
-    async (chapterIds: string[]) => {
-      try {
-        await window.api.deleteChapters(chapterIds)
-        if (book) await refreshBook(book.id)
-      } catch (err) {
-        setToast({ kind: 'error', text: messageOf(err) })
-      }
-    },
-    [book, refreshBook],
-  )
-
   const chapterTitles = useMemo(
     () => Object.fromEntries(chapters.map((item) => [item.id, item.title])) as Record<string, string>,
     [chapters],
   )
+  const visibleChapters = useMemo(() => chapters.filter((item) => !item.hidden), [chapters])
+  const chapterPosition = useMemo(
+    () => visibleChapters.findIndex((item) => item.id === chapter?.id),
+    [chapter?.id, visibleChapters],
+  )
+  const goToAdjacentChapter = useCallback(
+    (offset: number) => {
+      if (!book) return
+      const next = visibleChapters[chapterPosition + offset]
+      if (next) void openChapter(book.id, next, chapters)
+    },
+    [book, chapterPosition, chapters, openChapter, visibleChapters],
+  )
+  const goPrevChapter = useCallback(() => goToAdjacentChapter(-1), [goToAdjacentChapter])
+  const goNextChapter = useCallback(() => goToAdjacentChapter(1), [goToAdjacentChapter])
+  const {
+    shareTarget,
+    setShareTarget,
+    xhsTarget,
+    setXhsTarget,
+    shareNote,
+    shareLibraryNote,
+    shareDeck,
+    shareQuote,
+    shareCurrentBook,
+    openChapterXhs,
+    openBookXhs,
+  } = useShare({ book, chapter, chapters, chapterTitles, notify: setToast })
 
   const noteCounts = useMemo(() => {
     const counts: Record<string, number> = {}
@@ -1077,271 +477,8 @@ export function App(): JSX.Element {
     }
   }, [book?.id, noteTags, relatedQuery, semanticTick])
 
-  const openRelatedNote = useCallback(
-    async (related: RelatedNote) => {
-      if (!book) return
-      try {
-        if (related.bookId === book.id) {
-          if (related.chapterId && related.chapterId !== chapter?.id) {
-            const meta = chapters.find((item) => item.id === related.chapterId)
-            if (meta) {
-              await openChapter(book.id, meta, chapters)
-              setPendingNoteId(related.id)
-              return
-            }
-          }
-          setFocusNote({ id: related.id, key: Date.now() })
-          return
-        }
-
-        const opened = await window.api.openBook(related.bookId)
-        setBook(opened.book)
-        setChapters(opened.chapters)
-        setReaderStyle({ ...opened.style, theme: appTheme })
-        const meta = related.chapterId
-          ? opened.chapters.find((item) => item.id === related.chapterId)
-          : null
-        if (meta) {
-          await openChapter(opened.book.id, meta, opened.chapters)
-          setPendingNoteId(related.id)
-        } else {
-          const target =
-            opened.chapters.find((item) => !item.hidden && item.kind === 'content') ??
-            opened.chapters.find((item) => !item.hidden)
-          if (target) await openChapter(opened.book.id, target, opened.chapters)
-        }
-      } catch (err) {
-        setToast({ kind: 'error', text: messageOf(err) })
-      }
-    },
-    [book, chapter?.id, chapters, openChapter, appTheme],
-  )
-
-  const openSearchResult = useCallback(
-    async (result: SearchResult) => {
-      setSearchOpen(false)
-      if (result.type === 'content') {
-        setContentFocusId(result.id)
-        setMainView('content')
-        return
-      }
-      setMainView('reader')
-      if (result.type === 'book') {
-        await openBook(result.bookId)
-        return
-      }
-      try {
-        if (book?.id === result.bookId) {
-          const meta = chapters.find((item) => item.id === result.chapterId)
-          if (meta) await openChapter(book.id, meta, chapters)
-          if (result.type === 'note') setPendingNoteId(result.id)
-          return
-        }
-
-        const opened = await window.api.openBook(result.bookId)
-        setBook(opened.book)
-        setChapters(opened.chapters)
-        setReaderStyle({ ...opened.style, theme: appTheme })
-        const meta = result.chapterId
-          ? opened.chapters.find((item) => item.id === result.chapterId)
-          : null
-        if (meta) {
-          await openChapter(opened.book.id, meta, opened.chapters)
-        } else {
-          const target =
-            opened.chapters.find((item) => !item.hidden && item.kind === 'content') ??
-            opened.chapters.find((item) => !item.hidden)
-          if (target) await openChapter(opened.book.id, target, opened.chapters)
-        }
-        if (result.type === 'note') setPendingNoteId(result.id)
-      } catch (err) {
-        setToast({ kind: 'error', text: messageOf(err) })
-      }
-    },
-    [book, chapters, openBook, openChapter, appTheme],
-  )
-
-  const openLibraryNote = useCallback(
-    async (note: LibraryNote) => {
-      await openSearchResult({
-        type: 'note',
-        id: note.id,
-        bookId: note.bookId,
-        bookTitle: note.bookTitle,
-        chapterId: note.chapterId,
-        chapterTitle: note.chapterTitle,
-        title: note.title,
-        snippet: '',
-        updatedAt: note.updatedAt,
-      })
-    },
-    [openSearchResult],
-  )
-
-  const openMapNote = useCallback(
-    async (node: KnowledgeMapNode) => {
-      if (!node.noteId) return
-      setMainView('reader')
-      await openSearchResult({
-        type: 'note',
-        id: node.noteId,
-        bookId: node.bookId,
-        bookTitle: node.bookTitle,
-        chapterId: node.chapterId,
-        chapterTitle: node.chapterTitle,
-        title: node.label,
-        snippet: '',
-        updatedAt: '',
-      })
-    },
-    [openSearchResult],
-  )
-
-  const openMapBook = useCallback(
-    async (bookId: string) => {
-      setMainView('reader')
-      await openBook(bookId)
-    },
-    [openBook],
-  )
-
-  function leaveReader(): void {
-    void window.api.cancelGeneration()
-    setGenerating(false)
-    setPartial(null)
-    setBook(null)
-    setMainView('reader')
-    setOrganizeOpen(false)
-  }
-
-  function openLab(): void {
-    setLabMounted(true)
-    setMainView('lab')
-  }
-
-  async function openCompose(bookId?: string): Promise<void> {
-    if (bookId && book?.id !== bookId) await openBook(bookId)
-    setMainView('compose')
-  }
-
-  function shareNote(note: Note): void {
-    if (!book) return
-    setShareTarget({
-      note: {
-        id: note.id,
-        title: noteDisplayTitle(note),
-        content: note.content,
-        quote: note.quote,
-        tags: note.tags,
-        bookTitle: book.title,
-        chapterTitle: note.chapterId ? chapterTitles[note.chapterId] ?? null : null,
-        kind: note.kind,
-      },
-    })
-  }
-
-  function shareLibraryNote(note: LibraryNote): void {
-    setShareTarget({
-      note: {
-        id: note.id,
-        title: noteDisplayTitle(note),
-        content: note.content,
-        quote: note.quote,
-        tags: note.tags,
-        bookTitle: note.bookTitle,
-        chapterTitle: note.chapterTitle,
-        kind: note.kind,
-      },
-    })
-  }
-
-  function shareDeck(notes: LibraryNote[]): void {
-    setShareTarget({
-      notes: notes.map((note) => ({
-        id: note.id,
-        title: noteDisplayTitle(note),
-        content: note.content,
-        quote: note.quote,
-        tags: note.tags,
-        bookTitle: note.bookTitle,
-        chapterTitle: note.chapterTitle,
-        kind: note.kind,
-      })),
-      initialTemplate: 'deck',
-    })
-  }
-
-  async function shareCurrentBook(): Promise<void> {
-    if (!book) return
-    try {
-      const all = await window.api.listNotes(book.id)
-      const points = all.filter((note) => note.kind === 'point' || note.kind === 'claim')
-      const fallback = all.filter((note) => note.kind === 'summary' || note.kind === 'condensed' || note.kind === 'thought')
-      const cards = (points.length > 0 ? points : fallback).slice(0, 4).map((note) => {
-        const title = noteDisplayTitle(note).slice(0, 60)
-        const detail = titleRepeatsContent(note) ? note.role ?? note.quote ?? '' : note.content
-        return {
-          title,
-          content: detail.replace(/\s+/g, ' ').trim().slice(0, 120),
-        }
-      })
-      setShareTarget({
-        book: {
-          title: book.title,
-          author: book.author,
-          chapterCount: chapters.filter((chapter) => !chapter.hidden).length,
-          noteCount: all.length,
-          cards,
-        },
-        initialTemplate: 'book',
-      })
-    } catch (err) {
-      setToast({ kind: 'error', text: messageOf(err) })
-    }
-  }
-
-  async function createReaderBookmark(draft: BookmarkDraft): Promise<void> {
-    try {
-      await window.api.createBookmark(draft)
-      if (book) await refreshBookmarks(book.id)
-      setToast({ kind: 'info', text: '已添加书签。' })
-    } catch (err) {
-      setToast({ kind: 'error', text: messageOf(err) })
-    }
-  }
-
-  async function deleteReaderBookmark(id: string): Promise<void> {
-    try {
-      await window.api.deleteBookmark(id)
-      if (book) await refreshBookmarks(book.id)
-    } catch (err) {
-      setToast({ kind: 'error', text: messageOf(err) })
-    }
-  }
-
-  async function openBookmark(bookmark: BookmarkView): Promise<void> {
-    if (!book) return
-    const meta = chapters.find((item) => item.id === bookmark.chapterId)
-    if (!meta) {
-      setToast({ kind: 'error', text: '这个书签对应的章节已经不存在。' })
-      return
-    }
-    await openChapter(book.id, meta, chapters)
-    setPositionTarget({ chapterId: bookmark.chapterId, ratio: bookmark.scrollRatio, key: Date.now() })
-  }
-
-  function openChapterXhs(): void {
-    if (!book || !chapter) return
-    setXhsTarget({ scope: 'chapter', chapterId: chapter.id })
-  }
-
-  function openBookXhs(): void {
-    if (!book) return
-    setXhsTarget({ scope: 'book' })
-  }
-
   return (
-    <div className="app">
+    <div className={`app${mainView === 'reader' && book && readerFocus ? ' is-focus' : ''}`}>
       <TopBar
         book={book}
         settings={settings}
@@ -1355,7 +492,10 @@ export function App(): JSX.Element {
         notesActive={mainView === 'notes'}
         onMap={() => setMainView('map')}
         mapActive={mainView === 'map'}
-        onLab={openLab}
+        onLab={() => {
+          setLabTool('library-research')
+          openLab()
+        }}
         labActive={mainView === 'lab'}
         onCompose={() => void openCompose(book?.id)}
         composeActive={mainView === 'compose'}
@@ -1364,6 +504,7 @@ export function App(): JSX.Element {
           setMainView('content')
         }}
         contentActive={mainView === 'content'}
+        onManual={openManual}
         onRenameBook={book ? () => startRenameBook(book) : undefined}
       />
 
@@ -1378,7 +519,7 @@ export function App(): JSX.Element {
                 ? {
                     ...item,
                     status: 'running',
-                    detail: '正在重试失败章节',
+                    detail: t('正在重试失败章节'),
                     done: 0,
                     total: retry.chapterIds.length,
                     failures: [],
@@ -1387,15 +528,16 @@ export function App(): JSX.Element {
                 : item,
             ),
           )
+          const resume = task.status === 'paused'
           const run =
             retry.kind === 'notes'
-              ? window.api.generateBookNotes(retry.bookId, { onlyMissing: false, chapterIds: retry.chapterIds })
-              : window.api.formatBook(retry.bookId, { onlyMissing: false, chapterIds: retry.chapterIds })
+              ? window.api.generateBookNotes(retry.bookId, { onlyMissing: resume, chapterIds: retry.chapterIds })
+              : window.api.formatBook(retry.bookId, { onlyMissing: resume, chapterIds: retry.chapterIds })
           void run.catch((err: unknown) => {
             const message = messageOf(err)
             setBackgroundTasks((current) =>
               current.map((item) =>
-                item.id === task.id ? { ...item, status: 'error', detail: `重试失败：${message}` } : item,
+                item.id === task.id ? { ...item, status: 'error', detail: `${t('重试失败')}：${message}` } : item,
               ),
             )
             setToast({ kind: 'error', text: message })
@@ -1424,14 +566,51 @@ export function App(): JSX.Element {
               {toast.action.label}
             </button>
           ) : null}
-          <button type="button" onClick={() => setToast(null)} aria-label="关闭提示">
+          <button type="button" onClick={() => setToast(null)} aria-label={t('关闭提示')}>
             ×
           </button>
         </div>
       ) : null}
 
-      {mainView === 'lab' ? null : mainView === 'notes' ? (
-        <Suspense fallback={<div className="view-loading-shell"><p className="view-loading">正在加载笔记库…</p></div>}>
+      {mainView === 'manual' ? (
+        <ManualView onBack={() => setMainView(manualReturn)} />
+      ) : mainView === 'lab' ? null : mainView === 'weekly' ? (
+        <Suspense fallback={<div className="view-loading-shell"><p className="view-loading">{t('正在加载周复盘…')}</p></div>}>
+          <WeeklyReviewsView books={books} onBack={() => setMainView('stats')} />
+        </Suspense>
+      ) : mainView === 'stats' ? (
+        <Suspense fallback={<div className="view-loading-shell"><p className="view-loading">{t('正在加载阅读统计…')}</p></div>}>
+          <StatsView
+            books={books}
+            onBack={() => setMainView('reader')}
+            onOpenWeeklyReview={() => {
+              setLabTool('weekly-review')
+              openLab()
+            }}
+            onOpenWeeklyReviews={() => setMainView('weekly')}
+            onSaveWeeklyReview={async (markdown) => {
+              const ownerId = book?.id ?? books[0]?.id
+              if (!ownerId) throw new Error(t('还没有导入书。'))
+              const title = `${t('每周复盘')} · ${isoWeekLabel()}`
+              const existing = (await window.api.listNotes(ownerId)).find((note) => note.title === title)
+              if (existing) {
+                await window.api.updateNote(existing.id, { title, content: markdown })
+              } else {
+                await window.api.createNote({
+                  bookId: ownerId,
+                  chapterId: null,
+                  kind: 'summary',
+                  title,
+                  content: markdown,
+                })
+              }
+              if (book?.id === ownerId) await refreshNotes(ownerId, chapter?.id ?? null)
+              setToast({ kind: 'info', text: t('已存为笔记。') })
+            }}
+          />
+        </Suspense>
+      ) : mainView === 'notes' ? (
+        <Suspense fallback={<div className="view-loading-shell"><p className="view-loading">{t('正在加载笔记库…')}</p></div>}>
           <NotesLibrary
             books={books}
             onBack={() => setMainView('reader')}
@@ -1441,7 +620,7 @@ export function App(): JSX.Element {
           />
         </Suspense>
       ) : mainView === 'map' ? (
-        <Suspense fallback={<div className="view-loading-shell"><p className="view-loading">正在加载知识地图…</p></div>}>
+        <Suspense fallback={<div className="view-loading-shell"><p className="view-loading">{t('正在加载知识地图…')}</p></div>}>
           <KnowledgeMap
             books={books}
             onBack={() => setMainView('reader')}
@@ -1450,7 +629,7 @@ export function App(): JSX.Element {
           />
         </Suspense>
       ) : mainView === 'content' ? (
-        <Suspense fallback={<div className="view-loading-shell"><p className="view-loading">正在加载内容库…</p></div>}>
+        <Suspense fallback={<div className="view-loading-shell"><p className="view-loading">{t('正在加载内容库…')}</p></div>}>
           <ContentView
             books={books}
             initialItemId={contentFocusId}
@@ -1477,7 +656,7 @@ export function App(): JSX.Element {
           />
         </Suspense>
       ) : mainView === 'compose' && book ? (
-        <Suspense fallback={<div className="view-loading-shell"><p className="view-loading">正在加载成书页…</p></div>}>
+        <Suspense fallback={<div className="view-loading-shell"><p className="view-loading">{t('正在加载成书页…')}</p></div>}>
           <BookCompose
             key={book.id}
             book={book}
@@ -1537,6 +716,13 @@ export function App(): JSX.Element {
             onCreateBookmark={(input) => void createReaderBookmark(input)}
             pdfBookId={book.format === 'pdf' || book.format === 'pdf-ocr' ? book.id : undefined}
             pdfBookTitle={book.title}
+            chapterIndex={chapterPosition >= 0 ? chapterPosition : undefined}
+            chapterTotal={visibleChapters.length}
+            onPrevChapter={goPrevChapter}
+            onNextChapter={goNextChapter}
+            onAdjustStyle={applyReaderStyle}
+            focusMode={readerFocus}
+            onToggleFocus={toggleReaderFocus}
           />
           <aside className="side-panel">
             <div className="side-tabs">
@@ -1545,28 +731,28 @@ export function App(): JSX.Element {
                 className={`side-tab${sideTab === 'notes' ? ' active' : ''}`}
                 onClick={() => setSideTab('notes')}
               >
-                笔记
+                {t('笔记')}
               </button>
               <button
                 type="button"
                 className={`side-tab${sideTab === 'chat' ? ' active' : ''}`}
                 onClick={() => setSideTab('chat')}
               >
-                问答
+                {t('问答')}
               </button>
               <button
                 type="button"
                 className={`side-tab${sideTab === 'feynman' ? ' active' : ''}`}
                 onClick={() => setSideTab('feynman')}
               >
-                自测
+                {t('自测')}
               </button>
               <button
                 type="button"
                 className={`side-tab${sideTab === 'format' ? ' active' : ''}`}
                 onClick={() => setSideTab('format')}
               >
-                排版
+                {t('排版')}
               </button>
             </div>
             {sideTab === 'notes' ? (
@@ -1584,22 +770,22 @@ export function App(): JSX.Element {
                 generationMode={settings?.generationMode ?? 'standard'}
                 marks={readerMarks}
                 crossBookNotes={crossBookNotes}
-                onOpenRelated={(note) => void openRelatedNote(note)}
+                onOpenRelated={openRelatedNote}
                 focusNoteId={focusNote?.id ?? null}
                 focusKey={focusNote?.key ?? 0}
                 expandingNoteId={expandingNoteId}
-                onGenerate={() => void generate()}
-                onCancel={() => void cancelGeneration()}
+                onGenerate={generate}
+                onCancel={cancelGeneration}
                 onCreate={createNote}
                 onUpdate={updateNote}
                 onDelete={removeNote}
-                onExpand={(noteId) => void expandNote(noteId)}
-                onJumpQuote={(quote) => setScrollTarget({ quote, key: Date.now() })}
-                onOpenNote={(note) => void openNote(note)}
-                onListen={(text) => setListen({ title: `朗读 · ${chapter?.title ?? ''}`, text })}
+                onExpand={expandNote}
+                onJumpQuote={jumpToQuote}
+                onOpenNote={openNote}
+                onListen={listenChapter}
                 onShare={shareNote}
-                onDeleteMark={(id) => void clearReaderMarks([id])}
-                onRevealMark={(quote) => setScrollTarget({ quote, key: Date.now() })}
+                onDeleteMark={deleteReaderMark}
+                onRevealMark={jumpToQuote}
               />
             ) : sideTab === 'chat' ? (
               <ChatPanel
@@ -1608,7 +794,7 @@ export function App(): JSX.Element {
                 bookTitle={book?.title ?? ''}
                 seed={chatSeed}
                 onJumpQuote={(quote) => setScrollTarget({ quote, key: Date.now() })}
-                onSave={(text) => saveTutorNote(`问答 · ${chapter?.title ?? ''}`, text)}
+                onSave={(text) => saveTutorNote(`${t('问答')} · ${chapter?.title ?? ''}`, text)}
               />
             ) : sideTab === 'feynman' ? (
               <FeynmanPanel
@@ -1618,7 +804,7 @@ export function App(): JSX.Element {
                 hasNotes={notes.some(
                   (note) => note.kind === 'condensed' || note.kind === 'point' || note.kind === 'claim',
                 )}
-                onSave={(text) => saveTutorNote(`我的理解 · ${chapter?.title ?? ''}`, text)}
+                onSave={(text) => saveTutorNote(`${t('我的理解')} · ${chapter?.title ?? ''}`, text)}
               />
             ) : (
               <FormatPanel
@@ -1647,14 +833,17 @@ export function App(): JSX.Element {
           onCompose={(bookId) => void openCompose(bookId)}
           onMerge={() => setMergeOpen(true)}
           onSettings={() => setSettingsOpen(true)}
+          onStats={() => setMainView('stats')}
           demo={settings?.demo ?? false}
         />
       )}
 
       {labMounted ? (
         <div className={`lab-shell${mainView === 'lab' ? ' is-active' : ''}`}>
-          <Suspense fallback={<div className="view-loading-shell"><p className="view-loading">正在加载工作台…</p></div>}>
+          <Suspense fallback={<div className="view-loading-shell"><p className="view-loading">{t('正在加载工作台…')}</p></div>}>
             <LabView
+              key={labTool}
+              initialToolId={labTool}
               books={books}
               onBack={() => setMainView('reader')}
               onSaveReport={saveLabReport}
@@ -1664,6 +853,24 @@ export function App(): JSX.Element {
         </div>
       ) : null}
 
+      {onboardingOpen ? (
+        <OnboardingDialog
+          hasSample={Boolean(sampleBookId)}
+          demo={settings?.demo ?? true}
+          onImportSample={importSampleBook}
+          onOpenSample={() => void openSampleBook()}
+          onOpenImport={() => {
+            finishOnboarding()
+            setImportOpen(true)
+          }}
+          onOpenSettings={() => {
+            finishOnboarding()
+            setSettingsOpen(true)
+          }}
+          onClose={finishOnboarding}
+        />
+      ) : null}
+
       {settings ? (
         <SettingsDialog
           open={settingsOpen}
@@ -1671,10 +878,15 @@ export function App(): JSX.Element {
           appInfo={appInfo}
           theme={appTheme}
           onThemeChange={changeAppTheme}
+          onOpenManual={openManual}
+          onOpenOnboarding={() => {
+            setSettingsOpen(false)
+            setOnboardingOpen(true)
+          }}
           onClose={() => setSettingsOpen(false)}
           onSaved={(saved) => {
             setSettings(saved)
-            setToast({ kind: 'info', text: saved.demo ? '已切换到演示模式' : `已切换到 ${saved.model}` })
+            setToast({ kind: 'info', text: saved.demo ? t('已切换到演示模式') : `${t('已切换到')} ${saved.model}` })
           }}
         />
       ) : null}
@@ -1701,13 +913,15 @@ export function App(): JSX.Element {
           open
           title={
             renameTarget.kind === 'book'
-              ? '重命名书名'
+              ? t('编辑书籍信息')
               : renameTarget.kind === 'chapter'
-                ? '重命名章节'
-                : '重命名分篇'
+                ? t('重命名章节')
+                : t('重命名分篇')
           }
-          label={renameTarget.kind === 'book' ? '书名' : renameTarget.kind === 'chapter' ? '章节名' : '分篇名'}
+          label={renameTarget.kind === 'book' ? t('书名') : renameTarget.kind === 'chapter' ? t('章节名') : t('分篇名')}
           value={renameTarget.value}
+          secondaryLabel={renameTarget.kind === 'book' ? t('作者') : undefined}
+          secondaryValue={renameTarget.kind === 'book' ? renameTarget.author : undefined}
           onSave={saveRename}
           onClose={() => setRenameTarget(null)}
         />
@@ -1749,6 +963,16 @@ export function App(): JSX.Element {
         onClassify={() => void classifyChaptersForBook()}
         onApply={applyChapterFlags}
         onDelete={deleteChapterList}
+        onOpenTrash={() => setChapterTrashOpen(true)}
+      />
+
+      <ChapterTrashDialog
+        open={chapterTrashOpen}
+        onClose={() => setChapterTrashOpen(false)}
+        onChanged={() => {
+          if (book) void refreshBook(book.id)
+          void window.api.listBooks().then(setBooks).catch(() => undefined)
+        }}
       />
 
       <MergeBooksDialog

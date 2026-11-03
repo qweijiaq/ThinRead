@@ -141,3 +141,22 @@ test('keeps notes attached to their chapters through merge and split', () => {
     fs.rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('creates a safety backup before restoring', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'reading-notes-restore-safety-'))
+  try {
+    initDatabase(dir)
+    const backup = createBackup(dir, 'manual', '目标备份')
+    restoreBackup(dir, backup.id, { safetyBackup: true })
+    const backups = listBackups(dir)
+    assert.ok(backups.some((item) => item.kind === 'auto' && item.label === '恢复前自动备份'))
+    assert.ok(backups.some((item) => item.id === backup.id))
+  } finally {
+    try {
+      closeDatabase()
+    } catch {
+      // 可能已经关闭。
+    }
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})

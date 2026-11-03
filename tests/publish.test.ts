@@ -25,7 +25,18 @@ test('builds a complete publish package', async () => {
   const files = unzipSync(pkg.archive)
   const html = strFromU8(files['index.html']!)
   const metadata = JSON.parse(strFromU8(files['metadata.json']!)) as Record<string, unknown>
-  assert.deepEqual(Object.keys(files).sort(), ['README.txt', 'cover.png', 'index.html', 'metadata.json', 'notes.md'])
+  assert.deepEqual(Object.keys(files).sort(), [
+    'README.txt',
+    'citation.bib',
+    'citation.ris',
+    'citation.txt',
+    'cover.png',
+    'index.html',
+    'metadata.json',
+    'notes.md',
+  ])
+  assert.match(strFromU8(files['citation.bib']!), /@book\{/)
+  assert.match(strFromU8(files['citation.ris']!), /TY {2}- BOOK/)
   assert.match(html, /class="publish-cover"/)
   assert.match(html, /property="og:image"/)
   assert.match(html, /class="toc"/)

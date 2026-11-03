@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type JSX, type KeyboardEvent } from 'react'
 import type { SearchResult, SearchResultType } from '../../shared/types.js'
+import { t, useLocale } from '../lib/i18n.js'
+import { mergeSearchResults } from '../lib/search-merge.js'
 import { useDialogFocus } from '../lib/useDialogFocus.js'
 
 interface SearchDialogProps {
@@ -30,8 +32,7 @@ const FILTERS: Array<{ value: Filter; label: string }> = [
 ]
 
 function mergeResults(base: SearchResult[], extra: SearchResult[]): SearchResult[] {
-  const seen = new Set(base.map((item) => `${item.type}:${item.id}`))
-  return [...base, ...extra.filter((item) => !seen.has(`${item.type}:${item.id}`))]
+  return mergeSearchResults(base, extra)
 }
 
 function highlight(text: string, query: string): JSX.Element {
@@ -49,6 +50,7 @@ function highlight(text: string, query: string): JSX.Element {
 }
 
 export function SearchDialog({ open, onClose, onOpen }: SearchDialogProps): JSX.Element | null {
+  useLocale()
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SearchResult[]>([])
   const [loading, setLoading] = useState(false)
@@ -159,7 +161,7 @@ export function SearchDialog({ open, onClose, onOpen }: SearchDialogProps): JSX.
         className="search-modal"
         role="dialog"
         aria-modal="true"
-        aria-label="搜索"
+        aria-label={t('搜索')}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="search-input-row">
@@ -171,8 +173,8 @@ export function SearchDialog({ open, onClose, onOpen }: SearchDialogProps): JSX.
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={handleKey}
-            placeholder="搜索书名、章节、笔记或生成内容…"
-            aria-label="搜索书名、章节、笔记或生成内容"
+            placeholder={t('搜索书名、章节、笔记或生成内容…')}
+            aria-label={t('搜索书名、章节、笔记或生成内容')}
             role="searchbox"
             aria-controls="search-results"
             aria-describedby="search-active-result"
@@ -181,7 +183,7 @@ export function SearchDialog({ open, onClose, onOpen }: SearchDialogProps): JSX.
         </div>
 
         {query.trim() ? (
-          <div className="search-filters" role="group" aria-label="按类型筛选">
+          <div className="search-filters" role="group" aria-label={t('按类型筛选')}>
             {FILTERS.map((item) => {
               const count = item.value === 'all' ? results.length : results.filter((result) => result.type === item.value).length
               return (
@@ -192,7 +194,7 @@ export function SearchDialog({ open, onClose, onOpen }: SearchDialogProps): JSX.
                   aria-pressed={filter === item.value}
                   onClick={() => setFilter(item.value)}
                 >
-                  {item.label}
+                  {t(item.label)}
                   <span>{count}</span>
                 </button>
               )
@@ -204,18 +206,18 @@ export function SearchDialog({ open, onClose, onOpen }: SearchDialogProps): JSX.
           className="search-results"
           id="search-results"
           role="region"
-          aria-label="搜索结果"
+          aria-label={t('搜索结果')}
           aria-busy={loading}
         >
           {error ? <div className="inline-error" role="alert">{error}</div> : null}
           {!query.trim() ? (
-            <p className="search-empty">输入关键词，跨所有书搜索书名、章节正文、笔记和生成内容。</p>
+            <p className="search-empty">{t('输入关键词，跨所有书搜索书名、章节正文、笔记和生成内容。')}</p>
           ) : loading && results.length === 0 ? (
-            <p className="search-empty">正在搜索…</p>
+            <p className="search-empty">{t('正在搜索…')}</p>
           ) : results.length === 0 ? (
-            <p className="search-empty">没有找到「{query.trim()}」。</p>
+            <p className="search-empty">{t('没有找到')}「{query.trim()}」。</p>
           ) : ordered.length === 0 ? (
-            <p className="search-empty">没有这一类型的结果。</p>
+            <p className="search-empty">{t('没有这一类型的结果。')}</p>
           ) : (
             <>
               {GROUPS.map((group) => {
@@ -224,7 +226,7 @@ export function SearchDialog({ open, onClose, onOpen }: SearchDialogProps): JSX.
                 return (
                   <section key={group.type} className="search-group">
                     <div className="search-group-label">
-                      {group.label}
+                      {t(group.label)}
                       <span>{items.length}</span>
                     </div>
                     {items.map((result) => {
@@ -239,8 +241,8 @@ export function SearchDialog({ open, onClose, onOpen }: SearchDialogProps): JSX.
                           onClick={() => onOpen(result)}
                         >
                           <span className="search-result-line">
-                            <span className={`search-result-kind type-${result.type}`}>{KIND_LABEL[result.type]}</span>
-                            {result.source === 'semantic' ? <span className="search-result-source">语义</span> : null}
+                            <span className={`search-result-kind type-${result.type}`}>{t(KIND_LABEL[result.type])}</span>
+                            {result.source === 'semantic' ? <span className="search-result-source">{t('语义')}</span> : null}
                             <span className="search-result-title">{highlight(result.title, query)}</span>
                           </span>
                           <span className="search-result-meta">
@@ -267,10 +269,10 @@ export function SearchDialog({ open, onClose, onOpen }: SearchDialogProps): JSX.
                       setActive(0)
                     }}
                   >
-                    上一页
+                    {t('上一页')}
                   </button>
                   <span>
-                    {safePage + 1} / {pageCount} · 共 {ordered.length} 条
+                    {t('第')} {safePage + 1} / {pageCount} · {t('共')} {ordered.length} {t('条')}
                   </span>
                   <button
                     type="button"
@@ -280,7 +282,7 @@ export function SearchDialog({ open, onClose, onOpen }: SearchDialogProps): JSX.
                       setActive(0)
                     }}
                   >
-                    下一页
+                    {t('下一页')}
                   </button>
                 </div>
               ) : null}
@@ -288,13 +290,13 @@ export function SearchDialog({ open, onClose, onOpen }: SearchDialogProps): JSX.
           )}
         </div>
         <div className="search-footer">
-          <span>↑↓ 选择 · ↵ 打开</span>
-          <span>{filter === 'all' ? `${results.length} 条结果` : `${ordered.length} 条结果`} · Esc 关闭</span>
+          <span>{t('↑↓ 选择 · ↵ 打开')}</span>
+          <span>{filter === 'all' ? `${results.length} ${t('条结果')}` : `${ordered.length} ${t('条结果')}`} · {t('Esc 关闭')}</span>
         </div>
         <p id="search-active-result" className="sr-only" aria-live="polite">
           {visible[active]
-            ? `当前结果：${visible[active]!.title}，${visible[active]!.bookTitle}`
-            : `${results.length} 条结果`}
+            ? `${t('当前结果')}：${visible[active]!.title}，${visible[active]!.bookTitle}`
+            : `${results.length} ${t('条结果')}`}
         </p>
       </div>
     </div>

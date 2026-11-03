@@ -1,6 +1,8 @@
 import type { JSX } from 'react'
+
 import { PROVIDER_PRESETS } from '../../shared/types.js'
 import type { BookSummary, SettingsView } from '../../shared/types.js'
+import { t, useLocale } from '../lib/i18n.js'
 
 interface TopBarProps {
   book: BookSummary | null
@@ -16,6 +18,7 @@ interface TopBarProps {
   onLab(): void
   onCompose(): void
   onContent(): void
+  onManual(): void
   notesActive?: boolean
   mapActive?: boolean
   labActive?: boolean
@@ -38,6 +41,7 @@ export function TopBar({
   onLab,
   onCompose,
   onContent,
+  onManual,
   notesActive = false,
   mapActive = false,
   labActive = false,
@@ -45,8 +49,9 @@ export function TopBar({
   contentActive = false,
   onRenameBook,
 }: TopBarProps): JSX.Element {
+  useLocale()
   const preset = PROVIDER_PRESETS.find((item) => item.id === settings?.provider)
-  const modelLabel = settings?.demo ? '演示模式' : `${preset?.label ?? settings?.provider} · ${settings?.model}`
+  const modelLabel = settings?.demo ? t('演示模式') : `${preset?.label ?? settings?.provider} · ${settings?.model}`
   return (
     <header className="topbar">
       <div className="topbar-left">
@@ -62,7 +67,7 @@ export function TopBar({
             }
           }}
         >
-          页边
+          {t('页边')}
         </span>
         {book || notesActive || mapActive || labActive || composeActive || contentActive ? (
           <>
@@ -72,7 +77,7 @@ export function TopBar({
                 type="button"
                 className="topbar-book topbar-book-button"
                 onClick={onRenameBook}
-                title="重命名书名"
+                title={t('重命名书名')}
               >
                 {book.title}
               </button>
@@ -81,37 +86,42 @@ export function TopBar({
                 className="topbar-book"
                 title={
                   labActive
-                    ? 'AI 工作台'
+                    ? t('AI 工作台')
                     : mapActive
-                      ? '知识地图'
+                      ? t('知识地图')
                       : composeActive
-                        ? '整本成稿'
+                        ? t('整本成稿')
                         : contentActive
-                          ? '生成内容库'
+                          ? t('生成内容库')
                           : notesActive
-                            ? '全库笔记'
+                            ? t('全库笔记')
                             : book?.title
                 }
               >
                 {labActive
-                  ? 'AI 工作台'
+                  ? t('AI 工作台')
                   : mapActive
-                    ? '知识地图'
+                    ? t('知识地图')
                     : composeActive
-                      ? '整本成稿'
+                      ? t('整本成稿')
                       : contentActive
-                        ? '生成内容库'
+                        ? t('生成内容库')
                         : notesActive
-                          ? '全库笔记'
+                          ? t('全库笔记')
                           : book?.title}
               </span>
             )}
             <button type="button" className="ghost-button small" onClick={onLibrary}>
-              书架
+              {t('书架')}
             </button>
             {book && !notesActive && !mapActive && !labActive && !composeActive && !contentActive ? (
-              <button type="button" className="ghost-button small" onClick={onReparse} title="用新的解析器重新拆分章节">
-                重新解析
+              <button
+                type="button"
+                className="ghost-button small"
+                onClick={onReparse}
+                title={t('用新的解析器重新拆分章节')}
+              >
+                {t('重新解析')}
               </button>
             ) : null}
           </>
@@ -122,61 +132,64 @@ export function TopBar({
           type="button"
           className={`ghost-button small${contentActive ? ' is-active' : ''}`}
           onClick={onContent}
-          title="生成内容库"
+          title={t('生成内容库')}
         >
-          内容库
+          {t('内容库')}
         </button>
         {book ? (
           <button
             type="button"
             className={`ghost-button small${composeActive ? ' is-active' : ''}`}
             onClick={onCompose}
-            title="整本成稿"
+            title={t('整本成稿')}
           >
-            成书
+            {t('成书')}
           </button>
         ) : null}
         <button
           type="button"
           className={`ghost-button small${notesActive ? ' is-active' : ''}`}
           onClick={onNotes}
-          title="全库笔记"
+          title={t('全库笔记')}
         >
-          笔记
+          {t('笔记')}
         </button>
         <button
           type="button"
           className={`ghost-button small${mapActive ? ' is-active' : ''}`}
           onClick={onMap}
-          title="知识地图"
+          title={t('知识地图')}
         >
-          地图
+          {t('地图')}
         </button>
         <button
           type="button"
           className={`ghost-button small${labActive ? ' is-active' : ''}`}
           onClick={onLab}
-          title="AI 工作台"
+          title={t('AI 工作台')}
         >
-          工作台
+          {t('工作台')}
         </button>
-        <button type="button" className="ghost-button small" onClick={onSearch} title="搜索（⌘K）">
-          搜索
+        <button type="button" className="ghost-button small" onClick={onSearch} title={t('搜索（⌘K）')}>
+          {t('搜索')}
         </button>
         <span className="topbar-divider" />
         <button
           type="button"
           className={`model-pill${settings?.demo ? ' demo' : ''}`}
-          title={settings?.demo ? '当前是演示模式，点击配置真实模型' : '当前模型，点击配置'}
+          title={settings?.demo ? t('当前是演示模式，点击配置真实模型') : t('当前模型，点击配置')}
           onClick={onSettings}
         >
           <span className="model-dot" />
           <span className="model-label">{modelLabel}</span>
         </button>
         <button type="button" className="ghost-button" onClick={onImport} disabled={importing}>
-          {importing ? '导入中…' : '导入'}
+          {importing ? t('导入中…') : t('导入')}
         </button>
-        <button type="button" className="icon-button" onClick={onSettings} title="设置" aria-label="设置">
+        <button type="button" className="icon-button" onClick={onManual} title={t('使用手册')} aria-label={t('使用手册')}>
+          ?
+        </button>
+        <button type="button" className="icon-button" onClick={onSettings} title={t('设置')} aria-label={t('设置')}>
           ⚙
         </button>
       </div>

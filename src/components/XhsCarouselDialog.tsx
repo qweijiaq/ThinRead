@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 
 import type { ChapterMeta, Note, XhsCoverageAudit } from '../../shared/types.js'
 import { useDialogFocus } from '../lib/useDialogFocus.js'
+import { t, useLocale } from '../lib/i18n.js'
 import {
   planXhsCarousel,
   renderXhsPage,
@@ -32,7 +33,9 @@ export function XhsCarouselDialog({
   initialScope,
   onClose,
 }: XhsCarouselDialogProps): JSX.Element {
+  useLocale()
   const [scope, setScope] = useState<XhsScope>(initialScope)
+  const [concise, setConcise] = useState(false)
   const [notes, setNotes] = useState<Note[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -89,7 +92,7 @@ export function XhsCarouselDialog({
     if (!canvas) return
     try {
       const ctx = canvas.getContext('2d')
-      if (!ctx) throw new Error('无法创建画布。')
+      if (!ctx) throw new Error(t('无法创建画布。'))
       const next = planXhsCarousel({
         scope,
         bookTitle,
@@ -99,6 +102,7 @@ export function XhsCarouselDialog({
         chapters,
         notes: [...notes, ...supplements],
         title,
+        concise,
         measure: ctx,
       })
       setPlan(next)
@@ -106,7 +110,7 @@ export function XhsCarouselDialog({
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
-  }, [author, bookTitle, chapterId, chapterTitle, chapters, error, loading, notes, scope, supplements, title])
+  }, [author, bookTitle, chapterId, chapterTitle, chapters, concise, error, loading, notes, scope, supplements, title])
 
   useEffect(() => {
     if (!plan || plan.totalCards === 0 || plan.pages.length === 0) {
@@ -189,10 +193,10 @@ export function XhsCarouselDialog({
       quoteVerified: false,
       author: 'ai',
       edited: false,
-      tags: ['覆盖补漏'],
+      tags: [t('覆盖补漏')],
       section: null,
       importance: 3,
-      role: 'AI 覆盖检查补漏',
+      role: t('AI 覆盖检查补漏'),
       divergences: [],
       createdAt: now,
       updatedAt: now,
@@ -201,7 +205,7 @@ export function XhsCarouselDialog({
       const ids = new Set(current.map((note) => note.id))
       return [...current, ...additions.filter((note) => !ids.has(note.id))]
     })
-    setNotice(`已把 ${additions.length} 条补漏加入图文，重新生成预览即可看到。`)
+    setNotice(`${t('已把')} ${additions.length} ${t('条补漏加入图文，重新生成预览即可看到。')}`)
   }
 
   async function saveAll(): Promise<void> {
@@ -214,7 +218,7 @@ export function XhsCarouselDialog({
         previews.map((dataUrl, pageIndex) => ({ dataUrl, name: xhsPageFilename(plan, pageIndex) })),
         `${plan.title} - 小红书`,
       )
-      if (result.saved) setNotice(`已保存 ${result.count} 张到 ${result.path}`)
+      if (result.saved) setNotice(`${t('已保存')} ${result.count} ${t('张到')} ${result.path}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -229,7 +233,7 @@ export function XhsCarouselDialog({
     setNotice(null)
     try {
       const result = await window.api.saveImage(currentPreview, xhsPageFilename(plan, index))
-      if (result.saved) setNotice(`已保存到 ${result.path}`)
+      if (result.saved) setNotice(`${t('已保存到')} ${result.path}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -244,7 +248,7 @@ export function XhsCarouselDialog({
     setNotice(null)
     try {
       await window.api.copyImage(currentPreview)
-      setNotice(`第 ${index + 1} 张已复制。`)
+      setNotice(`${t('第')} ${index + 1} ${t('张已复制。')}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -253,11 +257,11 @@ export function XhsCarouselDialog({
   }
 
   const modalTitle =
-    plan?.scope === 'book' || (scope === 'book' && !plan) ? '整本书的小红书图文' : '这一章的小红书图文'
+    plan?.scope === 'book' || (scope === 'book' && !plan) ? t('整本书的小红书图文') : t('这一章的小红书图文')
   const emptyHint =
     scope === 'chapter'
-      ? '先在这一章的笔记面板生成读薄稿和核心卡片，再来做图文。'
-      : '先给至少一章生成读薄稿和核心卡片，再来做整本图文。'
+      ? t('先在这一章的笔记面板生成读薄稿和核心卡片，再来做图文。')
+      : t('先给至少一章生成读薄稿和核心卡片，再来做整本图文。')
 
   return (
     <div className="modal-backdrop xhs-backdrop" onMouseDown={onClose}>
@@ -273,9 +277,9 @@ export function XhsCarouselDialog({
           <div>
             <p className="xhs-kicker">XHS CAROUSEL / 3:4</p>
             <h2>{modalTitle}</h2>
-            <p>{loading ? '正在读取知识点…' : coverage ? `${coverage.total} 个知识点 · ${coverage.pages} 页` : '还没有可排的知识点'}</p>
+            <p>{loading ? t('正在读取知识点…') : coverage ? `${coverage.total} ${t('个知识点')} · ${coverage.pages} ${t('页')}` : t('还没有可排的知识点')}</p>
           </div>
-          <button type="button" className="icon-button" onClick={onClose} aria-label="关闭">
+          <button type="button" className="icon-button" onClick={onClose} aria-label={t('关闭')}>
             ×
           </button>
         </div>
@@ -283,18 +287,18 @@ export function XhsCarouselDialog({
         <div className="xhs-layout">
           <div className="xhs-preview-pane">
             {loading ? (
-              <div className="xhs-empty">正在整理知识点…</div>
+              <div className="xhs-empty">{t('正在整理知识点…')}</div>
             ) : error ? (
               <div className="xhs-empty error-text">{error}</div>
             ) : !plan || plan.totalCards === 0 || plan.pages.length === 0 ? (
               <div className="xhs-empty">
-                <strong>还没有核心知识点</strong>
+                <strong>{t('还没有核心知识点')}</strong>
                 <span>{emptyHint}</span>
               </div>
             ) : (
               <>
                 <div className="xhs-preview-frame">
-                  {currentPreview ? <img src={currentPreview} alt={`小红书图文第 ${index + 1} 页`} /> : <span>正在排版…</span>}
+                  {currentPreview ? <img src={currentPreview} alt={`${t('小红书图文第')} ${index + 1} ${t('页')}`} /> : <span>{t('正在排版…')}</span>}
                 </div>
                 <div className="xhs-pager">
                   <button
@@ -303,7 +307,7 @@ export function XhsCarouselDialog({
                     onClick={() => setIndex((current) => Math.max(0, current - 1))}
                     disabled={index === 0}
                   >
-                    上一张
+                    {t('上一张')}
                   </button>
                   <span>
                     {String(index + 1).padStart(2, '0')} / {String(previews.length).padStart(2, '0')}
@@ -314,7 +318,7 @@ export function XhsCarouselDialog({
                     onClick={() => setIndex((current) => Math.min(previews.length - 1, current + 1))}
                     disabled={index >= previews.length - 1}
                   >
-                    下一张
+                    {t('下一张')}
                   </button>
                 </div>
                 <div className="xhs-preview-actions">
@@ -324,7 +328,7 @@ export function XhsCarouselDialog({
                     onClick={() => void copyCurrent()}
                     disabled={busy !== null || !currentPreview}
                   >
-                    {busy === 'copy' ? '复制中…' : '复制当前页'}
+                    {busy === 'copy' ? t('复制中…') : t('复制当前页')}
                   </button>
                   <button
                     type="button"
@@ -332,19 +336,19 @@ export function XhsCarouselDialog({
                     onClick={() => void saveCurrent()}
                     disabled={busy !== null || !currentPreview}
                   >
-                    {busy === 'save-one' ? '保存中…' : '保存当前页'}
+                    {busy === 'save-one' ? t('保存中…') : t('保存当前页')}
                   </button>
                 </div>
                 {notice ? <div className="inline-notice" role="status" aria-live="polite">{notice}</div> : null}
                 {error ? <div className="inline-error" role="alert">{error}</div> : null}
-                <div className="xhs-thumbs" aria-label="小红书图文页">
+                <div className="xhs-thumbs" aria-label={t('小红书图文页')}>
                   {previews.map((url, pageIndex) => (
                     <button
                       key={pageIndex}
                       type="button"
                       className={`xhs-thumb${pageIndex === index ? ' active' : ''}`}
                       onClick={() => setIndex(pageIndex)}
-                      aria-label={`第 ${pageIndex + 1} 页`}
+                      aria-label={`${t('第')} ${pageIndex + 1} ${t('页')}`}
                     >
                       <img src={url} alt="" />
                       <span>{String(pageIndex + 1).padStart(2, '0')}</span>
@@ -358,39 +362,51 @@ export function XhsCarouselDialog({
           <div className="xhs-controls">
             {initialScope === 'chapter' && chapterId ? (
               <div className="xhs-control-group">
-                <span className="xhs-control-label">范围</span>
+                <span className="xhs-control-label">{t('范围')}</span>
                 <div className="share-segmented">
                   <button
                     type="button"
                     className={scope === 'chapter' ? 'active' : ''}
                     onClick={() => switchScope('chapter')}
                   >
-                    这一章
+                    {t('这一章')}
                   </button>
                   <button
                     type="button"
                     className={scope === 'book' ? 'active' : ''}
                     onClick={() => switchScope('book')}
                   >
-                    整本书
+                    {t('整本书')}
                   </button>
                 </div>
               </div>
             ) : null}
 
+            <div className="xhs-control-group">
+              <span className="xhs-control-label">{t('篇幅')}</span>
+              <div className="share-segmented">
+                <button type="button" className={!concise ? 'active' : ''} onClick={() => setConcise(false)}>
+                  {t('全部')}
+                </button>
+                <button type="button" className={concise ? 'active' : ''} onClick={() => setConcise(true)}>
+                  {t('精简 3 条')}
+                </button>
+              </div>
+            </div>
+
             <label className="share-field">
-              封面标题
+              {t('封面标题')}
               <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder={bookTitle} />
             </label>
 
             <div className="xhs-control-group">
-              <span className="xhs-control-label">主题</span>
+              <span className="xhs-control-label">{t('主题')}</span>
               <div className="share-segmented compact">
                 <button type="button" className={theme === 'paper' ? 'active' : ''} onClick={() => setTheme('paper')}>
-                  纸
+                  {t('纸')}
                 </button>
                 <button type="button" className={theme === 'ink' ? 'active' : ''} onClick={() => setTheme('ink')}>
-                  墨
+                  {t('墨')}
                 </button>
               </div>
             </div>
@@ -398,7 +414,7 @@ export function XhsCarouselDialog({
             {coverage ? (
               <div className={`xhs-coverage${coverage.total > 0 && coverage.covered === coverage.total ? ' complete' : ''}`}>
                 <strong>{coverage.covered} / {coverage.total}</strong>
-                <span>知识点已覆盖</span>
+                <span>{t('知识点已覆盖')}</span>
               </div>
             ) : null}
 
@@ -412,33 +428,33 @@ export function XhsCarouselDialog({
 
             <div className="xhs-audit">
               <div className="xhs-audit-head">
-                <strong>原书覆盖检查</strong>
+                <strong>{t('原书覆盖检查')}</strong>
                 <button
                   type="button"
                   className="ghost-button small"
                   onClick={() => void runCoverageAudit()}
                   disabled={auditBusy || !plan || plan.cards.length === 0}
                 >
-                  {auditBusy ? '检查中…' : '用 AI 检查漏点'}
+                  {auditBusy ? t('检查中…') : t('用 AI 检查漏点')}
                 </button>
               </div>
               <p className="share-hint">
-                覆盖报告只统计已有卡片。开启 AI 检查会对照原章正文找出可能的漏点，补漏卡只用于本次图文，不写入笔记。
+                {t('覆盖报告只统计已有卡片。开启 AI 检查会对照原章正文找出可能的漏点，补漏卡只用于本次图文，不写入笔记。')}
               </p>
               {audit ? (
                 <div className="xhs-audit-result">
                   <span>
-                    {audit.checkedChapters} 节 · {audit.missing.length} 个疑似漏点
+                    {audit.checkedChapters} {t('节')} · {audit.missing.length} {t('个疑似漏点')}
                   </span>
                   {audit.missing.slice(0, 8).map((item) => (
                     <div key={item.id} className="xhs-audit-item">
-                      <em>{item.chapterTitle ?? '未分章'}</em>
+                      <em>{item.chapterTitle ?? t('未分章')}</em>
                       <span>{item.point}</span>
                     </div>
                   ))}
                   {audit.missing.length > 0 ? (
                     <button type="button" className="text-button" onClick={addMissingToPlan}>
-                      把 {audit.missing.length} 条补漏加入本次图文
+                      {t('把')} {audit.missing.length} {t('条补漏加入本次图文')}
                     </button>
                   ) : null}
                 </div>
@@ -446,7 +462,7 @@ export function XhsCarouselDialog({
             </div>
 
             <p className="share-hint">
-              每一张卡片只出现一次；长卡片会自动续页，不截断正文。整本书会按章节顺序编排。
+              {t('每一张卡片只出现一次；长卡片会自动续页，不截断正文。整本书会按章节顺序编排。')}
             </p>
 
             <button
@@ -455,7 +471,7 @@ export function XhsCarouselDialog({
               onClick={() => void saveAll()}
               disabled={busy !== null || !plan || plan.totalCards === 0 || previews.length === 0}
             >
-              {busy === 'save-all' ? '保存中…' : `保存全部 ${previews.length || 0} 张 PNG`}
+              {busy === 'save-all' ? t('保存中…') : `${t('保存全部')} ${previews.length || 0} ${t('张 PNG')}`}
             </button>
             {notice ? <div className="inline-notice" role="status" aria-live="polite">{notice}</div> : null}
           </div>

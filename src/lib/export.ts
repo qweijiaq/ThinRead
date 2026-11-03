@@ -1,4 +1,5 @@
 import type { Note } from '../../shared/types.js'
+import { t } from './i18n.js'
 import { noteDisplayTitle, titleRepeatsContent } from './note-display.js'
 
 const DIVERGENCE_LABELS: Record<string, string> = {
@@ -21,7 +22,7 @@ export interface MarkdownExportArgs {
 export function buildChapterMarkdown(args: MarkdownExportArgs): string {
   const blocks: string[] = [
     `# ${args.chapterTitle}`,
-    `> 《${args.bookTitle}》${args.author ? ` · ${args.author}` : ''} · ${args.date}`,
+    `> ${t('《')}${args.bookTitle}${t('》')}${args.author ? ` · ${args.author}` : ''} · ${args.date}`,
     args.condensed.content.trim(),
   ]
 
@@ -31,17 +32,17 @@ export function buildChapterMarkdown(args: MarkdownExportArgs): string {
       const heading = repeats ? noteDisplayTitle(card) : card.title
       const lines = [`### ${index + 1}. ${heading}`]
       if (!repeats) lines.push(card.content.trim())
-      if (card.role) lines.push(`- **在文中的作用**：${card.role}`)
-      if (card.quote) lines.push(`- **原文依据**：${card.quote}`)
+      if (card.role) lines.push(`- **${t('在文中的作用')}**: ${card.role}`)
+      if (card.quote) lines.push(`- **${t('原文依据')}**: ${card.quote}`)
       if (card.divergences.length > 0) {
-        lines.push('', '**延伸**')
+        lines.push('', `**${t('延伸')}**`)
         for (const divergence of card.divergences) {
-          lines.push(`- ${DIVERGENCE_LABELS[divergence.type] ?? divergence.type}：${divergence.text}`)
+          lines.push(`- ${t(DIVERGENCE_LABELS[divergence.type] ?? divergence.type)}: ${divergence.text}`)
         }
       }
       return lines.join('\n')
     })
-    blocks.push('---', '## 核心卡片', cards.join('\n\n'))
+    blocks.push('---', `## ${t('核心卡片')}`, cards.join('\n\n'))
   }
 
   return `${blocks.filter((block) => block.trim()).join('\n\n')}\n`

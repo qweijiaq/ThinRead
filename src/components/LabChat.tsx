@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
 import type { ChatTurn, LabToolId } from '../../shared/types.js'
+import { t } from '../lib/i18n.js'
 import { loadLabArtifact, saveLabArtifact } from '../lib/lab-artifacts.js'
 import { onContentCurrent } from '../lib/content-events.js'
 import { labChatScope } from '../lib/lab-scope.js'
@@ -78,7 +79,7 @@ export function LabChat({ tool, bookIds, chapterId }: LabChatProps): JSX.Element
     setArtifactId(null)
     setStreamingAnswer('')
     if ('speechSynthesis' in window) window.speechSynthesis.cancel()
-    void saveLabArtifact(tool, '对话', JSON.stringify({ turns: [] }), { sourceKey: scope }, scope)
+    void saveLabArtifact(tool, t('对话'), JSON.stringify({ turns: [] }), { sourceKey: scope }, scope)
       .then((artifact) => setArtifactId(artifact.id))
       .catch(() => undefined)
   }
@@ -86,8 +87,8 @@ export function LabChat({ tool, bookIds, chapterId }: LabChatProps): JSX.Element
   function saveTurns(finalTurns: Turn[]): void {
     const content = JSON.stringify({ turns: finalTurns })
     const task = artifactId
-      ? window.api.updateLabArtifact(artifactId, { title: '对话', content })
-      : saveLabArtifact(tool, '对话', content, { sourceKey: scope }, scope).then((artifact) => {
+      ? window.api.updateLabArtifact(artifactId, { title: t('对话'), content })
+      : saveLabArtifact(tool, t('对话'), content, { sourceKey: scope }, scope).then((artifact) => {
           setArtifactId(artifact.id)
           return artifact
         })
@@ -196,18 +197,18 @@ export function LabChat({ tool, bookIds, chapterId }: LabChatProps): JSX.Element
       {turns.length > 0 ? (
         <div className="lab-chat-toolbar">
           <button type="button" className="text-button muted" onClick={clearChat}>
-            新对话
+            {t('新对话')}
           </button>
         </div>
       ) : null}
       <div className="lab-chat-messages" ref={scrollRef}>
         {turns.length === 0 ? (
           <div className="lab-chat-empty">
-            <p>从一句话开始。AI 会基于你选中的书和笔记回答。</p>
+            <p>{t('从一句话开始。AI 会基于你选中的书和笔记回答。')}</p>
             <div className="qa-suggestions">
               {(SUGGESTIONS[tool] ?? ['我该从哪里开始？']).map((suggestion) => (
                 <button key={suggestion} type="button" onClick={() => void ask(suggestion)} disabled={busy}>
-                  {suggestion}
+                  {t(suggestion)}
                 </button>
               ))}
             </div>
@@ -215,17 +216,17 @@ export function LabChat({ tool, bookIds, chapterId }: LabChatProps): JSX.Element
         ) : null}
         {turns.map((turn, index) => (
           <div key={index} className={`lab-chat-turn ${turn.role}`}>
-            <span className="lab-chat-role">{turn.role === 'user' ? '我' : '页边'}</span>
+            <span className="lab-chat-role">{turn.role === 'user' ? t('我') : t('页边')}</span>
             <div className="lab-chat-bubble">
               {turn.role === 'assistant' ? <Markdown text={turn.content} /> : <p>{turn.content}</p>}
               {turn.role === 'assistant' ? (
                 <div className="lab-chat-actions">
                   <button type="button" className="text-button muted" onClick={() => speak(index, turn.content)}>
-                    {speaking === index ? '停止朗读' : '朗读'}
+                    {speaking === index ? t('停止朗读') : t('朗读')}
                   </button>
                   {index === turns.length - 1 ? (
                     <button type="button" className="text-button" onClick={() => void regenerateLast()} disabled={busy}>
-                      重新生成
+                      {t('重新生成')}
                     </button>
                   ) : null}
                 </div>
@@ -235,12 +236,12 @@ export function LabChat({ tool, bookIds, chapterId }: LabChatProps): JSX.Element
         ))}
         {busy ? (
           <div className="lab-chat-turn assistant">
-            <span className="lab-chat-role">页边</span>
+            <span className="lab-chat-role">{t('页边')}</span>
             <div className={`lab-chat-bubble${streamingAnswer ? '' : ' lab-chat-thinking'}`}>
               {streamingAnswer ? <Markdown text={streamingAnswer} /> : <span className="spinner" />}
-              {streamingAnswer ? null : '正在整理…'}
+              {streamingAnswer ? null : t('正在整理…')}
               <button type="button" className="text-button lab-chat-cancel" onClick={() => void window.api.cancelLab()}>
-                取消
+                {t('取消')}
               </button>
             </div>
           </div>
@@ -258,10 +259,10 @@ export function LabChat({ tool, bookIds, chapterId }: LabChatProps): JSX.Element
             }
           }}
           rows={2}
-          placeholder="继续追问…"
+          placeholder={t('继续追问…')}
         />
         <button type="button" className="primary-button small" onClick={() => void ask(input)} disabled={!input.trim() || busy}>
-          发送
+          {t('发送')}
         </button>
       </div>
     </div>

@@ -1,5 +1,6 @@
 import { useEffect, useState, type JSX } from 'react'
 import type { BookSummary, LibraryNote, NoteKind, TagCount } from '../../shared/types.js'
+import { countUnit, t, useLocale } from '../lib/i18n.js'
 import { snippet } from '../lib/links.js'
 import { noteDisplayTitle, titleRepeatsContent } from '../lib/note-display.js'
 import { NoteTrashDialog } from './NoteTrashDialog.js'
@@ -37,6 +38,7 @@ const KIND_OPTIONS: Array<{ value: NoteKind | ''; label: string }> = [
 ]
 
 export function NotesLibrary({ books, onBack, onOpen, onShare, onShareDeck }: NotesLibraryProps): JSX.Element {
+  useLocale()
   const [notes, setNotes] = useState<LibraryNote[]>([])
   const [tags, setTags] = useState<TagCount[]>([])
   const [query, setQuery] = useState('')
@@ -135,16 +137,16 @@ export function NotesLibrary({ books, onBack, onOpen, onShare, onShareDeck }: No
     <main className="notes-library">
       <div className="notes-library-head">
         <div>
-          <h1>笔记库</h1>
+          <h1>{t('笔记库')}</h1>
           <p>
-            {total} 条笔记 · {books.length} 本书
+            {total} {countUnit(total, t('条笔记'), t('条笔记一'))} · {books.length} {countUnit(books.length, t('本书'), t('本书一'))}
           </p>
         </div>
         <div className="notes-library-actions">
           {selectMode ? (
             <>
               <button type="button" className="ghost-button" onClick={exitSelectMode}>
-                取消多选
+                {t('取消多选')}
               </button>
               <button
                 type="button"
@@ -152,19 +154,19 @@ export function NotesLibrary({ books, onBack, onOpen, onShare, onShareDeck }: No
                 onClick={shareSelected}
                 disabled={selected.size < 2}
               >
-                长图 · 已选 {selected.size}
+                {t('长图')} · {t('已选')} {selected.size}
               </button>
             </>
           ) : (
             <>
               <button type="button" className="ghost-button" onClick={() => setTrashOpen(true)}>
-                回收站
+                {t('回收站')}
               </button>
               <button type="button" className="ghost-button" onClick={() => setSelectMode(true)}>
-                多选
+                {t('多选')}
               </button>
               <button type="button" className="ghost-button" onClick={onBack}>
-                返回
+                {t('返回')}
               </button>
             </>
           )}
@@ -176,8 +178,8 @@ export function NotesLibrary({ books, onBack, onOpen, onShare, onShareDeck }: No
           className="notes-filter-input"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="筛选标题或内容…"
-          aria-label="筛选笔记"
+          placeholder={t('筛选标题或内容…')}
+          aria-label={t('筛选笔记')}
         />
         <Select
           className="filter-select"
@@ -186,22 +188,22 @@ export function NotesLibrary({ books, onBack, onOpen, onShare, onShareDeck }: No
             setBookId(value)
             setTag(null)
           }}
-          ariaLabel="按书筛选"
-          options={[{ value: '', label: '全部书' }, ...books.map((book) => ({ value: book.id, label: book.title }))]}
+          ariaLabel={t('按书筛选')}
+          options={[{ value: '', label: t('全部书') }, ...books.map((book) => ({ value: book.id, label: book.title }))]}
         />
         <Select
           className="filter-select"
           value={kind}
           onChange={(value) => setKind(value as NoteKind | '')}
-          ariaLabel="按类型筛选"
-          options={KIND_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+          ariaLabel={t('按类型筛选')}
+          options={KIND_OPTIONS.map((option) => ({ value: option.value, label: t(option.label) }))}
         />
       </div>
 
       {tags.length > 0 ? (
         <div className="tag-filter">
           <button type="button" className={tag === null ? 'is-active' : ''} onClick={() => setTag(null)}>
-            全部标签
+            {t('全部标签')}
           </button>
           {tags.map((item) => (
             <button
@@ -222,20 +224,20 @@ export function NotesLibrary({ books, onBack, onOpen, onShare, onShareDeck }: No
       <div className="notes-result-bar">
         <span>
           {loading
-            ? '正在筛选…'
-            : `第 ${page + 1} / ${Math.max(1, Math.ceil(total / PAGE_SIZE))} 页 · 共 ${total} 条`}
+            ? t('正在筛选…')
+            : `${t('第')} ${page + 1} / ${Math.max(1, Math.ceil(total / PAGE_SIZE))} ${t('页')} · ${t('共')} ${total} ${t('条')}`}
         </span>
         {hasFilters ? (
           <button type="button" className="text-button muted" onClick={clearFilters}>
-            清除筛选
+            {t('清除筛选')}
           </button>
         ) : null}
       </div>
 
       {loading && notes.length === 0 ? (
-        <p className="notes-library-empty">正在加载笔记…</p>
+        <p className="notes-library-empty">{t('正在加载笔记…')}</p>
       ) : notes.length === 0 ? (
-        <p className="notes-library-empty">没有符合筛选条件的笔记。换个标签或去读一章生成笔记。</p>
+        <p className="notes-library-empty">{t('没有符合筛选条件的笔记。换个标签或去读一章生成笔记。')}</p>
       ) : (
         <>
         <div className="notes-library-list">
@@ -255,7 +257,7 @@ export function NotesLibrary({ books, onBack, onOpen, onShare, onShareDeck }: No
                   onClick={() => (selectMode ? toggleSelected(note.id) : onOpen(note))}
                 >
                   <span className="library-note-top">
-                    <span className={`kind-badge kind-${note.kind}`}>{KIND_LABEL[note.kind]}</span>
+                    <span className={`kind-badge kind-${note.kind}`}>{t(KIND_LABEL[note.kind])}</span>
                     <span className={`library-note-title${statement ? ' is-statement' : ''}`} title={displayTitle}>
                       {displayTitle}
                     </span>
@@ -277,8 +279,8 @@ export function NotesLibrary({ books, onBack, onOpen, onShare, onShareDeck }: No
                   ) : null}
                 </button>
                 {selectMode ? null : (
-                  <button type="button" className="library-note-share" onClick={() => onShare(note)} title="分享这张卡片">
-                    分享
+                  <button type="button" className="library-note-share" onClick={() => onShare(note)} title={t('分享这张卡片')}>
+                    {t('分享')}
                   </button>
                 )}
               </div>
@@ -288,7 +290,7 @@ export function NotesLibrary({ books, onBack, onOpen, onShare, onShareDeck }: No
         {Math.ceil(total / PAGE_SIZE) > 1 ? (
           <div className="library-pager">
             <button type="button" disabled={page === 0} onClick={() => setPage((current) => Math.max(0, current - 1))}>
-              上一页
+              {t('上一页')}
             </button>
             <span>
               {page + 1} / {Math.ceil(total / PAGE_SIZE)}
@@ -298,7 +300,7 @@ export function NotesLibrary({ books, onBack, onOpen, onShare, onShareDeck }: No
               disabled={page + 1 >= Math.ceil(total / PAGE_SIZE)}
               onClick={() => setPage((current) => current + 1)}
             >
-              下一页
+              {t('下一页')}
             </button>
           </div>
         ) : null}

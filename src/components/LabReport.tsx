@@ -2,6 +2,7 @@ import { useEffect, useState, type JSX } from 'react'
 import type { LabReport as LabReportData, LabRequest, LabToolId } from '../../shared/types.js'
 import { listLabArtifacts, loadLabArtifact, parseArtifactMeta, saveLabArtifact } from '../lib/lab-artifacts.js'
 import { labReportScope } from '../lib/lab-scope.js'
+import { t } from '../lib/i18n.js'
 import { Markdown } from './Markdown.js'
 import { Select } from './Select.js'
 
@@ -13,7 +14,7 @@ interface LabReportProps {
   question: string
   sourceLabel: string
   onSave(title: string, markdown: string, bookId: string, chapterId: string): Promise<void>
-  onListen(title: string, text: string): void
+  onListen?(title: string, text: string): void
 }
 
 const QUESTION_TOOLS = new Set<LabToolId>(['cross-book-synthesis', 'reading-path', 'view-timeline', 'margin-note'])
@@ -139,14 +140,14 @@ export function LabReport({ tool, bookIds, bookId, chapterId, question, sourceLa
     <div className="lab-report">
       <div className="lab-run-row">
         <span className="lab-run-hint">
-          {needsQuestion && !question.trim() ? '先填写主题或原文' : needsChapter && !chapterId ? '先选择章节' : '准备好后运行'}
+          {needsQuestion && !question.trim() ? t('先填写主题或原文') : needsChapter && !chapterId ? t('先选择章节') : t('准备好后运行')}
         </span>
         <button type="button" className="primary-button small" onClick={() => void run()} disabled={!ready || busy}>
-          {busy ? '生成中…' : '运行'}
+          {busy ? t('生成中…') : t('运行')}
         </button>
         {busy ? (
           <button type="button" className="ghost-button small" onClick={() => void window.api.cancelLab()}>
-            取消
+            {t('取消')}
           </button>
         ) : null}
       </div>
@@ -155,7 +156,7 @@ export function LabReport({ tool, bookIds, bookId, chapterId, question, sourceLa
         <div className="lab-result">
           {history.length > 1 ? (
             <div className="lab-history">
-              <span>历史</span>
+              <span>{t('历史')}</span>
               <Select
                 value={selectedId}
                 onChange={(value) => {
@@ -166,7 +167,7 @@ export function LabReport({ tool, bookIds, bookId, chapterId, question, sourceLa
                   const meta = parseArtifactMeta(artifact)
                   setStoredRequest(meta.request ?? null)
                 }}
-                ariaLabel="历史生成结果"
+                ariaLabel={t('历史生成结果')}
                 options={history.map((artifact) => {
                   const meta = parseArtifactMeta(artifact)
                   return {
@@ -180,22 +181,22 @@ export function LabReport({ tool, bookIds, bookId, chapterId, question, sourceLa
           <div className="lab-result-head">
             <h3>{result.title}</h3>
             <div className="lab-result-actions">
-              {tool === 'podcast' ? (
+              {tool === 'podcast' && onListen ? (
                 <button type="button" className="text-button" onClick={() => onListen(result.title, result.markdown)}>
-                  听
+                  {t('播放播客')}
                 </button>
               ) : null}
               <button type="button" className="text-button" onClick={() => void copy()}>
-                {status === 'copied' ? '已复制' : '复制'}
+                {status === 'copied' ? t('已复制') : t('复制')}
               </button>
               <button type="button" className="text-button" onClick={() => void exportFile()}>
-                导出
+                {t('导出')}
               </button>
               <button type="button" className="text-button" onClick={() => void run(storedRequest ?? undefined)} disabled={busy}>
-                重新生成
+                {t('重新生成')}
               </button>
               <button type="button" className="text-button" onClick={() => void save()}>
-                {status === 'saved' ? '已存为笔记' : '存为笔记'}
+                {status === 'saved' ? t('已存为笔记') : t('存为笔记')}
               </button>
             </div>
           </div>

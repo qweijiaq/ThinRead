@@ -21,7 +21,7 @@ const meta = {
   args: {
     note: noteCardNote,
     backlinks: noteCardBacklinks,
-    linkCandidates: [],
+    allNotes: [noteCardNote],
     focusKey: 0,
     expanding: false,
     onUpdate: noop,
@@ -67,6 +67,7 @@ export const Highlight: Story = {
       tags: ['时间', '自由'],
     },
     backlinks: [],
+    allNotes: [noteCardNote],
   },
 }
 
@@ -88,5 +89,6 @@ export const Condensed: Story = {
       tags: ['读薄'],
     },
     backlinks: [],
+    allNotes: [noteCardNote],
   },
 }

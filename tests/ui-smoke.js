@@ -23,6 +23,17 @@
   assert(Boolean(shell), '应用没有渲染')
   const bookCards = await waitFor(() => document.querySelectorAll('.book-card').length, '书架书籍')
   assert(bookCards >= 1, '示例书没有出现在书架')
+  const renameBookButton = [...document.querySelectorAll('.book-card .book-action-buttons button')].find(
+    (button) => button.textContent.trim() === '改名',
+  )
+  assert(renameBookButton, '书籍卡片没有改名入口')
+  renameBookButton.click()
+  const renameBookModal = await waitFor(() => document.querySelector('.rename-modal'), '打开书籍信息编辑')
+  assert(renameBookModal.querySelectorAll('input').length === 2, '书籍信息编辑没有同时提供书名和作者')
+  const closeRenameBook = renameBookModal.querySelector('button[aria-label="关闭"]')
+  assert(closeRenameBook, '书籍信息编辑没有关闭按钮')
+  closeRenameBook.click()
+  await waitFor(() => !document.querySelector('.rename-modal'), '关闭书籍信息编辑')
   const actionButtons = [...document.querySelectorAll('.book-action-buttons button')]
   assert(actionButtons.length >= 3, '书架卡片动作按钮不完整')
   for (const button of actionButtons) {
@@ -195,6 +206,21 @@
   assert(currentChapterId, '阅读进度没有记录当前章')
   const readerMarks = await window.api.listChapterMarks(currentChapterId)
   assert(readerMarks.length > 0, '划词高亮没有写入数据库')
+
+  const readerListenButton = [...document.querySelectorAll('.reader button')].find(
+    (button) => button.textContent.trim() === '听读',
+  )
+  assert(readerListenButton, '阅读器没有听读入口')
+  readerListenButton.click()
+  const readerListenPanel = await waitFor(() => document.querySelector('.listen-panel'), '打开章节听读')
+  const ttsEngines = Boolean(readerListenPanel.querySelector('.listen-engine-bar'))
+  const fullAudio = Boolean(readerListenPanel.querySelector('.listen-full-audio'))
+  assert(ttsEngines, '听读面板没有音色引擎入口')
+  assert(fullAudio, '听读面板没有整章音频入口')
+  const closeReaderListen = readerListenPanel.querySelector('button[aria-label="关闭"]')
+  assert(closeReaderListen, '听读面板没有关闭按钮')
+  closeReaderListen.click()
+  await waitFor(() => !document.querySelector('.listen-panel'), '关闭章节听读')
   const streamed = []
   const streamedAnswer = await window.api.askChapterStream(
     currentChapterId,
@@ -212,6 +238,7 @@
     await delay(350)
   }
   const noteCard = await waitFor(() => document.querySelector('.note-card'), '章节笔记卡片')
+  assert(document.querySelector('.evidence-summary'), '笔记面板没有原文依据核查入口')
   const editNoteButton = [...noteCard.querySelectorAll('button')].find((button) => button.textContent.trim() === '编辑')
   assert(editNoteButton, '笔记卡片没有编辑按钮')
   editNoteButton.click()
@@ -242,6 +269,25 @@
   const chapterNotes = noteChapterId ? await window.api.listNotes(book.id, noteChapterId) : []
   assert(chapterNotes.some((note) => note.content.includes('UI 自动化修改后的笔记内容')), '笔记编辑没有写入数据库')
 
+  const organizeButton = document.querySelector('.sidebar-head button')
+  assert(organizeButton?.textContent.trim() === '整理', '侧栏没有整理入口')
+  organizeButton.click()
+  const organizeModal = await waitFor(() => document.querySelector('.organize-modal'), '打开整理目录')
+  const chapterTrashButton = [...organizeModal.querySelectorAll('button')].find(
+    (button) => button.textContent.trim() === '章节回收站',
+  )
+  assert(chapterTrashButton, '整理目录没有章节回收站入口')
+  chapterTrashButton.click()
+  const chapterTrash = await waitFor(() => document.querySelector('.trash-modal'), '打开章节回收站')
+  assert(chapterTrash.textContent.includes('章节'), '章节回收站内容异常')
+  const closeChapterTrash = chapterTrash.querySelector('button[aria-label="关闭"]')
+  assert(closeChapterTrash, '章节回收站没有关闭按钮')
+  closeChapterTrash.click()
+  await waitFor(() => !document.querySelector('.trash-modal'), '关闭章节回收站')
+  const closeOrganize = organizeModal.querySelector('button[aria-label="关闭"]')
+  if (closeOrganize) closeOrganize.click()
+  await waitFor(() => !document.querySelector('.organize-modal'), '关闭整理目录')
+
   const bookmarkButton = [...document.querySelectorAll('.chapter-head-actions button')].find(
     (button) => button.textContent.trim() === '书签',
   )
@@ -254,6 +300,14 @@
   assert(bookmarkRows.length >= 1, '书签没有出现在侧栏')
   const bookmarkLabel = bookmarkRows[0].textContent.trim()
   assert(bookmarkLabel.length > 0, '书签没有标签')
+  bookmarkButton.click()
+  await delay(150)
+  assert(document.querySelectorAll('.sidebar-bookmark').length === 1, '同一位置重复创建了书签')
+  const deleteBookmarkButton = document.querySelector('.sidebar-bookmark-row .chapter-delete')
+  assert(deleteBookmarkButton, '书签行没有删除按钮')
+  assert(getComputedStyle(deleteBookmarkButton).opacity !== '0', '书签删除按钮不可见')
+  deleteBookmarkButton.click()
+  await waitFor(() => document.querySelectorAll('.sidebar-bookmark').length === 0, '删除书签')
 
   const xhsButton = [...document.querySelectorAll('.chapter-head-actions button')].find(
     (button) => button.textContent.trim() === '小红书',
@@ -416,63 +470,21 @@
   assert(runPodcast, '双人播客没有运行按钮')
   await waitFor(() => !runPodcast.disabled, '双人播客准备就绪')
   runPodcast.click()
-  const listenPodcast = await waitFor(
-    () => [...podcastPane.querySelectorAll('button')].find((button) => button.textContent.trim() === '听'),
+  const podcastResult = await waitFor(
+    () => podcastPane.querySelector('.lab-result .lab-markdown'),
     '生成播客脚本',
     10000,
   )
-  listenPodcast.click()
-  const listenPanel = await waitFor(() => document.querySelector('.listen-panel'), '打开双人播客')
-  const speakerBadges = listenPanel.querySelectorAll('.listen-speaker').length
-  assert(speakerBadges > 0, '双人播客没有区分说话人')
-  assert(listenPanel.querySelector('.listen-foot')?.textContent.includes('中文普通话'), '双人播客没有标明语言')
+  const podcastText = podcastResult.textContent ?? ''
+  assert(/A\s*[：:]/.test(podcastText) && /B\s*[：:]/.test(podcastText), '播客文稿没有 A/B 对话')
   assert(
-    [...listenPanel.querySelectorAll('.listen-sentence-text')].every(
-      (item) => !/^[AB]\s*[：:]/.test(item.textContent.trim()),
-    ),
-    '说话人标签被带进了朗读文本',
+    ![...podcastPane.querySelectorAll('button')].some((button) => button.textContent.trim() === '听'),
+    '播客文稿仍然提供播放入口',
   )
-  const engineBar = listenPanel.querySelector('.listen-engine-bar')
-  assert(engineBar && engineBar.textContent.includes('系统语音'), '听读面板没有音色引擎选择')
-  assert(listenPanel.querySelector('.listen-full-audio'), '听读面板没有整章音频入口')
-  const engineTrigger = engineBar.querySelector('.ui-select-trigger')
-  assert(engineTrigger, '音色引擎没有下拉入口')
-  engineTrigger.click()
-  const enginePopover = await waitFor(() => document.querySelector('.ui-select-popover'), '音色引擎选项')
-  assert(enginePopover.textContent.includes('Edge 在线') && enginePopover.textContent.includes('Kokoro 本地') && enginePopover.textContent.includes('Beatra 付费'), '音色引擎没有说明全部选项')
-  const kokoroOption = [...enginePopover.querySelectorAll('.ui-select-option')].find((option) =>
-    option.textContent.includes('Kokoro 本地'),
+  const podcastButtons = [...podcastPane.querySelectorAll('.lab-result-actions button')].map((button) =>
+    button.textContent.trim(),
   )
-  assert(kokoroOption, '找不到 Kokoro 选项')
-  kokoroOption.click()
-  await waitFor(
-    () => listenPanel.querySelector('.listen-kokoro-setup') || listenPanel.querySelector('[aria-label="Kokoro A 音色"]'),
-    'Kokoro 状态',
-  )
-  const kokoroSetup = Boolean(listenPanel.querySelector('.listen-kokoro-setup'))
-  const kokoroReady = Boolean(listenPanel.querySelector('[aria-label="Kokoro A 音色"]'))
-  assert(kokoroSetup || kokoroReady, 'Kokoro 既没有音色选择，也没有模型说明')
-  if (kokoroSetup) {
-    assert(
-      listenPanel.querySelector('.listen-kokoro-setup')?.textContent.includes('未就绪'),
-      'Kokoro 未就绪时没有提示',
-    )
-  }
-  engineTrigger.click()
-  const beatraPopover = await waitFor(() => document.querySelector('.ui-select-popover'), 'Beatra 选项')
-  const beatraOption = [...beatraPopover.querySelectorAll('.ui-select-option')].find((option) =>
-    option.textContent.includes('Beatra 付费'),
-  )
-  assert(beatraOption, '找不到 Beatra 选项')
-  beatraOption.click()
-  await waitFor(
-    () => listenPanel.querySelector('.listen-kokoro-setup')?.textContent.includes('Beatra 还没有配置'),
-    'Beatra 未配置提示',
-  )
-  const closeListen = listenPanel.querySelector('button[aria-label="关闭"]')
-  assert(closeListen, '双人播客没有关闭按钮')
-  closeListen.click()
-  await waitFor(() => !document.querySelector('.listen-panel'), '关闭双人播客')
+  assert(podcastButtons.includes('复制') && podcastButtons.includes('导出') && podcastButtons.includes('存为笔记'), '播客文稿缺少复制/导出/存为笔记动作')
 
   assert(window.axe, 'axe-core 没有注入，无法执行无障碍检查')
   const a11y = await window.axe.run(document, {
@@ -512,17 +524,12 @@
     notesPager: true,
     contentPager: true,
     contentSearch: true,
-    podcastSpeakers: speakerBadges,
-    podcastLanguage: true,
-    ttsEngines: true,
-    fullAudio: true,
+    podcastScript: true,
+    ttsEngines,
+    fullAudio,
     xhsPages: xhsThumbs.length,
     xhsCoverage: true,
     bookmarks: bookmarkRows.length,
-    kokoroSetup,
-    kokoroReady,
-    beatraSetup: true,
-    beatraGuide: true,
     bookshelfButtons: actionButtons.length,
     horizontalOverflow: overflow,
     a11yViolations: a11y.violations.length,

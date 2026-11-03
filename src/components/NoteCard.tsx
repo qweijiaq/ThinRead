@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState, type JSX } from 'react'
+import { memo, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 
 import type { Note, NoteKind, NotePatch } from '../../shared/types.js'
+import { getLocale, t, useLocale } from '../lib/i18n.js'
 import { confirmDialog } from './ConfirmDialog.js'
 import { Select } from './Select.js'
 import { titleRepeatsContent } from '../lib/note-display.js'
@@ -25,7 +26,7 @@ const DIVERGENCE_LABEL = {
 interface NoteCardProps {
   note: Note
   backlinks: Note[]
-  linkCandidates: Note[]
+  allNotes: Note[]
   focusKey: number
   expanding: boolean
   onUpdate(id: string, patch: NotePatch): Promise<void>
@@ -43,18 +44,19 @@ function titleFromContent(content: string): string {
     .replace(/^[#>\-\s]+/, '')
     .split('\n')[0]
     ?.trim()
-  return first ? first.slice(0, 26) : '未命名笔记'
+  return first ? first.slice(0, 26) : t('未命名笔记')
 }
 
 function formatTime(iso: string): string {
   const date = new Date(iso)
+  if (getLocale() === 'en') return `${date.getMonth() + 1}/${date.getDate()}`
   return `${date.getMonth() + 1}月${date.getDate()}日`
 }
 
-export function NoteCard({
+function NoteCardImpl({
   note,
   backlinks,
-  linkCandidates,
+  allNotes,
   focusKey,
   expanding,
   onUpdate,
@@ -66,13 +68,17 @@ export function NoteCard({
   onWikiLink,
   hideTitle = false,
 }: NoteCardProps): JSX.Element {
+  useLocale()
   const [editing, setEditing] = useState(note.author === 'user' && note.content.trim() === '')
   const [draftTitle, setDraftTitle] = useState(note.title)
   const [draftContent, setDraftContent] = useState(note.content)
   const [previewOpen, setPreviewOpen] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const rootRef = useRef<HTMLElement>(null)
   const repeatsTitle = titleRepeatsContent(note)
+  // 链接候选只在编辑时用到；memo 化后按 allNotes 缓存，避免每次父组件渲染都filter 一遍。
+  const linkCandidates = useMemo(() => allNotes.filter((candidate) => candidate.id !== note.id), [allNotes, note.id])
 
   useEffect(() => {
     if (focusKey === 0) return
@@ -92,10 +98,14 @@ export function NoteCard({
           ? draftTitle.trim()
           : titleFromContent(draftContent)
     setSaving(true)
+    setSaveError(null)
     try {
       await onUpdate(note.id, { title, content: draftContent })
       setEditing(false)
       setPreviewOpen(false)
+    } catch (error) {
+      // 保存失败不能悄悄把编辑框关掉，用户会以为已经存上了。
+      setSaveError(error instanceof Error ? error.message : String(error))
     } finally {
       setSaving(false)
     }
@@ -126,49 +136,49 @@ export function NoteCard({
   return (
     <article className={`note-card kind-${note.kind}`} ref={rootRef}>
       <div className="note-head">
-        <span className={`kind-badge kind-${note.kind}`}>{KIND_LABEL[note.kind]}</span>
+        <span className={`kind-badge kind-${note.kind}`}>{t(KIND_LABEL[note.kind])}</span>
         <span className={`author-badge ${note.author}`}>
-          {note.author === 'ai' ? (note.edited ? 'AI · 已改' : 'AI') : '我'}
+          {note.author === 'ai' ? (note.edited ? `AI · ${t('已改')}` : 'AI') : t('我')}
         </span>
         {note.importance != null && note.importance >= 4 ? (
-          <span className="importance-badge">核心</span>
+          <span className="importance-badge">{t('核心')}</span>
         ) : null}
         <span className="note-time">{formatTime(note.updatedAt)}</span>
         <div className="note-actions">
           {editing ? (
             <>
               <button type="button" className="text-button" onClick={() => void save()} disabled={saving}>
-                {saving ? '保存中…' : '保存'}
+                {saving ? t('保存中…') : t('保存')}
               </button>
               <button type="button" className="text-button muted" onClick={cancel}>
-                取消
+                {t('取消')}
               </button>
             </>
           ) : (
             <>
               {onShare ? (
                 <button type="button" className="text-button" onClick={() => onShare(note)}>
-                  分享
+                  {t('分享')}
                 </button>
               ) : null}
               <button type="button" className="text-button" onClick={() => setEditing(true)}>
-                编辑
+                {t('编辑')}
               </button>
               <button
                 type="button"
                 className="text-button danger"
                 onClick={() => {
                   void confirmDialog({
-                    title: '删除笔记',
-                    message: '删除这条笔记？删除后可以在提示条里撤销。',
-                    confirmLabel: '删除',
+                    title: t('删除笔记'),
+                    message: t('删除这条笔记？删除后可以在提示条里撤销。'),
+                    confirmLabel: t('删除'),
                     danger: true,
                   }).then((confirmed) => {
                     if (confirmed) void onDelete(note.id)
                   })
                 }}
               >
-                删除
+                {t('删除')}
               </button>
             </>
           )}
@@ -179,26 +189,31 @@ export function NoteCard({
 
       {editing ? (
         <div className="note-editor">
+          {saveError ? (
+            <div className="inline-error" role="alert">
+              {t('保存失败')}：{saveError}
+            </div>
+          ) : null}
           <input
             className="note-title-input"
             value={draftTitle}
             onChange={(event) => setDraftTitle(event.target.value)}
-            placeholder="笔记标题"
+            placeholder={t('笔记标题')}
           />
           <textarea
             className="note-textarea"
             value={draftContent}
             onChange={(event) => setDraftContent(event.target.value)}
-            placeholder="写下你的想法，或用 [[另一条笔记的标题]] 建立联系…"
+            placeholder={t('写下你的想法，或用 [[另一条笔记的标题]] 建立联系…')}
             rows={5}
             autoFocus={note.content.trim() === ''}
           />
           <div className="note-editor-tools">
             <button type="button" className="text-button" onClick={insertMermaid}>
-              插入 Mermaid
+              {t('插入 Mermaid')}
             </button>
             <button type="button" className="text-button" onClick={() => setPreviewOpen((value) => !value)}>
-              {previewOpen ? '隐藏预览' : '预览 Markdown'}
+              {previewOpen ? t('隐藏预览') : t('预览 Markdown')}
             </button>
             {linkCandidates.length > 0 ? (
               <Select
@@ -207,14 +222,14 @@ export function NoteCard({
                 onChange={(value) => {
                   if (value) insertLink(value)
                 }}
-                placeholder="插入笔记链接…"
-                ariaLabel="插入笔记链接"
+                placeholder={t('插入笔记链接…')}
+                ariaLabel={t('插入笔记链接')}
                 options={linkCandidates.map((candidate) => ({ value: candidate.title, label: candidate.title }))}
               />
             ) : null}
           </div>
           {previewOpen ? (
-            <div className="note-editor-preview" aria-label="笔记预览">
+            <div className="note-editor-preview" aria-label={t('笔记预览')}>
               <Markdown text={draftContent} onWikiLink={onWikiLink} />
             </div>
           ) : null}
@@ -227,29 +242,28 @@ export function NoteCard({
               <Markdown text={note.content} onWikiLink={onWikiLink} />
             </div>
           ) : (
-            <p className="note-empty">（空笔记，点“编辑”补充）</p>
+            <p className="note-empty">{t('（空笔记，点“编辑”补充）')}</p>
           )}
         </>
       )}
 
       {note.role ? (
         <div className="note-role">
-          <span>在文中的作用</span>
-          {note.role}
+          <span>{t('在文中的作用')}</span> · {note.role}
         </div>
       ) : null}
 
       {note.quote ? (
-        <button type="button" className="note-quote" onClick={() => onJumpQuote(note.quote!)} title="回到原文">
-          <span className="quote-label">{note.kind === 'point' || note.kind === 'claim' ? '原文依据' : '原文'}</span>
+        <button type="button" className="note-quote" onClick={() => onJumpQuote(note.quote!)} title={t('回到原文')}>
+          <span className="quote-label">{note.kind === 'point' || note.kind === 'claim' ? t('原文依据') : t('原文')}</span>
           <span className="quote-text">“{note.quote}”</span>
           {note.author === 'ai' ? (
             <span className={`verify-chip ${note.quoteVerified ? 'ok' : 'warn'}`}>
               {note.quoteVerified
-                ? '已核对'
+                ? t('已核对')
                 : note.kind === 'point' || note.kind === 'claim'
-                  ? '位置/概述'
-                  : '未核对'}
+                  ? t('位置/概述')
+                  : t('未核对')}
             </span>
           ) : null}
         </button>
@@ -268,11 +282,11 @@ export function NoteCard({
       {note.divergences.length > 0 ? (
         <div className="note-divergences">
           <div className="divergence-title">
-            AI 延伸<span>非作者原文</span>
+            {t('AI 延伸')}<span>{t('非作者原文')}</span>
           </div>
           {note.divergences.map((divergence, index) => (
             <p key={`${divergence.type}-${index}`} className={`divergence type-${divergence.type}`}>
-              <strong>{DIVERGENCE_LABEL[divergence.type]}</strong>
+              <strong>{t(DIVERGENCE_LABEL[divergence.type])}</strong>
               <span>{divergence.text}</span>
             </p>
           ))}
@@ -284,13 +298,13 @@ export function NoteCard({
           onClick={() => onExpand(note.id)}
           disabled={expanding}
         >
-          {expanding ? '正在延伸…' : '✦ 延伸'}
+          {expanding ? t('正在延伸…') : t('✦ 延伸')}
         </button>
       ) : null}
 
       {backlinks.length > 0 ? (
         <div className="backlinks">
-          <span className="backlinks-label">被引用</span>
+          <span className="backlinks-label">{t('被引用')}</span>
           {backlinks.map((linked) => (
             <button key={linked.id} type="button" className="backlink" onClick={() => onOpenNote(linked)}>
               {linked.title}
@@ -301,3 +315,5 @@ export function NoteCard({
     </article>
   )
 }
+
+export const NoteCard = memo(NoteCardImpl)

@@ -1,7 +1,9 @@
-import { useEffect, useState, type JSX } from 'react'
+import { memo, useCallback, useEffect, useMemo, useState, type JSX } from 'react'
 import type { ChapterContent, GeneratePartial, GenerationMode, Note, NoteDraft, NotePatch, NoteReport, ReaderMark, RelatedNote } from '../../shared/types.js'
+import { t, useLocale } from '../lib/i18n.js'
 import { buildChapterMarkdown, markdownFilename, todayStamp } from '../lib/export.js'
-import { noteBacklinks, relatedNotes, snippet } from '../lib/links.js'
+import { backlinksFor, buildNoteIndex } from '../lib/note-index.js'
+import { relatedNotes, snippet } from '../lib/links.js'
 import { Checkbox } from './Checkbox.js'
 import { NoteCard } from './NoteCard.js'
 
@@ -22,7 +24,7 @@ interface NotesPanelProps {
   focusNoteId: string | null
   focusKey: number
   expandingNoteId: string | null
-  onGenerate(): void
+  onGenerate(fresh?: boolean): void
   onCancel(): void
   onCreate(draft: NoteDraft): Promise<Note>
   onUpdate(id: string, patch: NotePatch): Promise<void>
@@ -37,22 +39,41 @@ interface NotesPanelProps {
   onRevealMark(quote: string): void
 }
 
+const STAGE_LABEL: Record<string, string> = {
+  condense: '读薄',
+  'audit-fidelity': '保真回查',
+  'audit-details': '细节回查',
+  'extract-cards': '卡片提炼',
+  'refilter-cards': '卡片筛选',
+  'expand-cards': '卡片延伸',
+}
+
+function degradedSummary(report: NoteReport): string {
+  return (report.degraded ?? [])
+    .map((step) => {
+      const label = t(STAGE_LABEL[step.stage] ?? step.stage)
+      return step.total && step.total > 1 ? `${label} ${step.failed}/${step.total}` : label
+    })
+    .join(' · ')
+}
+
 function StreamingCard({ partial, onCancel }: { partial: GeneratePartial | null; onCancel(): void }): JSX.Element {
+  useLocale()
   const progress = partial?.progress
   const phaseLabel =
     progress?.phase === 'condense'
-      ? '正在把这一章读薄'
+      ? t('正在把这一章读薄')
       : progress?.phase === 'cards'
-        ? '正在提炼核心卡片'
+        ? t('正在提炼核心卡片')
         : progress?.phase === 'expand'
-          ? '正在生成发散'
-          : 'AI 正在读这一章'
+          ? t('正在生成发散')
+          : t('AI 正在读这一章')
   const progressDetail = progress
     ? progress.phase === 'condense'
-      ? `${progress.done}/${progress.total} 节 · 保留全部观点做压缩`
+      ? `${progress.done}/${progress.total} ${t('节 · 保留全部观点做压缩')}`
       : progress.phase === 'cards'
-        ? `已提炼 ${progress.cards} 张核心卡片`
-        : `${progress.done}/${progress.total} 张卡片 · 共 ${progress.cards} 张`
+        ? `${t('已提炼')} ${progress.cards} ${t('张核心卡片')}`
+        : `${progress.done}/${progress.total} ${t('张卡片 · 共')} ${progress.cards} ${t('张')}`
     : null
   return (
     <div className="streaming-card">
@@ -60,7 +81,7 @@ function StreamingCard({ partial, onCancel }: { partial: GeneratePartial | null;
         <span className="spinner" />
         <span>{phaseLabel}…</span>
         <button type="button" className="text-button muted" onClick={onCancel}>
-          取消
+          {t('取消')}
         </button>
       </div>
       {progress ? (
@@ -74,7 +95,7 @@ function StreamingCard({ partial, onCancel }: { partial: GeneratePartial | null;
           <p>{progressDetail}</p>
         </div>
       ) : (
-        <p className="streaming-hint">正在拆解本章的论证结构…</p>
+        <p className="streaming-hint">{t('正在拆解本章的论证结构…')}</p>
       )}
       {partial?.summary ? <p className="streaming-summary">{partial.summary}</p> : null}
       {partial?.claims && partial.claims.length > 0 ? (
@@ -107,7 +128,7 @@ function StreamingCard({ partial, onCancel }: { partial: GeneratePartial | null;
   )
 }
 
-export function NotesPanel({
+function NotesPanelImpl({
   chapter,
   bookTitle,
   author,
@@ -138,11 +159,29 @@ export function NotesPanel({
   onDeleteMark,
   onRevealMark,
 }: NotesPanelProps): JSX.Element {
+  // 单次扫描建索引；卡片渲染只做 Map 查找，不再对每条笔记做一次 allNotes.filter/includes。
+  const noteIndex = useMemo(() => buildNoteIndex(allNotes), [allNotes])
+  const openWikiLink = useCallback(
+    (title: string) => {
+      const target = allNotes.find((candidate) => candidate.title === title)
+      if (target) onOpenNote(target)
+    },
+    [allNotes, onOpenNote],
+  )
   const condensedNote = notes.find((note) => note.kind === 'condensed') ?? null
   const summaryNotes = notes.filter((note) => note.kind === 'summary')
   const pointNotes = notes.filter((note) => note.kind === 'point' || note.kind === 'claim')
   const questionNotes = notes.filter((note) => note.kind === 'question')
   const mineNotes = notes.filter((note) => note.kind === 'highlight' || note.kind === 'thought')
+  const [verifyOnly, setVerifyOnly] = useState(false)
+  const evidenceNotes = pointNotes.filter((note) => note.author === 'ai')
+  const evidenceWithQuote = evidenceNotes.filter((note) => note.quote?.trim())
+  const evidenceVerified = evidenceWithQuote.filter((note) => note.quoteVerified)
+  const evidenceUnverified = evidenceWithQuote.filter((note) => !note.quoteVerified)
+  const evidenceMissing = evidenceNotes.filter((note) => !note.quote?.trim())
+  const pointNotesForDisplay = verifyOnly
+    ? pointNotes.filter((note) => note.author === 'ai' && note.quote?.trim() && !note.quoteVerified)
+    : pointNotes
   const related = relatedNotes(chapter?.id ?? null, notes, allNotes)
   const [includeCards, setIncludeCards] = useState(false)
   const [exportState, setExportState] = useState<'idle' | 'copied' | 'saved'>('idle')
@@ -201,8 +240,8 @@ export function NotesPanel({
         key={note.id}
         note={note}
         hideTitle={hideTitle}
-        backlinks={noteBacklinks(note, allNotes)}
-        linkCandidates={allNotes.filter((candidate) => candidate.id !== note.id)}
+        backlinks={backlinksFor(noteIndex, note)}
+        allNotes={allNotes}
         focusKey={focusNoteId === note.id ? focusKey : 0}
         expanding={expandingNoteId === note.id}
         onUpdate={onUpdate}
@@ -211,10 +250,7 @@ export function NotesPanel({
         onExpand={onExpand}
         onJumpQuote={onJumpQuote}
         onOpenNote={onOpenNote}
-        onWikiLink={(title) => {
-          const target = allNotes.find((candidate) => candidate.title === title)
-          if (target) onOpenNote(target)
-        }}
+        onWikiLink={openWikiLink}
       />
     )
   }
@@ -246,23 +282,23 @@ export function NotesPanel({
     <div className="notes-panel">
       <div className="notes-head">
         <div>
-          <h2>本章笔记</h2>
-          <p>{chapter ? chapter.title : '选择一章开始'}</p>
+          <h2>{t('本章笔记')}</h2>
+          <p>{chapter ? chapter.title : t('选择一章开始')}</p>
         </div>
         {generating ? (
           <button type="button" className="ghost-button small" onClick={onCancel}>
-            取消生成
+            {t('取消生成')}
           </button>
         ) : (
-          <button type="button" className="primary-button small" onClick={onGenerate} disabled={!chapter}>
-            ✦ 读薄并提炼
+          <button type="button" className="primary-button small" onClick={() => onGenerate()} disabled={!chapter}>
+            {t('✦ 读薄并提炼')}
           </button>
         )}
       </div>
 
 
       <p className="condense-hint">
-        AI 会把这一章重写成可直接发博客的读薄稿：只保留断言，并列改列表，删掉铺垫；压缩幅度由内容密度决定，保留断言优先。
+        {t('AI 会把这一章重写成可直接发博客的读薄稿：只保留断言，并列改列表，删掉铺垫；压缩幅度由内容密度决定，保留断言优先。')}
       </p>
 
       {error ? <div className="inline-error" role="alert">{error}</div> : null}
@@ -271,16 +307,24 @@ export function NotesPanel({
 
       {report && report.originalChars > 0 ? (
         <div className="condense-card">
+          {report.degraded && report.degraded.length > 0 ? (
+            <div className="degraded-banner" role="alert">
+              <strong>{t('这次生成不完整')}</strong>
+              <span>
+                {degradedSummary(report)} {t('失败，失败的小节可能保留了原文，卡片可能退化成了本地兜底结果。建议重试，或换一个更稳定的模型。')}
+              </span>
+            </div>
+          ) : null}
           <div className="condense-head">
-            <span>读薄</span>
+            <span>{t('读薄')}</span>
             <span>
-              {report.originalChars.toLocaleString()} → {report.condensedChars.toLocaleString()} 字 ·{' '}
+              {report.originalChars.toLocaleString()} → {report.condensedChars.toLocaleString()} {t('字')} ·{' '}
               {report.ratio > 0 ? `1/${report.ratio.toFixed(1)}` : '—'}
             </span>
           </div>
           <div
             className="condense-ratio-bar"
-            title={`读薄稿约为原文的 ${Math.round((report.condensedChars / Math.max(1, report.originalChars)) * 100)}%`}
+            title={`${t('读薄稿约为原文的')} ${Math.round((report.condensedChars / Math.max(1, report.originalChars)) * 100)}%`}
           >
             <span
               style={{
@@ -289,18 +333,30 @@ export function NotesPanel({
             />
           </div>
           <div className="condense-meta">
-            {report.sections} 节 · {report.cards} 张核心卡片 · {report.divergences} 条延伸
-            {report.fidelityMissing > 0 ? ` · 审计补遗 ${report.fidelityMissing} 条` : ''}
-            {report.omitted > 0 ? ` · 未采纳 ${report.omitted} 处` : ''}
+            {report.sections} {t('节')} · {report.cards} {t('张核心卡片')} · {report.divergences} {t('条延伸')}
+            {report.fidelityMissing > 0 ? ` · ${t('审计补遗')} ${report.fidelityMissing} ${t('条')}` : ''}
+            {report.omitted > 0 ? ` · ${t('未采纳')} ${report.omitted} ${t('处')}` : ''}
             {report.durationMs > 0
-              ? ` · 用时 ${report.durationMs < 10000 ? (report.durationMs / 1000).toFixed(1) : Math.round(report.durationMs / 1000)}s`
+              ? ` · ${t('用时')} ${report.durationMs < 10000 ? (report.durationMs / 1000).toFixed(1) : Math.round(report.durationMs / 1000)}s`
               : ''}
-            {report.mode === 'fast' ? ' · 快速' : report.mode === 'deep' ? ' · 精读' : report.mode === 'standard' ? ' · 标准' : ''}
-            {report.usage?.totalTokens ? ` · ${report.usage.totalTokens.toLocaleString()} tokens` : ''}
+            {report.mode === 'fast' ? ` · ${t('快速')}` : report.mode === 'deep' ? ` · ${t('精读')}` : report.mode === 'standard' ? ` · ${t('标准')}` : ''}
+            {report.cached
+              ? ` · ${t('缓存命中')}${report.cachedTokens ? ` · ${t('省')} ${report.cachedTokens.toLocaleString()} tokens` : ''}`
+              : report.usage?.totalTokens
+                ? ` · ${report.usage.totalTokens.toLocaleString()} tokens`
+                : ''}
           </div>
+          {report.cached ? (
+            <div className="condense-cached">
+              <span>{t('这次直接复用了同一章、同一模型的上次结果。')}</span>
+              <button type="button" className="text-button" onClick={() => onGenerate(true)}>
+                {t('强制重新生成')}
+              </button>
+            </div>
+          ) : null}
           {report.omittedItems && report.omittedItems.length > 0 ? (
             <details className="omitted-details">
-              <summary>查看未采纳的 {report.omittedItems.length} 处原文</summary>
+              <summary>{t('查看未采纳的')} {report.omittedItems.length} {t('处原文')}</summary>
               <ul>
                 {report.omittedItems.map((item, index) => (
                   <li key={index}>
@@ -316,17 +372,17 @@ export function NotesPanel({
 
       {!generating && notes.length === 0 ? (
         <div className="notes-empty">
-          <p className="notes-empty-title">这一章还没有读薄稿</p>
-          <p>AI 会先把这一章重写成可发博客的读薄稿（只保留断言、并列改列表，压缩幅度由内容密度决定），再从稿子里用「不知道它是否影响全文理解」的标准提炼 5–25 张核心卡片，最后做最多 3 条延伸。</p>
+          <p className="notes-empty-title">{t('这一章还没有读薄稿')}</p>
+          <p>{t('AI 会先把这一章重写成可发博客的读薄稿（只保留断言、并列改列表，压缩幅度由内容密度决定），再从稿子里用「不知道它是否影响全文理解」的标准提炼 5–25 张核心卡片，最后做最多 3 条延伸。')}</p>
           <p className="field-hint">
-            当前档位：{generationMode === 'fast' ? '快速（跳过回查和延伸）' : generationMode === 'deep' ? '精读（额外细节回查）' : '标准'}，可在右上角设置里调整。
+            {t('当前档位')}：{generationMode === 'fast' ? t('快速（跳过回查和延伸）') : generationMode === 'deep' ? t('精读（额外细节回查）') : t('标准')}{t('，可在右上角设置里调整。')}
           </p>
           <div className="notes-empty-actions">
-            <button type="button" className="primary-button" onClick={onGenerate}>
-              ✦ 读薄并提炼
+            <button type="button" className="primary-button" onClick={() => onGenerate()}>
+              {t('✦ 读薄并提炼')}
             </button>
             <button type="button" className="ghost-button" onClick={() => void addNote()}>
-              自己写一条
+              {t('自己写一条')}
             </button>
           </div>
         </div>
@@ -335,26 +391,26 @@ export function NotesPanel({
       {condensedNote ? (
         <section className="condensed-section">
           <div className="note-group-head">
-            <span>读薄稿</span>
+            <span>{t('读薄稿')}</span>
             <div className="condensed-tools">
               {report && report.ratio > 0 ? <span className="muted">约 1/{report.ratio.toFixed(1)}</span> : null}
               <Checkbox
                 className="export-check"
                 checked={includeCards}
                 onChange={setIncludeCards}
-                label="附卡片"
+                label={t('附卡片')}
               />
               <button type="button" className="text-button" onClick={() => onShare(condensedNote)}>
-                分享
+                {t('分享')}
               </button>
               <button type="button" className="text-button" onClick={() => onListen(condensedNote.content)}>
-                朗读
+                {t('朗读')}
               </button>
               <button type="button" className="text-button" onClick={() => void copyDraft()}>
-                {exportState === 'copied' ? '已复制' : '复制'}
+                {exportState === 'copied' ? t('已复制') : t('复制')}
               </button>
               <button type="button" className="text-button" onClick={() => void exportDraft()}>
-                {exportState === 'saved' ? '已导出' : '导出 .md'}
+                {exportState === 'saved' ? t('已导出') : t('导出 .md')}
               </button>
             </div>
           </div>
@@ -366,20 +422,20 @@ export function NotesPanel({
       {marks.length > 0 ? (
         <section className="reader-marks-section">
           <div className="note-group-head">
-            <span>划词标记</span>
+            <span>{t('划词标记')}</span>
             <span className="muted">{marks.length}</span>
           </div>
           <div className="reader-mark-list">
             {marks.map((mark) => (
               <div key={mark.id} className="reader-mark-row">
                 <span className={`reader-mark-style style-${mark.style}`}>
-                  {mark.style === 'highlight' ? '高亮' : mark.style === 'underline' ? '划线' : '删除线'}
+                  {mark.style === 'highlight' ? t('高亮') : mark.style === 'underline' ? t('划线') : t('删除线')}
                 </span>
                 <button type="button" className="reader-mark-quote" onClick={() => onRevealMark(mark.quote)}>
                   {mark.quote}
                 </button>
                 <button type="button" className="text-button muted" onClick={() => onDeleteMark(mark.id)}>
-                  移除
+                  {t('移除')}
                 </button>
               </div>
             ))}
@@ -387,26 +443,40 @@ export function NotesPanel({
         </section>
       ) : null}
 
-      {renderGroup('摘要', summaryNotes)}
-      {renderGroup('核心知识点', pointNotes)}
-      {renderGroup('问题', questionNotes)}
-      {renderGroup('我的笔记', mineNotes)}
+      {renderGroup(t('摘要'), summaryNotes)}
+      {evidenceNotes.length > 0 ? (
+        <section className="evidence-summary" aria-label={t('原文依据核查')}>
+          <div>
+            <strong>{t('依据核查')}</strong>
+            <span>
+              {evidenceVerified.length}/{evidenceWithQuote.length} {t('已核对')} · {evidenceUnverified.length} {t('待核对')} · {evidenceMissing.length} {t('无依据')}
+            </span>
+          </div>
+          <button type="button" className="text-button" aria-pressed={verifyOnly} onClick={() => setVerifyOnly((value) => !value)}>
+            {verifyOnly ? t('显示全部卡片') : t('只看待核对')}
+          </button>
+        </section>
+      ) : null}
+      {renderGroup(t('核心知识点'), pointNotesForDisplay)}
+      {verifyOnly && pointNotesForDisplay.length === 0 ? <p className="note-empty">{t('这张章节没有待核对的知识点。')}</p> : null}
+      {renderGroup(t('问题'), questionNotes)}
+      {renderGroup(t('我的笔记'), mineNotes)}
 
       {!generating && notes.length > 0 ? (
         <button type="button" className="add-note-button" onClick={() => void addNote()}>
-          ＋ 添加一条自己的笔记
+          {t('＋ 添加一条自己的笔记')}
         </button>
       ) : null}
 
       {related.length > 0 ? (
         <section className="related-section">
           <div className="note-group-head">
-            <span>这本书里的相关笔记</span>
+            <span>{t('这本书里的相关笔记')}</span>
             <span className="muted">{related.length}</span>
           </div>
           {related.map((note) => (
             <button key={note.id} type="button" className="related-card" onClick={() => onOpenNote(note)}>
-              <span className="related-chapter">{note.chapterId ? (chapterTitles[note.chapterId] ?? '其他章节') : '其他章节'}</span>
+              <span className="related-chapter">{note.chapterId ? (chapterTitles[note.chapterId] ?? t('其他章节')) : t('其他章节')}</span>
               <span className="related-title">{note.title}</span>
               <span className="related-snippet">{snippet(note.content)}</span>
               {note.tags.length > 0 ? (
@@ -426,7 +496,7 @@ export function NotesPanel({
       {crossBookNotes.length > 0 ? (
         <section className="related-section crossbook-section">
           <div className="note-group-head">
-            <span>其他书里的相关笔记</span>
+            <span>{t('其他书里的相关笔记')}</span>
             <span className="muted">{crossBookNotes.length}</span>
           </div>
           {crossBookNotes.map((note) => (
@@ -444,3 +514,5 @@ export function NotesPanel({
     </div>
   )
 }
+
+export const NotesPanel = memo(NotesPanelImpl)

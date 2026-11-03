@@ -81,6 +81,7 @@ export const PlainSans: Story = {
       paragraphSpacing: 1.2,
       indent: false,
       theme: 'plain',
+      maxWidth: 760,
     } satisfies ReaderStyle,
   },
 }

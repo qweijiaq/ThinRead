@@ -8,6 +8,7 @@ import type {
   ContentStatus,
 } from '../../shared/types.js'
 import { notifyContentCurrent } from '../lib/content-events.js'
+import { countUnit, t, useLocale } from '../lib/i18n.js'
 import { confirmDialog } from './ConfirmDialog.js'
 import { Select } from './Select.js'
 import { CONTENT_KIND_LABELS, contentSnippet, contentToMarkdown } from '../lib/content-view.js'
@@ -69,6 +70,7 @@ function sourceLabel(item: ContentItem): string {
 }
 
 export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppliedSource }: ContentViewProps): JSX.Element {
+  useLocale()
   const [items, setItems] = useState<ContentItem[]>([])
   const [selectedId, setSelectedId] = useState('')
   const [query, setQuery] = useState('')
@@ -175,7 +177,7 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
         setItems((current) => current.filter((row) => row.id !== item.id))
         setTotal((current) => Math.max(0, current - 1))
       }
-      setNotice(nextStatus === 'archived' ? '已归档。' : nextStatus === 'deleted' ? '已放入回收站。' : '已恢复。')
+      setNotice(nextStatus === 'archived' ? t('已归档。') : nextStatus === 'deleted' ? t('已放入回收站。') : t('已恢复。'))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -185,9 +187,9 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
 
   async function remove(item: ContentItem): Promise<void> {
     const confirmed = await confirmDialog({
-      title: '删除生成内容',
-      message: `删除「${item.title}」？它会进入回收站，之后还可以恢复。`,
-      confirmLabel: '删除',
+      title: t('删除生成内容'),
+      message: `${t('删除')}「${item.title}」${t('？它会进入回收站，之后还可以恢复。')}`,
+      confirmLabel: t('删除'),
       danger: true,
     })
     if (!confirmed) return
@@ -196,11 +198,11 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
 
   async function apply(item: ContentItem, action: ContentApplyAction): Promise<void> {
     if (action === 'source') {
-      const label = item.kind === 'format' ? '应用这次排版会覆盖当前章节的排版' : '恢复这组笔记会替换本章未人工修改的 AI 笔记'
+      const label = item.kind === 'format' ? t('应用这次排版会覆盖当前章节的排版') : t('恢复这组笔记会替换本章未人工修改的 AI 笔记')
       const confirmed = await confirmDialog({
-        title: '应用生成内容',
-        message: `${label}，确定继续？`,
-        confirmLabel: '应用',
+        title: t('应用生成内容'),
+        message: `${label}${t('，确定继续？')}`,
+        confirmLabel: t('应用'),
         danger: item.kind === 'format',
       })
       if (!confirmed) return
@@ -225,7 +227,7 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
     setError(null)
     try {
       await window.api.copyText(contentToMarkdown(item))
-      setNotice('内容已复制。')
+      setNotice(t('内容已复制。'))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
@@ -236,7 +238,7 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
     try {
       const name = `${item.title}.md`.replace(/[\\/:*?"<>|#%{}]/g, ' ').replace(/\s+/g, ' ').trim()
       const saved = await window.api.saveMarkdown(name, contentToMarkdown(item))
-      if (saved.saved) setNotice(`已导出到 ${saved.path}`)
+      if (saved.saved) setNotice(`${t('已导出到')} ${saved.path}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
@@ -249,11 +251,11 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
     <main className="content-view">
       <div className="content-head">
         <div>
-          <h1>生成内容库</h1>
-          <p>所有 AI 生成的结果都在这里；可以收藏、归档、删除，或重新应用到章节和笔记。</p>
+          <h1>{t('生成内容库')}</h1>
+          <p>{t('所有 AI 生成的结果都在这里；可以收藏、归档、删除，或重新应用到章节和笔记。')}</p>
         </div>
         <button type="button" className="ghost-button" onClick={onBack}>
-          返回
+          {t('返回')}
         </button>
       </div>
 
@@ -262,35 +264,35 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
           className="notes-filter-input"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="搜索标题或正文…"
+          placeholder={t('搜索标题或正文…')}
         />
         <Select
           className="filter-select"
           value={kind}
           onChange={(value) => setKind(value as ContentKind | '')}
-          ariaLabel="内容类型"
-          options={KIND_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+          ariaLabel={t('内容类型')}
+          options={KIND_OPTIONS.map((option) => ({ value: option.value, label: t(option.label) }))}
         />
         <Select
           className="filter-select"
           value={bookId}
           onChange={setBookId}
-          ariaLabel="按书筛选"
-          options={[{ value: '', label: '全部书' }, ...books.map((book) => ({ value: book.id, label: book.title }))]}
+          ariaLabel={t('按书筛选')}
+          options={[{ value: '', label: t('全部书') }, ...books.map((book) => ({ value: book.id, label: book.title }))]}
         />
         <Select
           className="filter-select"
           value={status}
           onChange={(value) => setStatus(value as StatusFilter)}
-          ariaLabel="内容状态"
-          options={STATUS_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+          ariaLabel={t('内容状态')}
+          options={STATUS_OPTIONS.map((option) => ({ value: option.value, label: t(option.label) }))}
         />
         <button
           type="button"
           className={`ghost-button small${favoriteOnly ? ' is-active' : ''}`}
           onClick={() => setFavoriteOnly((value) => !value)}
         >
-          ★ 收藏
+          ★ {t('收藏')}
         </button>
         <button
           type="button"
@@ -298,9 +300,9 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
           onClick={() => setListCollapsed((value) => !value)}
           aria-pressed={listCollapsed}
         >
-          {listCollapsed ? '展开列表' : '收起列表'}
+          {listCollapsed ? t('展开列表') : t('收起列表')}
         </button>
-        <span className="content-count">{loading ? '加载中…' : `${total} 条`}</span>
+        <span className="content-count">{loading ? t('加载中…') : `${total} ${countUnit(total, t('条'), t('条一'))}`}</span>
       </div>
 
       {error ? <div className="inline-error" role="alert">{error}</div> : null}
@@ -309,7 +311,7 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
       <div className={`content-layout${listCollapsed ? ' is-list-collapsed' : ''}`}>
         <div className="content-list">
           {!loading && items.length === 0 ? (
-            <p className="content-empty">还没有符合条件的生成内容。去阅读、出题或工作台生成一次吧。</p>
+            <p className="content-empty">{t('还没有符合条件的生成内容。去阅读、出题或工作台生成一次吧。')}</p>
           ) : null}
           {items.map((item) => (
             <button
@@ -323,12 +325,12 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
               }}
             >
               <span className="content-row-top">
-                <span className={`content-kind kind-${item.kind}`}>{CONTENT_KIND_LABELS[item.kind]}</span>
+                <span className={`content-kind kind-${item.kind}`}>{t(CONTENT_KIND_LABELS[item.kind])}</span>
                 <span className="content-row-title">{item.title}</span>
                 {item.favorite ? <span className="content-star">★</span> : null}
               </span>
               <span className="content-row-meta">
-                {sourceLabel(item)} · {formatDate(item.updatedAt)} · {STATUS_LABEL[item.status]}
+                {sourceLabel(item)} · {formatDate(item.updatedAt)} · {t(STATUS_LABEL[item.status])}
               </span>
               <span className="content-row-snippet">{contentSnippet(item)}</span>
             </button>
@@ -336,7 +338,7 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
           {Math.ceil(total / PAGE_SIZE) > 1 ? (
             <div className="content-pager">
               <button type="button" disabled={page === 0} onClick={() => setPage((current) => Math.max(0, current - 1))}>
-                上一页
+                {t('上一页')}
               </button>
               <span>
                 {page + 1} / {Math.ceil(total / PAGE_SIZE)}
@@ -346,7 +348,7 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
                 disabled={page + 1 >= Math.ceil(total / PAGE_SIZE)}
                 onClick={() => setPage((current) => current + 1)}
               >
-                下一页
+                {t('下一页')}
               </button>
             </div>
           ) : null}
@@ -357,11 +359,11 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
             <>
               <div className="content-detail-head">
                 <div>
-                  <span className={`content-kind kind-${selected.kind}`}>{CONTENT_KIND_LABELS[selected.kind]}</span>
+                  <span className={`content-kind kind-${selected.kind}`}>{t(CONTENT_KIND_LABELS[selected.kind])}</span>
                   <h2>{selected.title}</h2>
                   <p>
-                    {sourceLabel(selected)} · {formatDate(selected.updatedAt)} · {STATUS_LABEL[selected.status]}
-                    {selected.appliedNoteId ? ' · 已存为笔记' : ''}
+                    {sourceLabel(selected)} · {formatDate(selected.updatedAt)} · {t(STATUS_LABEL[selected.status])}
+                    {selected.appliedNoteId ? ` · ${t('已存为笔记')}` : ''}
                   </p>
                 </div>
                 <button
@@ -369,8 +371,8 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
                   className={`icon-button content-favorite${selected.favorite ? ' is-on' : ''}`}
                   onClick={() => void toggleFavorite(selected)}
                   disabled={busy === `favorite:${selected.id}`}
-                  title={selected.favorite ? '取消收藏' : '收藏'}
-                  aria-label={selected.favorite ? '取消收藏' : '收藏'}
+                  title={selected.favorite ? t('取消收藏') : t('收藏')}
+                  aria-label={selected.favorite ? t('取消收藏') : t('收藏')}
                 >
                   {selected.favorite ? '★' : '☆'}
                 </button>
@@ -383,7 +385,7 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
                   onClick={() => void apply(selected, 'note')}
                   disabled={busy !== null || selected.status === 'deleted'}
                 >
-                  {busy === `apply:note:${selected.id}` ? '保存中…' : '存为笔记'}
+                  {busy === `apply:note:${selected.id}` ? t('保存中…') : t('存为笔记')}
                 </button>
                 {canApplySource ? (
                   <button
@@ -392,7 +394,7 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
                     onClick={() => void apply(selected, 'source')}
                     disabled={busy !== null || selected.status === 'deleted'}
                   >
-                    {busy === `apply:source:${selected.id}` ? '应用中…' : '应用到章节'}
+                    {busy === `apply:source:${selected.id}` ? t('应用中…') : t('应用到章节')}
                   </button>
                 ) : null}
                 {canSetCurrent ? (
@@ -402,14 +404,14 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
                     onClick={() => void apply(selected, 'current')}
                     disabled={busy !== null || selected.status === 'deleted'}
                   >
-                    {busy === `apply:current:${selected.id}` ? '设置中…' : '设为当前'}
+                    {busy === `apply:current:${selected.id}` ? t('设置中…') : t('设为当前')}
                   </button>
                 ) : null}
                 <button type="button" className="ghost-button small" onClick={() => void copy(selected)}>
-                  复制
+                  {t('复制')}
                 </button>
                 <button type="button" className="ghost-button small" onClick={() => void exportItem(selected)}>
-                  导出 .md
+                  {t('导出 .md')}
                 </button>
                 {selected.bookId ? (
                   <button
@@ -417,7 +419,7 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
                     className="ghost-button small"
                     onClick={() => onOpenSource(selected.bookId!, selected.chapterId)}
                   >
-                    打开来源
+                    {t('打开来源')}
                   </button>
                 ) : null}
                 {selected.status === 'deleted' || selected.status === 'archived' ? (
@@ -427,7 +429,7 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
                     onClick={() => void changeStatus(selected, 'draft')}
                     disabled={busy !== null}
                   >
-                    恢复
+                    {t('恢复')}
                   </button>
                 ) : (
                   <button
@@ -436,7 +438,7 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
                     onClick={() => void changeStatus(selected, 'archived')}
                     disabled={busy !== null}
                   >
-                    归档
+                    {t('归档')}
                   </button>
                 )}
                 {selected.status !== 'deleted' ? (
@@ -446,7 +448,7 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
                     onClick={() => void remove(selected)}
                     disabled={busy !== null}
                   >
-                    删除
+                    {t('删除')}
                   </button>
                 ) : null}
               </div>
@@ -456,7 +458,7 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
               </div>
             </>
           ) : (
-            <p className="content-empty">从左侧选择一条生成内容查看。</p>
+            <p className="content-empty">{t('从左侧选择一条生成内容查看。')}</p>
           )}
         </section>
       </div>

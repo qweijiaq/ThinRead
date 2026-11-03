@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
 import { createPortal } from 'react-dom'
 
+import { t, useLocale } from '../lib/i18n.js'
 import { useDialogFocus } from '../lib/useDialogFocus.js'
 
 export interface ConfirmRequest {
@@ -30,6 +31,7 @@ export function confirmDialog(request: ConfirmRequest): Promise<boolean> {
 }
 
 export function ConfirmHost(): JSX.Element | null {
+  useLocale()
   const [pending, setPending] = useState<PendingConfirm | null>(null)
   const confirmRef = useRef<HTMLButtonElement | null>(null)
   const dialogRef = useDialogFocus<HTMLDivElement>(Boolean(pending), () => finish(false), 'button.primary-button')
@@ -77,11 +79,11 @@ export function ConfirmHost(): JSX.Element | null {
         aria-describedby="confirm-message"
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <h2 id="confirm-title">{request.title ?? '确认操作'}</h2>
+        <h2 id="confirm-title">{t(request.title ?? '确认操作')}</h2>
         <p id="confirm-message">{request.message}</p>
         <div className="confirm-actions">
           <button type="button" className="ghost-button" onClick={() => finish(false)}>
-            {request.cancelLabel ?? '取消'}
+            {t(request.cancelLabel ?? '取消')}
           </button>
           <button
             ref={confirmRef}
@@ -89,7 +91,7 @@ export function ConfirmHost(): JSX.Element | null {
             className={`primary-button${request.danger ? ' is-danger' : ''}`}
             onClick={() => finish(true)}
           >
-            {request.confirmLabel ?? '确定'}
+            {t(request.confirmLabel ?? '确定')}
           </button>
         </div>
       </div>

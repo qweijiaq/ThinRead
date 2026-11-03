@@ -11,7 +11,7 @@ const meta = {
     docs: {
       description: {
         component:
-          '直接调用 renderShareCard 的纯展示组件，不经过 ShareDialog，也不需要 Electron preload。用于检查五种模板与 paper/ink 两套配色。',
+          '直接调用 renderShareCard 的纯展示组件，不经过 ShareDialog，也不需要 Electron preload。用于检查六种模板与 paper/ink 两套配色。',
       },
     },
   },

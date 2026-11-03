@@ -59,6 +59,7 @@ interface PlanInput {
   chapters: ChapterMeta[]
   notes: Note[]
   title?: string
+  concise?: boolean
   measure: MeasureContext
 }
 
@@ -128,6 +129,10 @@ function wrapLines(ctx: MeasureContext, text: string, width: number, size: numbe
       if (line && !line.endsWith(' ')) line += ' '
       continue
     }
+    if (!line.trim() && lines.length > 0 && /^[，。！？；：、）》」』】…·,.;:!?)]$/.test(token)) {
+      lines[lines.length - 1] += token
+      continue
+    }
     const next = line + token
     if (ctx.measureText(next).width > width && line.trim()) {
       lines.push(line.trimEnd())
@@ -137,7 +142,41 @@ function wrapLines(ctx: MeasureContext, text: string, width: number, size: numbe
     }
   }
   if (line.trim()) lines.push(line.trimEnd())
-  return lines
+  // 兜底：把仍然落在行首的标点挪回上一行。
+  for (let index = 1; index < lines.length; index++) {
+    while (/^[，。！？；：、）》」』】…·,.;:!?)]/.test(lines[index]!)) {
+      lines[index - 1] += lines[index]![0]
+      lines[index] = lines[index]!.slice(1).trimStart()
+      if (!lines[index]) {
+        lines.splice(index, 1)
+        index--
+        break
+      }
+    }
+  }
+  return lines.filter((line) => line.length > 0)
+}
+
+function summarizeBody(text: string, maxChars = 120): string {
+  const flat = flatten(text)
+  if (flat.length <= maxChars) return flat
+  const sentences = flat
+    .split(/(?<=[。！？!?])/)
+    .map((sentence) => sentence.trim())
+    .filter((sentence) => sentence.length >= 10)
+  if (sentences.length === 0) return `${flat.slice(0, maxChars - 1)}…`
+  const scored = sentences.map((sentence, index) => ({
+    sentence,
+    index,
+    score: (/(不是|而是|真正|关键|方法|本质|应该|所以|只有|意味着)/.test(sentence) ? 2 : 0) + sentence.length / 60,
+  }))
+  const picked = scored
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 2)
+    .sort((a, b) => a.index - b.index)
+    .map((item) => item.sentence)
+    .join('')
+  return picked.length > maxChars ? `${picked.slice(0, maxChars - 1)}…` : picked
 }
 
 function splitLead(content: string): { heading: string; body: string } {
@@ -152,7 +191,12 @@ function splitLead(content: string): { heading: string; body: string } {
 }
 
 function normalizeCard(note: Note, number: number, bookTitle: string, chapterTitle: string | null): XhsCarouselCard | null {
-  const content = flatten(note.content)
+  const content = flatten(
+    note.content
+      .replace(/^#{1,6}\s+/gm, '')
+      .replace(/(\*\*|__)(.*?)\1/g, '$2')
+      .replace(/`([^`]+)`/g, '$1'),
+  )
   if (!content) return null
   const title = flatten(note.title)
   let heading = title
@@ -164,10 +208,12 @@ function normalizeCard(note: Note, number: number, bookTitle: string, chapterTit
   } else {
     body = content
   }
+  if (body && body.length > 180) body = summarizeBody(body, 180)
+  const shortHeading = flatten(heading)
   return {
     id: note.id,
     number,
-    heading: heading || content.slice(0, 48),
+    heading: shortHeading.length > 80 ? `${shortHeading.slice(0, 79)}…` : shortHeading || content.slice(0, 48),
     body,
     tags: note.tags.slice(0, 4),
     chapterId: note.chapterId,
@@ -286,13 +332,18 @@ export function planXhsCarousel(input: PlanInput): XhsCarouselPlan {
       if (card) cards.push(card)
     }
   }
+  const selectedCards = input.concise ? cards.slice(0, 3) : cards
   const contentPages = groups.flatMap((group) => {
-    const groupCards = cards.filter((card) =>
+    const groupCards = selectedCards.filter((card) =>
       group.notes.some((note) => note.id === card.id),
     )
     return packCards(groupCards, group.chapterTitle, input.measure)
   })
-  const chapterTitles = [...new Set(cards.map((card) => card.chapterTitle).filter(Boolean))] as string[]
+  const singleCardPages = contentPages.flatMap((page) =>
+    page.parts.map((part) => ({ ...page, parts: [part] })),
+  )
+  const effectivePages = singleCardPages.length + 2 <= 18 ? singleCardPages : contentPages
+  const chapterTitles = [...new Set(selectedCards.map((card) => card.chapterTitle).filter(Boolean))] as string[]
   const title = input.title?.trim() || (input.scope === 'chapter' ? input.chapterTitle ?? input.bookTitle : input.bookTitle)
   const subtitle =
     input.scope === 'chapter'
@@ -300,15 +351,15 @@ export function planXhsCarousel(input: PlanInput): XhsCarouselPlan {
       : `${input.author || '未署名'} · ${chapterTitles.length} 节`
   const pages: XhsCarouselPage[] = [
     { kind: 'cover', chapterTitle: null, parts: [] },
-    ...contentPages,
+    ...effectivePages,
     { kind: 'closing', chapterTitle: null, parts: [] },
   ]
-  const covered = new Set(contentPages.flatMap((page) => page.parts.map((part) => part.cardId))).size
+  const covered = new Set(effectivePages.flatMap((page) => page.parts.map((part) => part.cardId))).size
   const warnings: string[] = []
-  if (cards.length === 0) warnings.push('还没有核心知识点卡片。')
+  if (selectedCards.length === 0) warnings.push('还没有核心知识点卡片。')
   if (pages.length > 18) warnings.push(`共 ${pages.length} 页，小红书单篇最多 18 张，建议按章节生成或分多篇发布。`)
-  if (cards.length > 60) warnings.push('知识点较多，整套图会很长，建议按章节拆分。')
-  if (covered !== cards.length) warnings.push(`有 ${cards.length - covered} 个知识点没有排进页面。`)
+  if (selectedCards.length > 60) warnings.push('知识点较多，整套图会很长，建议按章节拆分。')
+  if (covered !== selectedCards.length) warnings.push(`有 ${selectedCards.length - covered} 个知识点没有排进页面。`)
 
   return {
     scope: input.scope,
@@ -316,10 +367,10 @@ export function planXhsCarousel(input: PlanInput): XhsCarouselPlan {
     subtitle,
     bookTitle: input.bookTitle,
     author: input.author,
-    cards,
+    cards: selectedCards,
     pages,
     chapterTitles,
-    totalCards: cards.length,
+    totalCards: selectedCards.length,
     coveredCards: covered,
     warnings,
   }
@@ -450,28 +501,42 @@ function drawCover(ctx: CanvasRenderingContext2D, plan: XhsCarouselPlan, palette
   ctx.lineTo(PAGE_WIDTH - RIGHT, titleBottom + 150)
   ctx.stroke()
 
-  const listTop = Math.max(titleBottom + 194, 580)
-  const titles = plan.chapterTitles.slice(0, 8)
-  ctx.fillStyle = palette.muted
-  ctx.font = `600 14px ${SANS}`
-  ctx.fillText(plan.scope === 'chapter' ? 'KNOWLEDGE POINTS' : 'CHAPTERS', LEFT, listTop)
-  const items = plan.scope === 'chapter' ? plan.cards.slice(0, 6).map((card) => card.heading) : titles
-  items.forEach((item, index) => {
-    const y = listTop + 48 + index * 58
+  const listTop = Math.max(titleBottom + 188, 560)
+  const sample = plan.cards[0]
+  ctx.fillStyle = palette.accent
+  ctx.font = `600 15px ${SANS}`
+  ctx.fillText('SELECTED / 选读', LEFT, listTop)
+
+  if (sample) {
+    const quoteText = [sample.heading, sample.body].filter(Boolean).join(' ')
+    const quote = fitText(ctx, quoteText, CONTENT_WIDTH - 40, 500, 44, 28, 1.58, SERIF, '400')
+    const quoteHeight = quote.lines.length * quote.lineHeight
+    const quoteTop = listTop + 100 + Math.max(0, (PAGE_HEIGHT - 320 - (listTop + 100) - quoteHeight) / 2)
+
+    ctx.save()
     ctx.fillStyle = palette.accent
-    ctx.font = `500 16px ${SANS}`
-    ctx.fillText(String(index + 1).padStart(2, '0'), LEFT, y + 18)
+    ctx.globalAlpha = 0.16
+    ctx.font = `400 170px ${SERIF}`
+    ctx.fillText('“', LEFT - 10, quoteTop - 52)
+    ctx.restore()
+
     ctx.fillStyle = palette.ink
-    ctx.font = `500 23px ${SERIF}`
-    const clipped = item.length > 26 ? `${item.slice(0, 25)}…` : item
-    ctx.fillText(clipped, LEFT + 48, y + 18)
-    ctx.strokeStyle = palette.line
-    ctx.lineWidth = 1
-    ctx.beginPath()
-    ctx.moveTo(LEFT, y + 40)
-    ctx.lineTo(PAGE_WIDTH - RIGHT, y + 40)
-    ctx.stroke()
-  })
+    ctx.font = `400 ${quote.size}px ${SERIF}`
+    quote.lines.forEach((line, index) => ctx.fillText(line, LEFT + 24, quoteTop + index * quote.lineHeight))
+  }
+
+  ctx.save()
+  ctx.globalAlpha = 0.06
+  ctx.fillStyle = palette.ink
+  ctx.font = `700 220px ${SERIF}`
+  ctx.textAlign = 'right'
+  ctx.fillText(String(plan.totalCards).padStart(2, '0'), PAGE_WIDTH - LEFT, PAGE_HEIGHT - 260)
+  ctx.restore()
+  ctx.textAlign = 'left'
+
+  ctx.fillStyle = palette.muted
+  ctx.font = `400 17px ${SANS}`
+  ctx.fillText(`共 ${plan.totalCards} 个知识点 · 已覆盖 ${plan.coveredCards} / ${plan.totalCards}`, LEFT, PAGE_HEIGHT - 152)
 
   if (plan.warnings.length > 0) {
     ctx.fillStyle = palette.accent
@@ -496,48 +561,108 @@ function drawContent(ctx: CanvasRenderingContext2D, plan: XhsCarouselPlan, page:
   ctx.lineTo(PAGE_WIDTH - RIGHT, 200)
   ctx.stroke()
 
-  let y = 248
-  page.parts.forEach((part, index) => {
-    if (index > 0) {
-      ctx.strokeStyle = palette.line
-      ctx.lineWidth = 1
-      ctx.beginPath()
-      ctx.moveTo(LEFT, y - 14)
-      ctx.lineTo(PAGE_WIDTH - RIGHT, y - 14)
-      ctx.stroke()
-    }
+  const blockHeight = (part: XhsCarouselPart): number => {
+    const heading = part.headingLines.length * HEADING_LINE_HEIGHT
+    const body = part.bodyLines.length * BODY_LINE_HEIGHT
+    const tags = part.tags.length > 0 ? META_HEIGHT : 0
+    return heading + (heading > 0 ? 10 : 0) + body + tags + (part.continuation ? 26 : 0)
+  }
+  const contentTop = 240
+  const contentBottom = PAGE_HEIGHT - 150
+  const parts = page.parts
+  if (parts.length === 1) {
+    const part = parts[0]!
+    const headingText = part.headingLines.join(' ').trim()
+    const bodyText = part.bodyLines.join(' ').trim()
+    const heading = fitText(ctx, headingText, CONTENT_WIDTH - 120, 240, 50, 32, 1.32, SERIF, '600')
+    const body = fitText(ctx, bodyText, CONTENT_WIDTH - 120, 320, 32, 24, 1.72, SERIF, '400')
+    const headingHeight = heading.lines.length * heading.lineHeight
+    const bodyHeight = body.lines.length * body.lineHeight
+    const panelHeight = Math.max(130 + headingHeight + bodyHeight, 360)
+    const panelTop = contentTop + (contentBottom - contentTop - panelHeight) / 2
+
+    ctx.save()
+    ctx.globalAlpha = 0.065
     ctx.fillStyle = palette.accent
-    ctx.font = `500 15px ${SANS}`
-    ctx.fillText(String(part.number).padStart(2, '0'), LEFT, y + 6)
+    roundRect(ctx, LEFT - 22, panelTop, CONTENT_WIDTH + 44, panelHeight, 24)
+    ctx.fill()
+    ctx.restore()
+    ctx.fillStyle = palette.accent
+    ctx.fillRect(LEFT - 22, panelTop, 6, panelHeight)
+
+    let cursor = panelTop + (panelHeight - (headingHeight + bodyHeight + 80)) / 2
+    ctx.fillStyle = palette.accent
+    ctx.font = `600 17px ${SANS}`
+    ctx.fillText(String(part.number).padStart(2, '0'), LEFT + 6, cursor + 4)
+    cursor += 34
+
+    ctx.fillStyle = palette.ink
+    ctx.font = `600 ${heading.size}px ${SERIF}`
+    heading.lines.forEach((line, index) => ctx.fillText(line, LEFT + 52, cursor + index * heading.lineHeight))
+    cursor += headingHeight + 26
+
+    if (body.lines.length > 0) {
+      ctx.fillStyle = palette.soft
+      ctx.font = `400 ${body.size}px ${SERIF}`
+      body.lines.forEach((line, index) => ctx.fillText(line, LEFT + 52, cursor + index * body.lineHeight))
+      cursor += bodyHeight
+    }
+    if (part.tags.length > 0) {
+      ctx.fillStyle = palette.accent
+      ctx.font = `400 15px ${SANS}`
+      ctx.fillText(part.tags.join(' · '), LEFT + 52, cursor + 14)
+    }
+    drawFooter(ctx, palette)
+    return
+  }
+
+  const totalHeight =
+    parts.reduce((sum, part) => sum + blockHeight(part) + 40, 0) + Math.max(0, parts.length - 1) * 22
+  let y = contentTop + Math.max(0, (contentBottom - contentTop - totalHeight) / 2)
+
+  parts.forEach((part) => {
+    const height = blockHeight(part)
+    ctx.save()
+    ctx.globalAlpha = 0.055
+    ctx.fillStyle = palette.accent
+    roundRect(ctx, LEFT - 22, y - 20, CONTENT_WIDTH + 44, height + 40, 18)
+    ctx.fill()
+    ctx.restore()
+    ctx.fillStyle = palette.accent
+    ctx.fillRect(LEFT - 22, y - 20, 4, height + 40)
+
+    ctx.fillStyle = palette.accent
+    ctx.font = `600 15px ${SANS}`
+    ctx.fillText(String(part.number).padStart(2, '0'), LEFT, y + 4)
+    let cursor = y
     if (part.continuation) {
       ctx.fillStyle = palette.muted
       ctx.font = `400 14px ${SANS}`
-      ctx.fillText('续', LEFT, y + 30)
-      y += 36
+      ctx.fillText('续', LEFT, y + 26)
+      cursor += 26
     }
     if (part.headingLines.length > 0) {
       ctx.fillStyle = palette.ink
       ctx.font = `600 ${HEADING_SIZE}px ${SERIF}`
       part.headingLines.forEach((line, lineIndex) => {
-        ctx.fillText(line, LEFT + 54, y + lineIndex * HEADING_LINE_HEIGHT)
+        ctx.fillText(line, LEFT + 52, cursor + lineIndex * HEADING_LINE_HEIGHT)
       })
-      y += part.headingLines.length * HEADING_LINE_HEIGHT + 8
+      cursor += part.headingLines.length * HEADING_LINE_HEIGHT + 10
     }
     if (part.bodyLines.length > 0) {
       ctx.fillStyle = palette.soft
       ctx.font = `400 ${BODY_SIZE}px ${SERIF}`
       part.bodyLines.forEach((line, lineIndex) => {
-        ctx.fillText(line, LEFT + 54, y + lineIndex * BODY_LINE_HEIGHT)
+        ctx.fillText(line, LEFT + 52, cursor + lineIndex * BODY_LINE_HEIGHT)
       })
-      y += part.bodyLines.length * BODY_LINE_HEIGHT
+      cursor += part.bodyLines.length * BODY_LINE_HEIGHT
     }
     if (part.tags.length > 0) {
       ctx.fillStyle = palette.accent
       ctx.font = `400 15px ${SANS}`
-      ctx.fillText(part.tags.join(' · '), LEFT + 54, y + 10)
-      y += META_HEIGHT
+      ctx.fillText(part.tags.join(' · '), LEFT + 52, cursor + 8)
     }
-    y += CARD_GAP
+    y += height + 40 + 22
   })
 
   drawFooter(ctx, palette)

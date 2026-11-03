@@ -19,6 +19,10 @@ import type {
   NoteKind,
   NotePatch,
   NoteReport,
+  DegradedStep,
+  GenerationMode,
+  GenerationStage,
+  TokenUsage,
   OcrJob,
   ReaderMark,
   ReaderMarkStyle,
@@ -32,6 +36,9 @@ import type {
   LabArtifact,
   PageResult,
   TagCount,
+  BackgroundTaskRecord,
+  BackgroundTaskTarget,
+  TrashedChapter,
   TrashedNote,
   ContentApplyAction,
   ContentApplyResult,
@@ -123,6 +130,44 @@ interface ChapterRow {
   note_report: string | null
 }
 
+interface ChapterMarkRow {
+  id: string
+  book_id: string
+  chapter_id: string
+  quote: string
+  style: string
+  created_at: string
+}
+
+interface ChapterBookmarkRow {
+  id: string
+  book_id: string
+  chapter_id: string
+  scroll_ratio: number
+  scroll_top: number
+  page: number | null
+  label: string
+  quote: string | null
+  created_at: string
+}
+
+interface ChapterPositionRow {
+  chapter_id: string
+  book_id: string
+  scroll_ratio: number
+  scroll_top: number
+  page: number | null
+  updated_at: string
+}
+
+interface ChapterTrashPayload {
+  chapter: ChapterRow
+  notes: NoteRow[]
+  marks: ChapterMarkRow[]
+  bookmarks: ChapterBookmarkRow[]
+  position: ChapterPositionRow | null
+}
+
 interface NoteRow {
   id: string
   book_id: string
@@ -149,6 +194,7 @@ export function initDatabase(dataDir: string): void {
   db.exec(`
     PRAGMA journal_mode = WAL;
     PRAGMA foreign_keys = ON;
+    PRAGMA busy_timeout = 5000;
 
     CREATE TABLE IF NOT EXISTS books (
       id TEXT PRIMARY KEY,
@@ -261,6 +307,27 @@ export function initDatabase(dataDir: string): void {
       deleted_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS chapter_trash (
+      id TEXT PRIMARY KEY,
+      book_id TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      deleted_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_chapter_trash_book ON chapter_trash(book_id, deleted_at DESC);
+
+    CREATE TABLE IF NOT EXISTS background_tasks (
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL,
+      book_id TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      status TEXT NOT NULL,
+      done INTEGER NOT NULL DEFAULT 0,
+      total INTEGER NOT NULL DEFAULT 0,
+      failures TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS reader_marks (
       id TEXT PRIMARY KEY,
       book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
@@ -300,11 +367,14 @@ export function initDatabase(dataDir: string): void {
   `)
   runMigrations(db)
   pruneNoteTrash()
+  pruneChapterTrash()
   pruneDeletedContent()
+  markInterruptedBackgroundTasksPaused()
+  pruneBackgroundTasks()
   optimizeDatabase()
 }
 
-export const SCHEMA_VERSION = 1
+export const SCHEMA_VERSION = 4
 
 interface SchemaMigration {
   version: number
@@ -324,6 +394,53 @@ const MIGRATIONS: SchemaMigration[] = [
       backfillChapterNoteSnapshots(conn)
     },
   },
+  {
+    version: 2,
+    run(conn) {
+      conn.exec(`
+        CREATE TABLE IF NOT EXISTS chapter_trash (
+          id TEXT PRIMARY KEY,
+          book_id TEXT NOT NULL,
+          payload TEXT NOT NULL,
+          deleted_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_chapter_trash_book ON chapter_trash(book_id, deleted_at DESC);
+      `)
+    },
+  },
+  {
+    version: 3,
+    run(conn) {
+      conn.exec(`
+        CREATE TABLE IF NOT EXISTS background_tasks (
+          id TEXT PRIMARY KEY,
+          kind TEXT NOT NULL,
+          book_id TEXT NOT NULL,
+          payload TEXT NOT NULL,
+          status TEXT NOT NULL,
+          done INTEGER NOT NULL DEFAULT 0,
+          total INTEGER NOT NULL DEFAULT 0,
+          failures TEXT NOT NULL DEFAULT '[]',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+      `)
+    },
+  },
+  {
+    version: 4,
+    // 补上列表页、回收站清理和任务查询真正用到的索引。
+    run(conn) {
+      conn.exec(`
+        CREATE INDEX IF NOT EXISTS idx_notes_updated ON notes(updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_notes_book_updated ON notes(book_id, updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_notes_chapter_created ON notes(chapter_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_note_trash_deleted ON note_trash(deleted_at);
+        CREATE INDEX IF NOT EXISTS idx_chapter_trash_deleted ON chapter_trash(deleted_at);
+        CREATE INDEX IF NOT EXISTS idx_tasks_status_updated ON background_tasks(status, updated_at);
+      `)
+    },
+  },
 ]
 
 function readSchemaVersion(conn: DatabaseSync): number {
@@ -339,7 +456,7 @@ function runMigrations(conn: DatabaseSync): void {
   let current = readSchemaVersion(conn)
   for (const migration of [...MIGRATIONS].sort((a, b) => a.version - b.version)) {
     if (migration.version <= current) continue
-    conn.exec('BEGIN')
+    conn.exec('BEGIN IMMEDIATE')
     try {
       migration.run(conn)
       conn.exec(`PRAGMA user_version = ${migration.version}`)
@@ -533,7 +650,7 @@ export function backupDatabaseTo(filePath: string): void {
 export function insertBook(book: NewBook, chapters: NewChapter[], bookId: string = crypto.randomUUID()): BookSummary {
   const conn = database()
   const now = new Date().toISOString()
-  conn.exec('BEGIN')
+  conn.exec('BEGIN IMMEDIATE')
   try {
     conn
       .prepare(
@@ -588,7 +705,7 @@ export function mergeBooks(
   const target = getBookSummary(ids[0]!)
   if (!target) throw new Error('找不到要合并的书。')
   const now = new Date().toISOString()
-  conn.exec('BEGIN')
+  conn.exec('BEGIN IMMEDIATE')
   try {
     let nextIdx =
       (conn.prepare('SELECT COALESCE(MAX(idx), -1) AS max_idx FROM chapters WHERE book_id = ?').get(target.id) as { max_idx: number })
@@ -604,6 +721,7 @@ export function mergeBooks(
       }
       conn.prepare('UPDATE notes SET book_id = ? WHERE book_id = ?').run(target.id, sourceId)
       conn.prepare('UPDATE note_trash SET book_id = ? WHERE book_id = ?').run(target.id, sourceId)
+      conn.prepare('UPDATE chapter_trash SET book_id = ? WHERE book_id = ?').run(target.id, sourceId)
       conn.prepare('DELETE FROM books WHERE id = ?').run(sourceId)
     }
     conn
@@ -639,7 +757,7 @@ export function splitBook(
   }
   const moved = chapters.slice(splitIndex)
   const now = new Date().toISOString()
-  conn.exec('BEGIN')
+  conn.exec('BEGIN IMMEDIATE')
   try {
     conn
       .prepare(
@@ -650,6 +768,7 @@ export function splitBook(
       conn.prepare('UPDATE chapters SET book_id = ?, idx = ? WHERE id = ?').run(newBookId, index, chapter.id)
       conn.prepare('UPDATE notes SET book_id = ? WHERE chapter_id = ?').run(newBookId, chapter.id)
       conn.prepare('UPDATE note_trash SET book_id = ? WHERE chapter_id = ?').run(newBookId, chapter.id)
+      conn.prepare('UPDATE chapter_trash SET book_id = ? WHERE id = ?').run(newBookId, chapter.id)
     })
     conn
       .prepare('UPDATE books SET current_chapter_id = NULL, last_opened_at = ? WHERE id = ?')
@@ -734,9 +853,13 @@ export function setBookGenre(bookId: string, genre: BookGenre): BookSummary {
   return updated
 }
 
-export function renameBook(bookId: string, title: string): BookSummary {
+export function renameBook(bookId: string, title: string, author?: string): BookSummary {
   const clean = cleanTitle(title, '书名')
-  const result = database().prepare('UPDATE books SET title = ? WHERE id = ?').run(clean, bookId)
+  const nextAuthor = author === undefined ? null : author.replace(/\s+/g, ' ').trim()
+  if (nextAuthor !== null && nextAuthor.length > 200) throw new Error('作者不能超过 200 个字。')
+  const result = database()
+    .prepare('UPDATE books SET title = ?, author = COALESCE(?, author) WHERE id = ?')
+    .run(clean, nextAuthor, bookId)
   if (Number(result.changes) === 0) throw new Error('这本书不存在。')
   const updated = getBookSummary(bookId)
   if (!updated) throw new Error('这本书不存在。')
@@ -923,6 +1046,16 @@ export function createBookmark(input: {
   label: string
   quote?: string | null
 }): BookmarkRecord {
+  const scrollTop = Math.max(0, Number(input.scrollTop) || 0)
+  const existing = database()
+    .prepare(
+      `SELECT id FROM bookmarks
+       WHERE book_id = ? AND chapter_id = ? AND ABS(scroll_top - ?) <= 12
+       ORDER BY created_at DESC LIMIT 1`,
+    )
+    .get(input.bookId, input.chapterId, scrollTop) as { id: string } | undefined
+  if (existing) return listBookmarks(input.bookId).find((item) => item.id === existing.id)!
+
   const id = crypto.randomUUID()
   const now = new Date().toISOString()
   database()
@@ -935,7 +1068,7 @@ export function createBookmark(input: {
       input.bookId,
       input.chapterId,
       Math.min(1, Math.max(0, Number(input.scrollRatio) || 0)),
-      Math.max(0, Number(input.scrollTop) || 0),
+      scrollTop,
       input.page == null ? null : Math.max(1, Math.round(input.page)),
       input.label.trim() || '书签',
       input.quote?.trim() || null,
@@ -951,11 +1084,19 @@ export function deleteBookmark(id: string): void {
 export function trashNote(noteId: string): Note | null {
   const note = getNote(noteId)
   if (!note) return null
-  database()
-    .prepare('INSERT OR REPLACE INTO note_trash (id, payload, book_id, chapter_id, deleted_at) VALUES (?, ?, ?, ?, ?)')
-    .run(note.id, JSON.stringify(note), note.bookId, note.chapterId, new Date().toISOString())
-  deleteNote(noteId)
-  return note
+  const conn = database()
+  conn.exec('BEGIN IMMEDIATE')
+  try {
+    conn
+      .prepare('INSERT OR REPLACE INTO note_trash (id, payload, book_id, chapter_id, deleted_at) VALUES (?, ?, ?, ?, ?)')
+      .run(note.id, JSON.stringify(note), note.bookId, note.chapterId, new Date().toISOString())
+    deleteNote(noteId)
+    conn.exec('COMMIT')
+    return note
+  } catch (error) {
+    conn.exec('ROLLBACK')
+    throw error
+  }
 }
 
 export function restoreTrashedNote(noteId: string): Note | null {
@@ -974,32 +1115,39 @@ export function restoreTrashedNote(noteId: string): Note | null {
       if (!chapterExists) note.chapterId = null
     }
     const conn = database()
-    conn
-      .prepare(
-        `INSERT OR REPLACE INTO notes
-         (id, book_id, chapter_id, kind, title, content, quote, quote_verified, author, edited, tags, section, importance, role, expansion, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        note.id,
-        note.bookId,
-        note.chapterId,
-        note.kind,
-        note.title,
-        note.content,
-        note.quote,
-        note.quoteVerified ? 1 : 0,
-        note.author,
-        note.edited ? 1 : 0,
-        JSON.stringify(note.tags),
-        note.section,
-        note.importance,
-        note.role,
-        JSON.stringify(note.divergences ?? []),
-        note.createdAt,
-        new Date().toISOString(),
-      )
-    conn.prepare('DELETE FROM note_trash WHERE id = ?').run(noteId)
+    conn.exec('BEGIN IMMEDIATE')
+    try {
+      conn
+        .prepare(
+          `INSERT OR REPLACE INTO notes
+           (id, book_id, chapter_id, kind, title, content, quote, quote_verified, author, edited, tags, section, importance, role, expansion, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          note.id,
+          note.bookId,
+          note.chapterId,
+          note.kind,
+          note.title,
+          note.content,
+          note.quote,
+          note.quoteVerified ? 1 : 0,
+          note.author,
+          note.edited ? 1 : 0,
+          JSON.stringify(note.tags),
+          note.section,
+          note.importance,
+          note.role,
+          JSON.stringify(note.divergences ?? []),
+          note.createdAt,
+          new Date().toISOString(),
+        )
+      conn.prepare('DELETE FROM note_trash WHERE id = ?').run(noteId)
+      conn.exec('COMMIT')
+    } catch (error) {
+      conn.exec('ROLLBACK')
+      throw error
+    }
     return getNote(noteId)
   } catch {
     return null
@@ -1098,7 +1246,7 @@ interface CurrentChapterRow {
 export function applyChapterFlags(flags: ChapterFlag[]): void {
   const conn = database()
   const books = new Set<string>()
-  conn.exec('BEGIN')
+  conn.exec('BEGIN IMMEDIATE')
   try {
     for (const flag of flags) {
       const row = conn
@@ -1124,19 +1272,43 @@ export function applyChapterFlags(flags: ChapterFlag[]): void {
   }
 }
 
-export function deleteChapters(chapterIds: string[]): void {
+export function trashChapters(chapterIds: string[]): number {
   const conn = database()
   const books = new Set<string>()
-  conn.exec('BEGIN')
+  let count = 0
+  conn.exec('BEGIN IMMEDIATE')
   try {
-    for (const chapterId of chapterIds) {
-      const row = conn.prepare('SELECT book_id FROM chapters WHERE id = ?').get(chapterId) as
-        | { book_id: string }
+    for (const chapterId of [...new Set(chapterIds)].filter(Boolean)) {
+      const chapter = conn.prepare('SELECT * FROM chapters WHERE id = ?').get(chapterId) as unknown as
+        | ChapterRow
         | undefined
-      if (!row) continue
-      books.add(row.book_id)
+      if (!chapter) continue
+      const notes = conn.prepare('SELECT * FROM notes WHERE chapter_id = ?').all(chapterId) as unknown as NoteRow[]
+      const marks = conn
+        .prepare('SELECT * FROM reader_marks WHERE chapter_id = ?')
+        .all(chapterId) as unknown as ChapterMarkRow[]
+      const bookmarks = conn
+        .prepare('SELECT * FROM bookmarks WHERE chapter_id = ?')
+        .all(chapterId) as unknown as ChapterBookmarkRow[]
+      const position = conn
+        .prepare('SELECT * FROM reading_positions WHERE chapter_id = ?')
+        .get(chapterId) as unknown as ChapterPositionRow | undefined
+      const payload: ChapterTrashPayload = {
+        chapter,
+        notes,
+        marks,
+        bookmarks,
+        position: position ?? null,
+      }
+      conn
+        .prepare('INSERT OR REPLACE INTO chapter_trash (id, book_id, payload, deleted_at) VALUES (?, ?, ?, ?)')
+        .run(chapterId, chapter.book_id, JSON.stringify(payload), new Date().toISOString())
+      // notes 的外键是 ON DELETE SET NULL；不显式删除的话，删章后笔记会留成 chapter_id 为空的孤儿，
+      // 30 天后回收站 payload 被清理，就再也挂不回任何章节了。恢复时会从 payload 重新插入。
       conn.prepare('DELETE FROM notes WHERE chapter_id = ?').run(chapterId)
       conn.prepare('DELETE FROM chapters WHERE id = ?').run(chapterId)
+      books.add(chapter.book_id)
+      count++
     }
     for (const bookId of books) ensureCurrentChapter(conn, bookId)
     conn.exec('COMMIT')
@@ -1144,6 +1316,382 @@ export function deleteChapters(chapterIds: string[]): void {
     conn.exec('ROLLBACK')
     throw error
   }
+  return count
+}
+
+/** 兼容旧调用名；删除章节现在进入回收站，不再直接落盘。 */
+export function deleteChapters(chapterIds: string[]): void {
+  trashChapters(chapterIds)
+}
+
+export const CHAPTER_TRASH_RETENTION_DAYS = 30
+
+export function listTrashedChapters(): TrashedChapter[] {
+  const rows = database()
+    .prepare(
+      `SELECT t.id, t.payload, t.deleted_at, b.title AS book_title
+       FROM chapter_trash t
+       LEFT JOIN books b ON b.id = t.book_id
+       ORDER BY t.deleted_at DESC`,
+    )
+    .all() as unknown as Array<{ id: string; payload: string; deleted_at: string; book_title: string | null }>
+  return rows.map((row) => {
+    let payload: ChapterTrashPayload | null = null
+    try {
+      payload = JSON.parse(row.payload) as ChapterTrashPayload
+    } catch {
+      // 损坏的回收站数据仍然展示，用户可以彻底删除。
+    }
+    return {
+      id: row.id,
+      title: payload?.chapter?.title || '已删除的章节',
+      bookId: payload?.chapter?.book_id ?? '',
+      bookTitle: row.book_title?.trim() || '原书已删除',
+      noteCount: Array.isArray(payload?.notes) ? payload.notes.length : 0,
+      deletedAt: row.deleted_at,
+    }
+  })
+}
+
+/**
+ * 旧版本删章时只把 chapters 行删掉，notes.chapter_id 被置空，笔记成了孤儿。
+ * 回收站 payload 里有这些笔记的 id；永久删除章节时顺手清理掉仍然挂着 NULL 的那些。
+ */
+function purgeOrphanedNotes(payloads: string[]): number {
+  const ids: string[] = []
+  for (const raw of payloads) {
+    try {
+      const payload = JSON.parse(raw) as { notes?: Array<{ id?: unknown }> }
+      for (const note of payload.notes ?? []) {
+        if (typeof note.id === 'string') ids.push(note.id)
+      }
+    } catch {
+      // 坏 payload 不影响其他章节的清理。
+    }
+  }
+  if (ids.length === 0) return 0
+  const conn = database()
+  let removed = 0
+  for (let index = 0; index < ids.length; index += 400) {
+    const chunk = ids.slice(index, index + 400)
+    const placeholders = chunk.map(() => '?').join(',')
+    const result = conn
+      .prepare(`DELETE FROM notes WHERE chapter_id IS NULL AND id IN (${placeholders})`)
+      .run(...chunk)
+    removed += Number(result.changes ?? 0)
+  }
+  return removed
+}
+
+export function pruneChapterTrash(days = CHAPTER_TRASH_RETENTION_DAYS): number {
+  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
+  const conn = database()
+  const rows = conn
+    .prepare('SELECT payload FROM chapter_trash WHERE deleted_at < ?')
+    .all(cutoff) as unknown as Array<{ payload: string }>
+  conn.exec('BEGIN IMMEDIATE')
+  try {
+    purgeOrphanedNotes(rows.map((row) => row.payload))
+    const result = conn.prepare('DELETE FROM chapter_trash WHERE deleted_at < ?').run(cutoff)
+    conn.exec('COMMIT')
+    return Number(result.changes ?? 0)
+  } catch (error) {
+    conn.exec('ROLLBACK')
+    throw error
+  }
+}
+
+export function purgeTrashedChapter(chapterId: string): void {
+  const conn = database()
+  const row = conn.prepare('SELECT payload FROM chapter_trash WHERE id = ?').get(chapterId) as
+    | { payload: string }
+    | undefined
+  conn.exec('BEGIN IMMEDIATE')
+  try {
+    if (row) purgeOrphanedNotes([row.payload])
+    conn.prepare('DELETE FROM chapter_trash WHERE id = ?').run(chapterId)
+    conn.exec('COMMIT')
+  } catch (error) {
+    conn.exec('ROLLBACK')
+    throw error
+  }
+}
+
+export function emptyChapterTrash(): number {
+  const conn = database()
+  const rows = conn.prepare('SELECT payload FROM chapter_trash').all() as unknown as Array<{ payload: string }>
+  conn.exec('BEGIN IMMEDIATE')
+  try {
+    purgeOrphanedNotes(rows.map((row) => row.payload))
+    const result = conn.prepare('DELETE FROM chapter_trash').run()
+    conn.exec('COMMIT')
+    return Number(result.changes ?? 0)
+  } catch (error) {
+    conn.exec('ROLLBACK')
+    throw error
+  }
+}
+
+interface DurableTaskRow {
+  id: string
+  kind: string
+  book_id: string
+  payload: string
+  status: string
+  done: number
+  total: number
+  failures: string
+  created_at: string
+  updated_at: string
+}
+
+function mapDurableTask(row: DurableTaskRow): BackgroundTaskRecord {
+  let targets: BackgroundTaskTarget[] = []
+  let failures: BackgroundTaskRecord['failures'] = []
+  try {
+    const payload = JSON.parse(row.payload) as { targets?: BackgroundTaskTarget[] }
+    if (Array.isArray(payload.targets)) targets = payload.targets.filter((item) => item && typeof item.id === 'string')
+  } catch {
+    // 旧任务数据损坏时仍然允许清理。
+  }
+  try {
+    const parsed = JSON.parse(row.failures) as BackgroundTaskRecord['failures']
+    if (Array.isArray(parsed)) failures = parsed
+  } catch {
+    // 忽略损坏的失败记录。
+  }
+  return {
+    id: row.id,
+    kind: row.kind === 'format' ? 'format' : 'notes',
+    bookId: row.book_id,
+    targets,
+    status:
+      row.status === 'paused' || row.status === 'done' || row.status === 'error' || row.status === 'cancelled'
+        ? row.status
+        : 'paused',
+    done: Number(row.done) || 0,
+    total: Number(row.total) || targets.length,
+    failures,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
+export function upsertBackgroundTask(input: {
+  id: string
+  kind: 'notes' | 'format'
+  bookId: string
+  targets: BackgroundTaskTarget[]
+  status: BackgroundTaskRecord['status']
+  done?: number
+  failures?: BackgroundTaskRecord['failures']
+}): void {
+  const now = new Date().toISOString()
+  database()
+    .prepare(
+      `INSERT INTO background_tasks
+       (id, kind, book_id, payload, status, done, total, failures, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         kind = excluded.kind,
+         book_id = excluded.book_id,
+         payload = excluded.payload,
+         status = excluded.status,
+         done = excluded.done,
+         total = excluded.total,
+         failures = excluded.failures,
+         updated_at = excluded.updated_at`,
+    )
+    .run(
+      input.id,
+      input.kind,
+      input.bookId,
+      JSON.stringify({ targets: input.targets }),
+      input.status,
+      input.done ?? 0,
+      input.targets.length,
+      JSON.stringify(input.failures ?? []),
+      now,
+      now,
+    )
+}
+
+export function updateBackgroundTask(
+  id: string,
+  patch: { status?: BackgroundTaskRecord['status']; done?: number; failures?: BackgroundTaskRecord['failures'] },
+): void {
+  const row = database().prepare('SELECT * FROM background_tasks WHERE id = ?').get(id) as
+    | DurableTaskRow
+    | undefined
+  if (!row) return
+  let failures = patch.failures
+  if (!failures) {
+    try {
+      const parsed = JSON.parse(row.failures || '[]') as BackgroundTaskRecord['failures']
+      failures = Array.isArray(parsed) ? parsed : []
+    } catch {
+      failures = []
+    }
+  }
+  database()
+    .prepare('UPDATE background_tasks SET status = ?, done = ?, failures = ?, updated_at = ? WHERE id = ?')
+    .run(
+      patch.status ?? row.status,
+      patch.done ?? row.done,
+      JSON.stringify(failures),
+      new Date().toISOString(),
+      id,
+    )
+}
+
+export function listBackgroundTasks(): BackgroundTaskRecord[] {
+  const rows = database()
+    .prepare('SELECT * FROM background_tasks ORDER BY updated_at DESC LIMIT 20')
+    .all() as unknown as DurableTaskRow[]
+  return rows.map(mapDurableTask)
+}
+
+/** 进程异常退出后，上次仍在 running 的任务改为 paused，等待用户继续。 */
+export function markInterruptedBackgroundTasksPaused(): void {
+  database().prepare("UPDATE background_tasks SET status = 'paused' WHERE status = 'running'").run()
+}
+
+export function pruneBackgroundTasks(days = 7): void {
+  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
+  database()
+    .prepare("DELETE FROM background_tasks WHERE status IN ('done', 'error', 'cancelled') AND updated_at < ?")
+    .run(cutoff)
+}
+
+export function restoreTrashedChapter(chapterId: string): ChapterContent | null {
+  const row = database().prepare('SELECT payload, book_id FROM chapter_trash WHERE id = ?').get(chapterId) as
+    | { payload: string; book_id: string }
+    | undefined
+  if (!row) return null
+  let payload: ChapterTrashPayload
+  try {
+    payload = JSON.parse(row.payload) as ChapterTrashPayload
+  } catch {
+    return null
+  }
+  const chapter = payload.chapter
+  if (!chapter || !row.book_id) return null
+  const book = database().prepare('SELECT 1 FROM books WHERE id = ?').get(row.book_id)
+  if (!book) return null
+  const conn = database()
+  conn.exec('BEGIN IMMEDIATE')
+  try {
+    const existing = conn
+      .prepare('SELECT 1 FROM chapters WHERE book_id = ? AND idx = ?')
+      .get(row.book_id, chapter.idx)
+    const nextIdx = existing
+      ? Number(
+          (conn.prepare('SELECT COALESCE(MAX(idx), -1) AS max_idx FROM chapters WHERE book_id = ?').get(row.book_id) as {
+            max_idx: number
+          }).max_idx,
+        ) + 1
+      : chapter.idx
+    conn
+      .prepare(
+        `INSERT OR REPLACE INTO chapters
+         (id, book_id, idx, title, text, html, chars, hidden, kind, reason, classified_by, part_title, part_index, is_part, formatted_html, format_removed, format_updated_at, note_report)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        chapter.id,
+        row.book_id,
+        nextIdx,
+        chapter.title,
+        chapter.text,
+        chapter.html,
+        chapter.chars,
+        chapter.hidden,
+        chapter.kind,
+        chapter.reason,
+        chapter.classified_by,
+        chapter.part_title,
+        chapter.part_index,
+        chapter.is_part,
+        chapter.formatted_html,
+        chapter.format_removed,
+        chapter.format_updated_at,
+        chapter.note_report,
+      )
+    for (const note of payload.notes ?? []) {
+      conn
+        .prepare(
+          `INSERT OR REPLACE INTO notes
+           (id, book_id, chapter_id, kind, title, content, quote, quote_verified, author, edited, tags, section, importance, role, expansion, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          note.id,
+          row.book_id,
+          chapter.id,
+          note.kind,
+          note.title,
+          note.content,
+          note.quote,
+          note.quote_verified,
+          note.author,
+          note.edited,
+          note.tags,
+          note.section,
+          note.importance,
+          note.role,
+          note.expansion,
+          note.created_at,
+          note.updated_at,
+        )
+    }
+    for (const mark of payload.marks ?? []) {
+      conn
+        .prepare('INSERT OR REPLACE INTO reader_marks (id, book_id, chapter_id, quote, style, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(mark.id, row.book_id, chapter.id, mark.quote, mark.style, mark.created_at)
+    }
+    for (const bookmark of payload.bookmarks ?? []) {
+      conn
+        .prepare(
+          `INSERT OR REPLACE INTO bookmarks
+           (id, book_id, chapter_id, scroll_ratio, scroll_top, page, label, quote, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          bookmark.id,
+          row.book_id,
+          chapter.id,
+          bookmark.scroll_ratio,
+          bookmark.scroll_top,
+          bookmark.page,
+          bookmark.label,
+          bookmark.quote,
+          bookmark.created_at,
+        )
+    }
+    if (payload.position) {
+      conn
+        .prepare(
+          `INSERT OR REPLACE INTO reading_positions
+           (chapter_id, book_id, scroll_ratio, scroll_top, page, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          chapter.id,
+          row.book_id,
+          payload.position.scroll_ratio,
+          payload.position.scroll_top,
+          payload.position.page,
+          payload.position.updated_at,
+        )
+    }
+    conn.prepare('DELETE FROM chapter_trash WHERE id = ?').run(chapterId)
+    ensureCurrentChapter(conn, row.book_id)
+    conn.exec('COMMIT')
+  } catch (error) {
+    conn.exec('ROLLBACK')
+    throw error
+  }
+  return getChapter(chapterId)
 }
 
 /** 当前章节被隐藏或删除时，把阅读进度挪到第一个可见章节。 */
@@ -1298,7 +1846,7 @@ export function replaceBookChapters(
 
   const created: Array<{ id: string; title: string; text: string; hidden: boolean; kind: ChapterKind }> = []
 
-  conn.exec('BEGIN')
+  conn.exec('BEGIN IMMEDIATE')
   try {
     conn.prepare('UPDATE notes SET chapter_id = NULL WHERE book_id = ?').run(bookId)
     conn.prepare('DELETE FROM chapters WHERE book_id = ?').run(bookId)
@@ -1399,11 +1947,20 @@ export function appendChapter(bookId: string, chapter: NewChapter): string {
 }
 
 export function deleteBook(bookId: string): string | null {
-  const row = database().prepare('SELECT file_path FROM books WHERE id = ?').get(bookId) as
+  const conn = database()
+  const row = conn.prepare('SELECT file_path FROM books WHERE id = ?').get(bookId) as
     | { file_path: string }
     | undefined
-  database().prepare('DELETE FROM note_trash WHERE book_id = ?').run(bookId)
-  database().prepare('DELETE FROM books WHERE id = ?').run(bookId)
+  conn.exec('BEGIN IMMEDIATE')
+  try {
+    conn.prepare('DELETE FROM note_trash WHERE book_id = ?').run(bookId)
+    conn.prepare('DELETE FROM chapter_trash WHERE book_id = ?').run(bookId)
+    conn.prepare('DELETE FROM books WHERE id = ?').run(bookId)
+    conn.exec('COMMIT')
+  } catch (error) {
+    conn.exec('ROLLBACK')
+    throw error
+  }
   return row?.file_path ?? null
 }
 
@@ -1943,18 +2500,6 @@ interface LibraryRow extends NoteRow {
   chapter_title: string | null
 }
 
-function libraryRows(): LibraryRow[] {
-  return database()
-    .prepare(
-      `SELECT n.*, b.title AS book_title, c.title AS chapter_title
-       FROM notes n
-       JOIN books b ON b.id = n.book_id
-       LEFT JOIN chapters c ON c.id = n.chapter_id
-       ORDER BY n.updated_at DESC, n.rowid DESC`,
-    )
-    .all() as unknown as LibraryRow[]
-}
-
 function mapLibraryNote(row: LibraryRow): LibraryNote {
   return {
     ...mapNote(row),
@@ -2008,10 +2553,14 @@ export function listLibraryNotes(filter: LibraryFilter = {}): LibraryNote[] {
 }
 
 export function listLibraryTags(bookId?: string | null): TagCount[] {
+  // 只读 tags 列：之前会把每条笔记的完整内容都读进内存再丢掉。
+  const conn = database()
+  const rows = (bookId
+    ? conn.prepare('SELECT tags FROM notes WHERE book_id = ?').all(bookId)
+    : conn.prepare('SELECT tags FROM notes').all()) as unknown as Array<{ tags: string }>
   const counts = new Map<string, number>()
-  for (const note of libraryRows()) {
-    if (bookId && note.book_id !== bookId) continue
-    for (const tag of parseTags(note.tags)) {
+  for (const row of rows) {
+    for (const tag of parseTags(row.tags)) {
       const text = tag.trim()
       if (text) counts.set(text, (counts.get(text) ?? 0) + 1)
     }
@@ -2565,7 +3114,7 @@ export function mergeNoteTags(tags: string[], canonical: string): number {
   const rows = conn.prepare('SELECT id, tags FROM notes').all() as unknown as Array<{ id: string; tags: string }>
   let changed = 0
   const now = new Date().toISOString()
-  conn.exec('BEGIN')
+  conn.exec('BEGIN IMMEDIATE')
   try {
     for (const row of rows) {
       const current = parseTags(row.tags)
@@ -2608,7 +3157,7 @@ export function mergeNotes(keepId: string, mergeId: string): Note {
   const importance = Math.max(keep.importance ?? 0, duplicate.importance ?? 0) || null
   const now = new Date().toISOString()
   const conn = database()
-  conn.exec('BEGIN')
+  conn.exec('BEGIN IMMEDIATE')
   try {
     conn
       .prepare(
@@ -2913,6 +3462,43 @@ function parseNoteReport(raw: string | null): NoteReport | null {
             reason: typeof item.reason === 'string' ? item.reason : '',
           }))
       : undefined
+    const usageRecord =
+      record.usage && typeof record.usage === 'object' && !Array.isArray(record.usage)
+        ? (record.usage as Record<string, unknown>)
+        : null
+    const usage: TokenUsage | undefined = usageRecord
+      ? {
+          inputTokens: Number(usageRecord.inputTokens) || 0,
+          outputTokens: Number(usageRecord.outputTokens) || 0,
+          totalTokens: Number(usageRecord.totalTokens) || 0,
+        }
+      : undefined
+    const mode: GenerationMode | undefined =
+      record.mode === 'fast' || record.mode === 'standard' || record.mode === 'deep' ? record.mode : undefined
+    const validStages = new Set<GenerationStage>([
+      'condense',
+      'audit-fidelity',
+      'audit-details',
+      'extract-cards',
+      'refilter-cards',
+      'expand-cards',
+    ])
+    const degraded: DegradedStep[] | undefined = Array.isArray(record.degraded)
+      ? record.degraded.flatMap((item): DegradedStep[] => {
+          if (!item || typeof item !== 'object') return []
+          const entry = item as Record<string, unknown>
+          const stage = entry.stage as GenerationStage
+          if (!validStages.has(stage)) return []
+          return [
+            {
+              stage,
+              failed: Number(entry.failed) || 1,
+              ...(typeof entry.total === 'number' ? { total: entry.total } : {}),
+              ...(typeof entry.message === 'string' ? { message: entry.message.slice(0, 300) } : {}),
+            },
+          ]
+        })
+      : undefined
     return {
       originalChars: num('originalChars'),
       condensedChars: num('condensedChars'),
@@ -2924,6 +3510,10 @@ function parseNoteReport(raw: string | null): NoteReport | null {
       omitted: num('omitted'),
       omittedItems,
       durationMs: num('durationMs'),
+      ...(mode ? { mode } : {}),
+      ...(usage ? { usage } : {}),
+      ...(typeof record.promptVersion === 'string' ? { promptVersion: record.promptVersion } : {}),
+      ...(degraded && degraded.length > 0 ? { degraded } : {}),
       model: typeof record.model === 'string' ? record.model : '',
       createdAt: typeof record.createdAt === 'string' ? record.createdAt : '',
     }
@@ -2967,19 +3557,27 @@ export function updateNote(noteId: string, patch: NotePatch): Note {
   const now = new Date().toISOString()
   const contentTouched = patch.title !== undefined || patch.content !== undefined || patch.quote !== undefined
   const edited = current.author === 'ai' ? (current.edited || contentTouched ? 1 : 0) : 0
-  database()
-    .prepare('UPDATE notes SET title = ?, content = ?, quote = ?, tags = ?, kind = ?, edited = ?, updated_at = ? WHERE id = ?')
-    .run(
-      patch.title ?? current.title,
-      patch.content ?? current.content,
-      patch.quote === undefined ? current.quote : patch.quote,
-      JSON.stringify(patch.tags ?? current.tags),
-      patch.kind ?? current.kind,
-      edited,
-      now,
-      noteId,
-    )
-  database().prepare('DELETE FROM note_embeddings WHERE note_id = ?').run(noteId)
+  const conn = database()
+  conn.exec('BEGIN IMMEDIATE')
+  try {
+    conn
+      .prepare('UPDATE notes SET title = ?, content = ?, quote = ?, tags = ?, kind = ?, edited = ?, updated_at = ? WHERE id = ?')
+      .run(
+        patch.title ?? current.title,
+        patch.content ?? current.content,
+        patch.quote === undefined ? current.quote : patch.quote,
+        JSON.stringify(patch.tags ?? current.tags),
+        patch.kind ?? current.kind,
+        edited,
+        now,
+        noteId,
+      )
+    conn.prepare('DELETE FROM note_embeddings WHERE note_id = ?').run(noteId)
+    conn.exec('COMMIT')
+  } catch (error) {
+    conn.exec('ROLLBACK')
+    throw error
+  }
   return getNote(noteId)
 }
 
@@ -2996,7 +3594,7 @@ export function replaceAiNotes(chapterId: string, generated: GeneratedNote[]): N
   }
   const conn = database()
   const now = new Date().toISOString()
-  conn.exec('BEGIN')
+  conn.exec('BEGIN IMMEDIATE')
   try {
     conn.prepare("DELETE FROM notes WHERE chapter_id = ? AND author = 'ai' AND edited = 0").run(chapterId)
     const insert = conn.prepare(

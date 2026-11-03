@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 
 import type { TtsEngine, TtsStatus, TtsVoice } from '../../shared/types.js'
 import { combineAudioSegments } from '../lib/audio-export.js'
+import { t, useLocale } from '../lib/i18n.js'
 import { parseListenScript, pickPodcastVoices, voiceLabel } from '../lib/listen-script.js'
 import { useDialogFocus } from '../lib/useDialogFocus.js'
 import { BeatraGuideDialog } from './BeatraGuideDialog.js'
@@ -21,25 +22,25 @@ const EDGE_DEFAULT_B = 'zh-CN-YunxiNeural'
 function loadEngine(): TtsEngine {
   try {
     const value = localStorage.getItem(TTS_ENGINE_KEY)
-    return value === 'edge' || value === 'kokoro' || value === 'beatra' ? value : 'system'
+    return value === 'edge' || value === 'beatra' || value === 'openai' ? value : 'system'
   } catch {
     return 'system'
   }
 }
 
 function engineHint(engine: TtsEngine, status: TtsStatus | null): string {
-  if (engine === 'edge') return '免费在线音色，接近播客自然度；需要联网，文本会发到 Microsoft，接口非官方，可能限流。'
+  if (engine === 'edge') return t('免费在线音色，接近播客自然度；需要联网，文本会发到 Microsoft，接口非官方，可能限流。')
   if (engine === 'beatra') {
     return status?.beatra.configured
-      ? '付费 AI 配音，自然度高；按字符计费，每次播放会发起一次付费合成，首次播放前会再次确认。'
-      : '付费 AI 配音，自然度高；需要先在设置里配置 Beatra Device Token。'
+      ? t('付费 AI 配音，自然度高；按字符计费，每次播放会发起一次付费合成，首次播放前会再次确认。')
+      : t('付费 AI 配音，自然度高；需要先在设置里配置 Beatra Device Token。')
   }
-  if (engine === 'kokoro') {
-    return status?.kokoro.ready
-      ? '完全离线、免费；首次加载本地模型较慢，之后播放不联网。'
-      : '完全离线、免费；需要先手动下载 Kokoro 中文模型和音色文件。'
+  if (engine === 'openai') {
+    return status?.openai.configured
+      ? t('OpenAI 兼容 TTS，支持 gpt-4o-mini-tts 等模型；按字符计费，文本会发到你配置的服务。')
+      : t('OpenAI 兼容 TTS；需要先在设置里填写 Base URL、模型、音色和 API Key。')
   }
-  return '离线、零依赖；音色取决于系统，机械感较明显。'
+  return t('离线、零依赖；音色取决于系统，机械感较明显。')
 }
 
 function voiceName(voices: Array<{ id: string; label: string }> | undefined, id: string): string {
@@ -47,6 +48,7 @@ function voiceName(voices: Array<{ id: string; label: string }> | undefined, id:
 }
 
 export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Element {
+  useLocale()
   const segments = useMemo(() => parseListenScript(text.slice(0, 50_000)), [text])
   const dialogue = segments.some((segment) => segment.speaker !== null)
   const chineseScript = segments.some((segment) => /[一-鿿]/.test(segment.text))
@@ -57,15 +59,16 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
   const [error, setError] = useState<string | null>(null)
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([])
   const [engine, setEngine] = useState<TtsEngine>(loadEngine)
+  const engineTouched = useRef(false)
   const [ttsStatus, setTtsStatus] = useState<TtsStatus | null>(null)
   const [edgeVoiceA, setEdgeVoiceA] = useState(EDGE_DEFAULT_A)
   const [edgeVoiceB, setEdgeVoiceB] = useState(EDGE_DEFAULT_B)
-  const [kokoroVoiceA, setKokoroVoiceA] = useState('')
-  const [kokoroVoiceB, setKokoroVoiceB] = useState('')
   const [beatraVoices, setBeatraVoices] = useState<TtsVoice[]>([])
   const [beatraVoiceA, setBeatraVoiceA] = useState('')
   const [beatraVoiceB, setBeatraVoiceB] = useState('')
   const [beatraLoadError, setBeatraLoadError] = useState<string | null>(null)
+  const [openaiVoiceA, setOpenaiVoiceA] = useState('alloy')
+  const [openaiVoiceB, setOpenaiVoiceB] = useState('verse')
   const [audioLoading, setAudioLoading] = useState(false)
   const [guideOpen, setGuideOpen] = useState(false)
   const [fullAudioUrl, setFullAudioUrl] = useState<string | null>(null)
@@ -88,15 +91,15 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
   const voiceB = voicePlan.b ? voices.find((voice) => voice.name === voicePlan.b?.name) ?? null : null
   const remoteVoice = (segmentSpeaker: 'A' | 'B' | null): string => {
     if (engine === 'edge') return segmentSpeaker === 'B' ? edgeVoiceB : edgeVoiceA
-    if (engine === 'kokoro') return segmentSpeaker === 'B' ? kokoroVoiceB : kokoroVoiceA
     if (engine === 'beatra') return segmentSpeaker === 'B' ? beatraVoiceB : beatraVoiceA
+    if (engine === 'openai') return segmentSpeaker === 'B' ? openaiVoiceB : openaiVoiceA
     return ''
   }
 
   async function synthesizeSegment(segmentIndex: number): Promise<string> {
     const segment = segments[segmentIndex]
-    if (!segment) throw new Error('找不到要合成的句子。')
-    if (engine === 'system') throw new Error('系统语音不需要预留音频。')
+    if (!segment) throw new Error(t('找不到要合成的句子。'))
+    if (engine === 'system') throw new Error(t('系统语音不需要预留音频。'))
     const voice = remoteVoice(segment.speaker)
     const key = `${engine}:${voice}:${speed}:${segment.text}`
     const cached = audioCache.current.get(key)
@@ -138,10 +141,6 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
         const edgeB = status.edge.voices.find((voice) => voice.gender === 'male') ?? status.edge.voices[1] ?? edgeA
         if (edgeA) setEdgeVoiceA(edgeA.id)
         if (edgeB) setEdgeVoiceB(edgeB.id)
-        const kokoroA = status.kokoro.voices.find((voice) => voice.gender === 'female') ?? status.kokoro.voices[0]
-        const kokoroB = status.kokoro.voices.find((voice) => voice.gender === 'male') ?? status.kokoro.voices[1] ?? kokoroA
-        if (kokoroA) setKokoroVoiceA(kokoroA.id)
-        if (kokoroB) setKokoroVoiceB(kokoroB.id)
         if (status.beatra.configured) {
           void window.api
             .getBeatraVoices()
@@ -162,12 +161,34 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
   }, [])
 
   useEffect(() => {
+    if (!engineTouched.current) return
     try {
       localStorage.setItem(TTS_ENGINE_KEY, engine)
     } catch {
       // 本地偏好写入失败不影响本次播放。
     }
   }, [engine])
+
+  // 没手动选过引擎时，优先用已配置的 Beatra，其次 Edge；系统语音只作为最后兜底。
+  useEffect(() => {
+    if (!ttsStatus) return
+    try {
+      if (localStorage.getItem(TTS_ENGINE_KEY)) {
+        engineTouched.current = true
+        return
+      }
+    } catch {
+      // 存储不可用时仍然按状态选默认。
+    }
+    engineTouched.current = true
+    setEngine(ttsStatus.beatra.configured ? 'beatra' : ttsStatus.openai.configured ? 'openai' : 'edge')
+  }, [ttsStatus])
+
+  useEffect(() => {
+    if (!ttsStatus) return
+    setOpenaiVoiceA(ttsStatus.openai.voiceA)
+    setOpenaiVoiceB(ttsStatus.openai.voiceB)
+  }, [ttsStatus])
 
   useEffect(() => {
     exportCancelRef.current = true
@@ -177,7 +198,7 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
     })
     setFullAudioBase64(null)
     setFullAudioDuration(0)
-  }, [engine, speed, edgeVoiceA, edgeVoiceB, kokoroVoiceA, kokoroVoiceB, beatraVoiceA, beatraVoiceB])
+  }, [engine, speed, edgeVoiceA, edgeVoiceB, beatraVoiceA, beatraVoiceB])
 
   useEffect(() => {
     currentRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
@@ -186,7 +207,7 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
   useEffect(() => {
     if (!playing || engine !== 'system') return
     if (!('speechSynthesis' in window)) {
-      setError('当前环境没有可用的语音合成。')
+      setError(t('当前环境没有可用的语音合成。'))
       setPlaying(false)
       return
     }
@@ -215,7 +236,7 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
     }
     utterance.onerror = (event) => {
       if (cancelled || event.error === 'interrupted' || event.error === 'canceled') return
-      setError('朗读中断了，可以再点一次播放。')
+      setError(t('朗读中断了，可以再点一次播放。'))
       setPlaying(false)
     }
     window.speechSynthesis.cancel()
@@ -241,7 +262,7 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
       try {
         const url = await synthesizeSegment(index)
         if (cancelled) return
-        // Edge 预取后两句；Kokoro 很吃 CPU，只预取一句；Beatra 也只预取一句避免未听先计费。
+        // Edge 预取后两句；Beatra 只预取一句，避免未听先计费。
         const ahead = engine === 'edge' ? 2 : 1
         for (let offset = 1; offset <= ahead; offset++) {
           if (index + offset >= segments.length) break
@@ -265,7 +286,8 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
         player.onended = finishSegment
         player.onerror = () => {
           if (cancelled) return
-          setError('音频播放失败，已切回系统语音。')
+          setError(t('音频播放失败，已切回系统语音。'))
+          engineTouched.current = false
           setEngine('system')
         }
         // 某些机器上媒体元素会在句尾不触发 ended；用时间进度做兜底。
@@ -283,7 +305,7 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
               void player.play().catch(() => undefined)
             }
             if (Date.now() - lastProgressAt > 8_000) {
-              setError('音频被系统暂停了，可以点播放继续，或换一个音色。')
+              setError(t('音频被系统暂停了，可以点播放继续，或换一个音色。'))
               setPlaying(false)
               setPaused(true)
             }
@@ -302,7 +324,7 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
             void player.play().catch(() => undefined)
             return
           }
-          setError('音频播放卡住了，已暂停；可以点播放继续，或换一个音色。')
+          setError(t('音频播放卡住了，已暂停；可以点播放继续，或换一个音色。'))
           setPlaying(false)
           setPaused(true)
         }, 500)
@@ -315,8 +337,9 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
           .replace(/^Error invoking remote method '[^']+':\s*/, '')
           .replace(/^Error:\s*/, '')
         setAudioLoading(false)
-        const label = engine === 'edge' ? 'Edge 在线音色' : engine === 'beatra' ? 'Beatra 付费配音' : 'Kokoro 本地音色'
-        setError(`${label}不可用（${message}），已切回系统语音。`)
+        const label = engine === 'edge' ? t('Edge 在线音色') : t('Beatra 付费配音')
+        setError(`${label}${t('不可用')}（${message}）${t('，已切回系统语音。')}`)
+        engineTouched.current = false
         setEngine('system')
       }
     })()
@@ -328,7 +351,7 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
       userPausedRef.current = false
       setAudioLoading(false)
     }
-  }, [playing, engine, index, segments, speed, edgeVoiceA, edgeVoiceB, kokoroVoiceA, kokoroVoiceB, beatraVoiceA, beatraVoiceB])
+  }, [playing, engine, index, segments, speed, edgeVoiceA, edgeVoiceB, beatraVoiceA, beatraVoiceB])
 
   useEffect(
     () => () => {
@@ -357,28 +380,24 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
     setError(null)
     if (engine === 'beatra' && !beatraConfirmed.current) {
       const confirmed = await confirmDialog({
-        title: '使用 Beatra 付费配音',
+        title: t('使用 Beatra 付费配音'),
         message:
-          'Beatra 按字符计费。播放会按句子逐段合成，并提前预取下一句；失败不会自动重试。继续使用？',
-        confirmLabel: '继续使用',
+          t('Beatra 按字符计费。播放会按句子逐段合成，并提前预取下一句；失败不会自动重试。继续使用？'),
+        confirmLabel: t('继续使用'),
       })
       if (!confirmed) return
       beatraConfirmed.current = true
     }
     if (audioLoading) {
-      // 首次加载 Kokoro 或在线合成需要几秒；再次点击不应把正在生成的播放取消。
-      return
-    }
-    if (engine === 'kokoro' && !ttsStatus?.kokoro.ready) {
-      setError('Kokoro 本地模型还没有准备好，请按下方说明下载，或先切换到系统语音。')
+      // 在线合成需要几秒；再次点击不应把正在生成的播放取消。
       return
     }
     if (engine === 'beatra' && !ttsStatus?.beatra.configured) {
-      setError('Beatra 还没有配置，请到设置里填写 Device Token，或先切换到其他音色。')
+      setError(t('Beatra 还没有配置，请到设置里填写 Device Token，或先切换到其他音色。'))
       return
     }
     if (engine === 'system' && !('speechSynthesis' in window)) {
-      setError('当前环境没有可用的语音合成。')
+      setError(t('当前环境没有可用的语音合成。'))
       return
     }
     if (!playing) {
@@ -429,11 +448,12 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
   }
 
   function selectEngine(value: string): void {
-    const next = value === 'edge' || value === 'kokoro' || value === 'beatra' ? value : 'system'
+    const next = value === 'edge' || value === 'beatra' ? value : 'system'
     if ('speechSynthesis' in window) window.speechSynthesis.cancel()
     audioRef.current?.pause()
     audioRef.current = null
     userPausedRef.current = false
+    engineTouched.current = true
     setEngine(next)
     setPaused(false)
     setError(null)
@@ -442,23 +462,19 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
   async function generateFullAudio(): Promise<void> {
     if (exporting) return
     if (engine === 'system') {
-      setError('系统语音不支持导出整段音频，请切换到 Edge、Kokoro 或 Beatra。')
-      return
-    }
-    if (engine === 'kokoro' && !ttsStatus?.kokoro.ready) {
-      setError('Kokoro 本地模型还没有准备好，无法生成整章音频。')
+      setError(t('系统语音不支持导出整段音频，请切换到 Edge 或 Beatra。'))
       return
     }
     if (engine === 'beatra' && !ttsStatus?.beatra.configured) {
-      setError('Beatra 还没有配置，无法生成整章音频。')
+      setError(t('Beatra 还没有配置，无法生成整章音频。'))
       return
     }
     const chars = segments.reduce((sum, segment) => sum + segment.text.length, 0)
     if (engine === 'beatra') {
       const confirmed = await confirmDialog({
-        title: '生成整章 Beatra 音频',
-        message: `会按 ${segments.length} 段、共 ${chars.toLocaleString()} 字生成音频，Beatra 按字符计费，可能产生较高费用。继续？`,
-        confirmLabel: '生成整章',
+        title: t('生成整章 Beatra 音频'),
+        message: `${t('会按')} ${segments.length} ${t('段')}、${t('共')} ${chars.toLocaleString()} ${t('字生成音频，Beatra 按字符计费，可能产生较高费用。继续？')}`,
+        confirmLabel: t('生成整章'),
       })
       if (!confirmed) return
     }
@@ -474,7 +490,7 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
     try {
       const parts: Array<{ base64: string; mime: string }> = []
       for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex++) {
-        if (exportCancelRef.current) throw new Error('已取消整章音频生成。')
+        if (exportCancelRef.current) throw new Error('cancelled')
         const segment = segments[segmentIndex]!
         const audio = await window.api.synthesizeTts({
           engine,
@@ -487,7 +503,7 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
         // 让进度和取消按钮有机会更新，避免长章节把渲染线程一次占满。
         await new Promise((resolve) => window.setTimeout(resolve, 0))
       }
-      if (exportCancelRef.current) throw new Error('已取消整章音频生成。')
+      if (exportCancelRef.current) throw new Error('cancelled')
       const combined = await combineAudioSegments(parts)
       const url = URL.createObjectURL(new Blob([combined.wav], { type: 'audio/wav' }))
       setFullAudioUrl((current) => {
@@ -497,11 +513,11 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
       setFullAudioBase64(combined.base64)
       setFullAudioDuration(combined.duration)
     } catch (err) {
-      if (!/已取消/.test(err instanceof Error ? err.message : String(err))) {
+      if (!(err instanceof Error && err.message === 'cancelled')) {
         const message = (err instanceof Error ? err.message : String(err))
           .replace(/^Error invoking remote method '[^']+':\s*/, '')
           .replace(/^Error:\s*/, '')
-        setError(`整章音频生成失败：${message}`)
+        setError(`${t('整章音频生成失败')}：${message}`)
       }
     } finally {
       setExporting(false)
@@ -522,18 +538,8 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
     exportCancelRef.current = true
   }
 
-  async function copyText(textValue: string): Promise<void> {
-    try {
-      await navigator.clipboard.writeText(textValue)
-    } catch {
-      setError('复制失败，请手动选择路径。')
-    }
-  }
-
   const edgeVoices = ttsStatus?.edge.voices ?? []
-  const kokoroVoices = ttsStatus?.kokoro.voices ?? []
   const edgeVoiceOptions = edgeVoices.map((voice) => ({ value: voice.id, label: voice.label }))
-  const kokoroVoiceOptions = kokoroVoices.map((voice) => ({ value: voice.id, label: voice.label }))
   const beatraVoiceOptions = [...beatraVoices]
     .sort((a, b) => Number(!a.language.toLowerCase().startsWith('zh')) - Number(!b.language.toLowerCase().startsWith('zh')))
     .map((voice) => ({ value: voice.id, label: `${voice.label} · ${voice.language}` }))
@@ -546,20 +552,20 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
         className="listen-panel"
         role="dialog"
         aria-modal="true"
-        aria-label="听读"
+        aria-label={t('听读')}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="listen-head">
           <div>
-            <h2>{dialogue ? '双人播客' : '听读'}</h2>
+            <h2>{dialogue ? t('双人播客') : t('听读')}</h2>
             <p>{title}</p>
           </div>
           <div className="listen-controls">
             <button type="button" className="ghost-button small" onClick={() => jump(index - 1)} disabled={index === 0}>
-              上一句
+              {t('上一句')}
             </button>
             <button type="button" className="primary-button small" onClick={() => void toggle()}>
-              {audioLoading ? '生成中…' : !playing ? '播放' : paused ? '继续' : '暂停'}
+              {audioLoading ? t('生成中…') : !playing ? t('播放') : paused ? t('继续') : t('暂停')}
             </button>
             <button
               type="button"
@@ -567,13 +573,13 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
               onClick={() => jump(index + 1)}
               disabled={index >= segments.length - 1}
             >
-              下一句
+              {t('下一句')}
             </button>
             <Select
               className="listen-speed"
               value={String(speed)}
               onChange={(value) => setSpeed(Number(value))}
-              ariaLabel="语速"
+              ariaLabel={t('语速')}
               options={[
                 { value: '0.8', label: '0.8×' },
                 { value: '1', label: '1×' },
@@ -581,7 +587,7 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
                 { value: '1.5', label: '1.5×' },
               ]}
             />
-            <button type="button" className="icon-button" onClick={onClose} aria-label="关闭">
+            <button type="button" className="icon-button" onClick={onClose} aria-label={t('关闭')}>
               ×
             </button>
           </div>
@@ -589,64 +595,62 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
 
         <div className="listen-engine-bar">
           <label>
-            <span>音色引擎</span>
+            <span>{t('音色引擎')}</span>
             <Select
               className="listen-engine-select"
               value={engine}
               onChange={selectEngine}
-              ariaLabel="音色引擎"
+              ariaLabel={t('音色引擎')}
               options={[
-                { value: 'system', label: '系统语音（离线）' },
-                { value: 'edge', label: 'Edge 在线（免费）' },
-                { value: 'kokoro', label: ttsStatus?.kokoro.ready ? 'Kokoro 本地（离线）' : 'Kokoro 本地（未就绪）' },
-                { value: 'beatra', label: ttsStatus?.beatra.configured ? 'Beatra 付费（已配置）' : 'Beatra 付费（未配置）' },
+                { value: 'system', label: t('系统语音（离线）') },
+                { value: 'edge', label: t('Edge 在线（免费）') },
+                { value: 'beatra', label: ttsStatus?.beatra.configured ? t('Beatra 付费（已配置）') : t('Beatra 付费（未配置）') },
+                { value: 'openai', label: ttsStatus?.openai.configured ? t('OpenAI TTS（已配置）') : t('OpenAI TTS（未配置）') },
               ]}
             />
           </label>
           {engine === 'edge' ? (
             <>
               <label>
-                <span>A 音色</span>
+                <span>{t('A 音色')}</span>
                 <Select
                   className="listen-voice-select"
                   value={edgeVoiceA}
                   onChange={setEdgeVoiceA}
-                  ariaLabel="Edge A 音色"
+                  ariaLabel={t('Edge A 音色')}
                   options={edgeVoiceOptions}
                 />
               </label>
               <label>
-                <span>B 音色</span>
+                <span>{t('B 音色')}</span>
                 <Select
                   className="listen-voice-select"
                   value={edgeVoiceB}
                   onChange={setEdgeVoiceB}
-                  ariaLabel="Edge B 音色"
+                  ariaLabel={t('Edge B 音色')}
                   options={edgeVoiceOptions}
                 />
               </label>
             </>
           ) : null}
-          {engine === 'kokoro' && ttsStatus?.kokoro.ready ? (
+          {engine === 'openai' ? (
             <>
               <label>
-                <span>A 音色</span>
-                <Select
-                  className="listen-voice-select"
-                  value={kokoroVoiceA}
-                  onChange={setKokoroVoiceA}
-                  ariaLabel="Kokoro A 音色"
-                  options={kokoroVoiceOptions}
+                <span>{t('A 音色')}</span>
+                <input
+                  className="listen-voice-input"
+                  value={openaiVoiceA}
+                  onChange={(event) => setOpenaiVoiceA(event.target.value)}
+                  aria-label={t('OpenAI A 音色')}
                 />
               </label>
               <label>
-                <span>B 音色</span>
-                <Select
-                  className="listen-voice-select"
-                  value={kokoroVoiceB}
-                  onChange={setKokoroVoiceB}
-                  ariaLabel="Kokoro B 音色"
-                  options={kokoroVoiceOptions}
+                <span>{t('B 音色')}</span>
+                <input
+                  className="listen-voice-input"
+                  value={openaiVoiceB}
+                  onChange={(event) => setOpenaiVoiceB(event.target.value)}
+                  aria-label={t('OpenAI B 音色')}
                 />
               </label>
             </>
@@ -654,22 +658,22 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
           {engine === 'beatra' && ttsStatus?.beatra.configured && beatraVoices.length > 0 ? (
             <>
               <label>
-                <span>A 音色</span>
+                <span>{t('A 音色')}</span>
                 <Select
                   className="listen-voice-select"
                   value={beatraVoiceA}
                   onChange={setBeatraVoiceA}
-                  ariaLabel="Beatra A 音色"
+                  ariaLabel={t('Beatra A 音色')}
                   options={beatraVoiceOptions}
                 />
               </label>
               <label>
-                <span>B 音色</span>
+                <span>{t('B 音色')}</span>
                 <Select
                   className="listen-voice-select"
                   value={beatraVoiceB}
                   onChange={setBeatraVoiceB}
-                  ariaLabel="Beatra B 音色"
+                  ariaLabel={t('Beatra B 音色')}
                   options={beatraVoiceOptions}
                 />
               </label>
@@ -677,20 +681,20 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
           ) : null}
           <span className="listen-engine-hint">{engineHint(engine, ttsStatus)}</span>
           <span className="listen-engine-compare">
-            系统：离线、较机械 · Edge：免费在线、自然 · Kokoro：内置离线、自然 · Beatra：付费、最高自然度
+            {t('系统：离线、较机械 · Edge：免费在线、自然 · Beatra：付费、最高自然度')}
           </span>
         </div>
 
         <div className="listen-full-audio">
           <div className="listen-full-audio-head">
             <div>
-              <strong>整章音频</strong>
-              <span>一次生成并导出一个 WAV，适合播客或离线收听。</span>
+              <strong>{t('整章音频')}</strong>
+              <span>{t('一次生成并导出一个 WAV，适合播客或离线收听。')}</span>
             </div>
             <div className="listen-full-audio-actions">
               {exporting ? (
                 <button type="button" className="ghost-button small" onClick={cancelFullAudio}>
-                  取消
+                  {t('取消')}
                 </button>
               ) : (
                 <button
@@ -698,21 +702,21 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
                   className="ghost-button small"
                   onClick={() => void generateFullAudio()}
                   disabled={segments.length === 0 || engine === 'system'}
-                  title={engine === 'system' ? '系统语音不支持导出整段音频' : undefined}
+                  title={engine === 'system' ? t('系统语音不支持导出整段音频') : undefined}
                 >
-                  {engine === 'system' ? '系统语音不支持导出' : '生成整章音频'}
+                  {engine === 'system' ? t('系统语音不支持导出') : t('生成整章音频')}
                 </button>
               )}
               {fullAudioUrl ? (
                 <button type="button" className="ghost-button small" onClick={() => void saveFullAudio()}>
-                  保存 WAV
+                  {t('保存 WAV')}
                 </button>
               ) : null}
             </div>
           </div>
           {exporting ? (
             <div className="listen-full-audio-progress" role="status" aria-live="polite">
-              <span>正在生成 {exportProgress} / {segments.length} 段</span>
+              <span>{t('正在生成')} {exportProgress} / {segments.length} {t('段')}</span>
               <div className="progress-track">
                 <div className="progress-fill" style={{ width: `${segments.length ? (exportProgress / segments.length) * 100 : 0}%` }} />
               </div>
@@ -721,44 +725,24 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
           {fullAudioUrl ? (
             <audio className="listen-full-audio-player" controls src={fullAudioUrl} preload="metadata" />
           ) : null}
-          {fullAudioDuration > 0 ? <span className="listen-full-audio-meta">约 {Math.ceil(fullAudioDuration / 60)} 分钟</span> : null}
+          {fullAudioDuration > 0 ? <span className="listen-full-audio-meta">{t('约')} {Math.ceil(fullAudioDuration / 60)} {t('分钟')}</span> : null}
         </div>
 
         {engine === 'beatra' && !ttsStatus?.beatra.configured ? (
-          <div className="listen-kokoro-setup">
-            <strong>Beatra 还没有配置</strong>
+          <div className="listen-engine-setup">
+            <strong>{t('Beatra 还没有配置')}</strong>
             <p>
-              请打开右上角设置，在「Beatra AI 配音」里填写 Device Token。Beatra 按字符计费，播放前不会自动重试或重复扣费。
+              {t('请打开右上角设置，在「Beatra AI 配音」里填写 Device Token。Beatra 按字符计费，播放前不会自动重试或重复扣费。')}
             </p>
           </div>
         ) : null}
         {engine === 'beatra' && beatraLoadError ? <div className="inline-error" role="alert">{beatraLoadError}</div> : null}
-        {engine === 'kokoro' && ttsStatus && !ttsStatus.kokoro.ready ? (
-          <div className="listen-kokoro-setup">
-            <strong>Kokoro 本地模型未就绪</strong>
-            <p>
-              需要把这些文件放进下面的目录：config.json、tokenizer.json、tokenizer_config.json、onnx/model.onnx、voices/*.bin。当前缺少：{ttsStatus.kokoro.missing.join('、')}
-            </p>
-            <code>{ttsStatus.kokoro.path}</code>
-            <div>
-              <button type="button" className="text-button" onClick={() => void copyText(ttsStatus.kokoro.path)}>
-                复制目录
-              </button>
-              <button type="button" className="text-button" onClick={() => void window.api.openKokoroDir().catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))}>
-                打开目录
-              </button>
-              <button type="button" className="text-button" onClick={() => void copyText(ttsStatus.kokoro.downloadUrl)}>
-                复制模型地址
-              </button>
-            </div>
-          </div>
-        ) : null}
 
         {error ? <div className="inline-error" role="alert">{error}</div> : null}
 
         <div className="listen-body">
           {segments.length === 0 ? (
-            <p className="listen-empty">这一章没有可朗读的文字。</p>
+            <p className="listen-empty">{t('这一章没有可朗读的文字。')}</p>
           ) : (
             segments.map((segment, segmentIndex) => (
               <button
@@ -778,15 +762,13 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
         </div>
         <p className="listen-foot">
           {engine === 'beatra'
-            ? `中文普通话 · Beatra 付费 · A ${voiceName(beatraVoices, beatraVoiceA)} · B ${voiceName(beatraVoices, beatraVoiceB)}`
+            ? `${t('中文普通话')} · ${t('Beatra 付费')} · A ${voiceName(beatraVoices, beatraVoiceA)} · B ${voiceName(beatraVoices, beatraVoiceB)}`
             : engine === 'edge'
-              ? `中文普通话 · Edge 在线 · A ${voiceName(edgeVoices, edgeVoiceA)} · B ${voiceName(edgeVoices, edgeVoiceB)}`
-              : engine === 'kokoro'
-                ? `中文普通话 · Kokoro 本地 · A ${voiceName(kokoroVoices, kokoroVoiceA)} · B ${voiceName(kokoroVoices, kokoroVoiceB)}`
-                : dialogue
-                ? `中文普通话 · A ${voiceLabel(voicePlan.a)} · B ${voiceLabel(voicePlan.b)}${voicePlan.distinct ? '' : '（B 用音高区分）'}`
-                : `${chineseScript ? '中文普通话' : '英语'} · 系统语音${chineseScript && voicePlan.a ? ` · ${voiceLabel(voicePlan.a)}` : ''}`}
-          {' · '}点击任意一句从这里开始 · {index + 1}/{segments.length}
+              ? `${t('中文普通话')} · ${t('Edge 在线')} · A ${voiceName(edgeVoices, edgeVoiceA)} · B ${voiceName(edgeVoices, edgeVoiceB)}`
+              : dialogue
+                ? `${t('中文普通话')} · A ${voiceLabel(voicePlan.a)} · B ${voiceLabel(voicePlan.b)}${voicePlan.distinct ? '' : t('（B 用音高区分）')}`
+                : `${chineseScript ? t('中文普通话') : t('英语')} · ${t('系统语音')}${chineseScript && voicePlan.a ? ` · ${voiceLabel(voicePlan.a)}` : ''}`}
+          {' · '}{t('点击任意一句从这里开始')} · {index + 1}/{segments.length}
         </p>
       </div>
       <BeatraGuideDialog open={guideOpen} onClose={() => setGuideOpen(false)} />

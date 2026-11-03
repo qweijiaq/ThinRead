@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
 import type { ChapterContent, ChatCitation, ChatMode, ChatTurn } from '../../shared/types.js'
 import { onContentCurrent } from '../lib/content-events.js'
+import { t, useLocale } from '../lib/i18n.js'
 import { Markdown } from './Markdown.js'
 
 interface ChatPanelProps {
@@ -21,6 +22,7 @@ const ANSWER_SUGGESTIONS = ['这一章最重要的三个观点是什么？', '�
 const SOCRATIC_SUGGESTIONS = ['我觉得这一章主要在讲……', '这一章最容易被误解的地方是什么？', '作者最反对哪种做法？']
 
 export function ChatPanel({ chapter, bookTitle, seed, onJumpQuote, onSave }: ChatPanelProps): JSX.Element {
+  useLocale()
   const [mode, setMode] = useState<ChatMode>('answer')
   const [turns, setTurns] = useState<Turn[]>([])
   const [input, setInput] = useState('')
@@ -88,7 +90,7 @@ export function ChatPanel({ chapter, bookTitle, seed, onJumpQuote, onSave }: Cha
         .saveLabArtifact({
           tool: 'chapter-chat',
           scope: chapter.id,
-          title: '章节问答',
+          title: t('章节问答'),
           content: JSON.stringify({ turns: [], mode: next }),
           kind: 'chat',
         })
@@ -101,12 +103,12 @@ export function ChatPanel({ chapter, bookTitle, seed, onJumpQuote, onSave }: Cha
     if (!chapter) return
     const content = JSON.stringify({ turns: finalTurns, mode: chatMode })
     const task = artifactId
-      ? window.api.updateLabArtifact(artifactId, { title: '章节问答', content })
+      ? window.api.updateLabArtifact(artifactId, { title: t('章节问答'), content })
       : window.api
           .saveLabArtifact({
             tool: 'chapter-chat',
             scope: chapter.id,
-            title: '章节问答',
+            title: t('章节问答'),
             content,
             kind: 'chat',
           })
@@ -203,32 +205,32 @@ export function ChatPanel({ chapter, bookTitle, seed, onJumpQuote, onSave }: Cha
     <div className="qa-panel">
       <div className="qa-head">
         <div>
-          <h2>问这一章</h2>
-          <p>{bookTitle ? `${bookTitle} · ` : ''}{chapter?.title ?? '选择一章开始'}</p>
+          <h2>{t('问这一章')}</h2>
+          <p>{bookTitle ? `${bookTitle} · ` : ''}{chapter?.title ?? t('选择一章开始')}</p>
         </div>
-        <div className="qa-modes" role="group" aria-label="问答模式">
+        <div className="qa-modes" role="group" aria-label={t('问答模式')}>
           <button type="button" className={mode === 'answer' ? 'active' : ''} onClick={() => switchMode('answer')}>
-            问答
+            {t('问答')}
           </button>
           <button type="button" className={mode === 'socratic' ? 'active' : ''} onClick={() => switchMode('socratic')}>
-            考考我
+            {t('考考我')}
           </button>
         </div>
       </div>
       <p className="qa-hint">
         {mode === 'answer'
-          ? '只根据当前章节回答，每条回答尽量给出原文依据。'
-          : '不直接给答案：先问你怎么想，再顺着你的回答追问。'}
+          ? t('只根据当前章节回答，每条回答尽量给出原文依据。')
+          : t('不直接给答案：先问你怎么想，再顺着你的回答追问。')}
       </p>
 
       <div className="qa-messages" ref={scrollRef}>
         {turns.length === 0 ? (
           <div className="qa-empty">
-            <p>{mode === 'answer' ? '读到哪里卡住了，就直接问。' : '试着把这一章讲清楚，看看会被问到哪里。'}</p>
+            <p>{mode === 'answer' ? t('读到哪里卡住了，就直接问。') : t('试着把这一章讲清楚，看看会被问到哪里。')}</p>
             <div className="qa-suggestions">
               {(mode === 'socratic' ? SOCRATIC_SUGGESTIONS : ANSWER_SUGGESTIONS).map((suggestion) => (
                 <button key={suggestion} type="button" onClick={() => void ask(suggestion)} disabled={!chapter || busy}>
-                  {suggestion}
+                  {t(suggestion)}
                 </button>
               ))}
             </div>
@@ -237,7 +239,7 @@ export function ChatPanel({ chapter, bookTitle, seed, onJumpQuote, onSave }: Cha
 
         {turns.map((turn, index) => (
           <div key={index} className={`qa-turn ${turn.role}`}>
-            <span className="qa-role">{turn.role === 'user' ? '我' : mode === 'socratic' ? '教练' : '页边'}</span>
+            <span className="qa-role">{turn.role === 'user' ? t('我') : mode === 'socratic' ? t('教练') : t('页边')}</span>
             <div className="qa-bubble">
               {turn.role === 'assistant' ? <Markdown text={turn.content} /> : <p>{turn.content}</p>}
               {turn.citations && turn.citations.length > 0 ? (
@@ -248,17 +250,17 @@ export function ChatPanel({ chapter, bookTitle, seed, onJumpQuote, onSave }: Cha
                       type="button"
                       className="qa-citation"
                       onClick={() => onJumpQuote(citation.quote)}
-                      title="回到原文"
+                      title={t('回到原文')}
                     >
                       <span className={`qa-verify ${citation.verified ? 'ok' : 'warn'}`}>
-                        {citation.verified ? '原文' : '待核对'}
+                        {citation.verified ? t('原文') : t('待核对')}
                       </span>
                       “{citation.quote}”
                     </button>
                   ))}
                 </div>
               ) : turn.role === 'assistant' ? (
-                <p className="qa-no-citation">这一轮没有给出原文依据。</p>
+                <p className="qa-no-citation">{t('这一轮没有给出原文依据。')}</p>
               ) : null}
               {turn.role === 'assistant' ? (
                 <div className="qa-turn-actions">
@@ -268,11 +270,11 @@ export function ChatPanel({ chapter, bookTitle, seed, onJumpQuote, onSave }: Cha
                     onClick={() => void save(index, turn)}
                     disabled={saved === index}
                   >
-                    {saved === index ? '已存为笔记' : '存为笔记'}
+                    {saved === index ? t('已存为笔记') : t('存为笔记')}
                   </button>
                   {index === turns.length - 1 ? (
                     <button type="button" className="text-button" onClick={() => void regenerateLast()} disabled={busy}>
-                      重新生成
+                      {t('重新生成')}
                     </button>
                   ) : null}
                 </div>
@@ -282,10 +284,10 @@ export function ChatPanel({ chapter, bookTitle, seed, onJumpQuote, onSave }: Cha
         ))}
         {busy ? (
           <div className="qa-turn assistant">
-            <span className="qa-role">{mode === 'socratic' ? '教练' : '页边'}</span>
+            <span className="qa-role">{mode === 'socratic' ? t('教练') : t('页边')}</span>
             <div className={`qa-bubble${streamingAnswer ? '' : ' qa-thinking'}`}>
               {streamingAnswer ? <Markdown text={streamingAnswer} /> : <span className="spinner" />}
-              {streamingAnswer ? null : '正在读这一章…'}
+              {streamingAnswer ? null : t('正在读这一章…')}
             </div>
           </div>
         ) : null}
@@ -303,12 +305,12 @@ export function ChatPanel({ chapter, bookTitle, seed, onJumpQuote, onSave }: Cha
               void ask(input)
             }
           }}
-          placeholder={mode === 'socratic' ? '写下你的理解，教练会接着问…' : '问这一章的任何问题…'}
+          placeholder={mode === 'socratic' ? t('写下你的理解，教练会接着问…') : t('问这一章的任何问题…')}
           rows={2}
           disabled={!chapter || busy}
         />
         <button type="button" className="primary-button small" onClick={() => void ask(input)} disabled={!chapter || busy || !input.trim()}>
-          发送
+          {t('发送')}
         </button>
       </div>
     </div>
