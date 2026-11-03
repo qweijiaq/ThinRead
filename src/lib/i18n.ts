@@ -609,6 +609,7 @@ const EN: Record<string, string> = {
   线索: 'Clue',
   事件牵连: 'Event link',
   研究: 'Research',
+  复制这一章标题和正文: 'Copy this chapter title and body',
   新手引导: 'Onboarding',
   '本次会为': 'This will generate',
   '节生成读薄稿，预计': 'chapter drafts; about',

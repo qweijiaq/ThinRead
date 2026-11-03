@@ -17,6 +17,7 @@ export function FeynmanPanel({ chapter, bookTitle, hasNotes, onSave }: FeynmanPa
   const [streamingFeedback, setStreamingFeedback] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
+  const [copied, setCopied] = useState(false)
   const [hydrated, setHydrated] = useState(false)
   const [artifactId, setArtifactId] = useState<string | null>(null)
   const [refreshTick, setRefreshTick] = useState(0)
@@ -239,6 +240,31 @@ export function FeynmanPanel({ chapter, bookTitle, hasNotes, onSave }: FeynmanPa
             </section>
           ) : null}
           <div className="feynman-result-actions">
+            <button
+              type="button"
+              className="text-button"
+              onClick={() => {
+                const text = [
+                  `# ${chapter?.title ?? ''} · 费曼检查`,
+                  '',
+                  result.feedback,
+                  '',
+                  result.covered.length > 0 ? `## 讲到了\n${result.covered.map((item) => `- ${item}`).join('\n')}` : '',
+                  result.missing.length > 0 ? `## 还缺\n${result.missing.map((item) => `- ${item}`).join('\n')}` : '',
+                  result.misconceptions.length > 0
+                    ? `## 需要纠正\n${result.misconceptions.map((item) => `- ${item}`).join('\n')}`
+                    : '',
+                ]
+                  .filter((part) => part !== '')
+                  .join('\n')
+                void window.api.copyText(text).then(() => {
+                  setCopied(true)
+                  window.setTimeout(() => setCopied(false), 1600)
+                })
+              }}
+            >
+              {copied ? '已复制' : '复制全文'}
+            </button>
             <button type="button" className="ghost-button small" onClick={() => setResult(null)}>
               再讲一次
             </button>

@@ -17,6 +17,7 @@ export function MarginNoteDialog({ chapter, quote, onSave, onClose }: MarginNote
   const [saved, setSaved] = useState(false)
   const dialogRef = useDialogFocus<HTMLDivElement>(true, onClose, 'button')
   const [error, setError] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -82,6 +83,20 @@ export function MarginNoteDialog({ chapter, quote, onSave, onClose }: MarginNote
         <div className="modal-footer">
           <span className="modal-meta">边注会保存为一条带原文引用的笔记</span>
           <div className="modal-footer-actions">
+            <button
+              type="button"
+              className="text-button"
+              onClick={() => {
+                if (!result) return
+                void window.api.copyText(result.markdown).then(() => {
+                  setCopied(true)
+                  window.setTimeout(() => setCopied(false), 1600)
+                })
+              }}
+              disabled={!result}
+            >
+              {copied ? '已复制' : '复制全文'}
+            </button>
             <button type="button" className="ghost-button" onClick={onClose}>
               关闭
             </button>

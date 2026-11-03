@@ -187,7 +187,7 @@ export function LabReport({ tool, bookIds, bookId, chapterId, question, sourceLa
                 </button>
               ) : null}
               <button type="button" className="text-button" onClick={() => void copy()}>
-                {status === 'copied' ? t('已复制') : t('复制')}
+                {status === 'copied' ? t('已复制') : t('复制全文')}
               </button>
               <button type="button" className="text-button" onClick={() => void exportFile()}>
                 {t('导出')}

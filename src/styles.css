@@ -10338,3 +10338,10 @@ html.theme-plain .primary-button.is-danger:hover {
   font-size: 11px;
   line-height: 1.6;
 }
+
+/* 每周复盘的复制全文操作 */
+.weekly-item-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}

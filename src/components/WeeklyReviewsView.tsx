@@ -26,6 +26,7 @@ export function WeeklyReviewsView({ books, onBack }: WeeklyReviewsViewProps): JS
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [bookFilter, setBookFilter] = useState('')
   const [yearFilter, setYearFilter] = useState('')
+  const [copiedId, setCopiedId] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -69,6 +70,12 @@ export function WeeklyReviewsView({ books, onBack }: WeeklyReviewsViewProps): JS
   )
   const heading = `${t('历次周复盘')} · ${filtered.length}`
   const bookOptions = [...new Set(items.map((item) => item.bookTitle))]
+
+  async function copyReview(item: WeeklyReviewItem): Promise<void> {
+    await window.api.copyText(`${item.note.title}\n\n${item.note.content}`)
+    setCopiedId(item.note.id)
+    window.setTimeout(() => setCopiedId(null), 1600)
+  }
 
   return (
     <main className="weekly-view">
@@ -118,6 +125,11 @@ export function WeeklyReviewsView({ books, onBack }: WeeklyReviewsViewProps): JS
               </button>
               {expanded ? (
                 <div className="weekly-item-body">
+                  <div className="weekly-item-actions">
+                    <button type="button" className="text-button" onClick={() => void copyReview(item)}>
+                      {copiedId === item.note.id ? t('已复制') : t('复制全文')}
+                    </button>
+                  </div>
                   <Markdown text={item.note.content} />
                 </div>
               ) : null}

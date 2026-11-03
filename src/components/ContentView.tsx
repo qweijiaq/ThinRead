@@ -408,7 +408,7 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
                   </button>
                 ) : null}
                 <button type="button" className="ghost-button small" onClick={() => void copy(selected)}>
-                  {t('复制')}
+                  {t('复制全文')}
                 </button>
                 <button type="button" className="ghost-button small" onClick={() => void exportItem(selected)}>
                   {t('导出 .md')}

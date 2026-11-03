@@ -407,7 +407,7 @@ function NotesPanelImpl({
                 {t('朗读')}
               </button>
               <button type="button" className="text-button" onClick={() => void copyDraft()}>
-                {exportState === 'copied' ? t('已复制') : t('复制')}
+                {exportState === 'copied' ? t('已复制') : t('复制全文')}
               </button>
               <button type="button" className="text-button" onClick={() => void exportDraft()}>
                 {exportState === 'saved' ? t('已导出') : t('导出 .md')}

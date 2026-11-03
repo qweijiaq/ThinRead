@@ -124,7 +124,7 @@ export function LabPdfPage({ books }: LabPdfPageProps): JSX.Element {
           <div className="lab-result-head">
             <h3>{result.title}</h3>
             <button type="button" className="text-button" onClick={() => void window.api.copyText(result.markdown)}>
-              复制
+              复制全文
             </button>
           </div>
           <div className="lab-markdown">

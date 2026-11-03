@@ -484,7 +484,7 @@
   const podcastButtons = [...podcastPane.querySelectorAll('.lab-result-actions button')].map((button) =>
     button.textContent.trim(),
   )
-  assert(podcastButtons.includes('复制') && podcastButtons.includes('导出') && podcastButtons.includes('存为笔记'), '播客文稿缺少复制/导出/存为笔记动作')
+  assert(podcastButtons.includes('复制全文') && podcastButtons.includes('导出') && podcastButtons.includes('存为笔记'), '播客文稿缺少复制/导出/存为笔记动作')
 
   assert(window.axe, 'axe-core 没有注入，无法执行无障碍检查')
   const a11y = await window.axe.run(document, {

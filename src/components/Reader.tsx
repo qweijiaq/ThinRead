@@ -156,6 +156,7 @@ export function Reader({
   const [echoOpen, setEchoOpen] = useState(false)
   const [pdfOpen, setPdfOpen] = useState(false)
   const [linkCopied, setLinkCopied] = useState(false)
+  const [fullCopied, setFullCopied] = useState(false)
   const [readProgress, setReadProgress] = useState(0)
   const [helpOpen, setHelpOpen] = useState(false)
   const autoNext = useSyncExternalStore(subscribePreferences, getAutoNext, getAutoNext)
@@ -603,6 +604,19 @@ export function Reader({
                   </button>
                   <button type="button" className="ghost-button small" onClick={bookmarkHere}>
                     {t('书签')}
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost-button small"
+                    onClick={() => {
+                      void window.api.copyText(`${chapter.title}\n\n${chapter.text}`).then(() => {
+                        setFullCopied(true)
+                        window.setTimeout(() => setFullCopied(false), 1600)
+                      })
+                    }}
+                    title={t('复制这一章标题和正文')}
+                  >
+                    {fullCopied ? t('已复制') : t('复制全文')}
                   </button>
                   <button
                     type="button"
