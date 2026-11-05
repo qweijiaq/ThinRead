@@ -142,12 +142,12 @@ Key 使用 macOS 系统钥匙串加密后保存在 `settings.json`，不会以�
 
 | 供应商 | Key 申请页 | Base URL（预设） | 说明 |
 | --- | --- | --- | --- |
-| DeepSeek | https://platform.deepseek.com/api_keys | `https://api.deepseek.com/v1` | 中文长文本性价比高；余额和模型以控制台为准 |
-| 智谱 GLM | https://open.bigmodel.cn/usercenter/apikeys | `https://open.bigmodel.cn/api/paas/v4` | OpenAI 兼容；中文书稳定 |
-| Anthropic Claude | https://console.anthropic.com/settings/keys | 留空使用官方端点 | 长文本和写作质量好；费用相对高 |
+| DeepSeek | https://platform.deepseek.com/api_keys | `https://api.deepseek.com` | 中文长文本性价比高；`/v1` 兼容地址也可用，模型以控制台为准 |
+| 智谱 GLM | https://bigmodel.cn/usercenter/proj-mgmt/apikeys | `https://open.bigmodel.cn/api/paas/v4` | OpenAI 兼容；中文书稳定 |
+| Anthropic Claude | https://platform.claude.com/settings/keys | 留空使用官方端点 | 长文本和写作质量好；费用相对高 |
 | OpenAI | https://platform.openai.com/api-keys | `https://api.openai.com/v1` | 也可以填任意 OpenAI 兼容网关 |
-| Moonshot Kimi | https://platform.moonshot.cn/console/api-keys | `https://api.moonshot.cn/v1` | 国际版改成 `https://api.moonshot.ai/v1` |
-| 阿里云百炼 | https://dashscope.console.aliyun.com/apiKey | `https://dashscope.aliyuncs.com/compatible-mode/v1` | OpenAI 兼容模式 |
+| Moonshot Kimi | https://platform.kimi.com/console/api-keys | `https://api.moonshot.cn/v1` | 国际版改成 `https://api.moonshot.ai/v1` |
+| 阿里云百炼 | https://bailian.console.aliyun.com/cn-beijing/model/settings/api-key | `https://dashscope.aliyuncs.com/compatible-mode/v1` | 北京地域兼容地址；新账号建议用业务空间专属域名 |
 | OpenRouter | https://openrouter.ai/keys | `https://openrouter.ai/api/v1` | 一个 Key 访问多家模型；模型 ID 需要带厂商前缀 |
 | 本地 Ollama | https://ollama.com/download | `http://localhost:11434/v1` | 不需要 Key；先在本机安装并启动 Ollama |
 
@@ -159,7 +159,7 @@ Key 使用 macOS 系统钥匙串加密后保存在 `settings.json`，不会以�
 
 1. 打开 https://platform.deepseek.com/api_keys
 2. 登录后创建 API Key。
-3. 页边设置里选择「DeepSeek」，Base URL 保持预设。
+3. 页边设置里选择「DeepSeek」，Base URL 使用 `https://api.deepseek.com`；`https://api.deepseek.com/v1` 也可以。
 4. 模型填控制台当前可用的模型 ID；预设中的名称只是示例，服务商会更新模型。
 5. 先充少量余额，跑一章「快速」档确认可用，再跑整本。
 
@@ -167,7 +167,7 @@ Key 使用 macOS 系统钥匙串加密后保存在 `settings.json`，不会以�
 
 #### 智谱 GLM
 
-1. 打开 https://open.bigmodel.cn/usercenter/apikeys
+1. 打开 https://bigmodel.cn/usercenter/proj-mgmt/apikeys
 2. 创建 API Key。
 3. 页边选择「智谱 GLM」，Base URL 保持 `https://open.bigmodel.cn/api/paas/v4`。
 4. 模型填控制台的模型编码。
@@ -176,7 +176,7 @@ Key 使用 macOS 系统钥匙串加密后保存在 `settings.json`，不会以�
 
 #### Anthropic Claude
 
-1. 打开 https://console.anthropic.com/settings/keys
+1. 打开 https://platform.claude.com/settings/keys
 2. 创建 Key。
 3. 页边选择「Anthropic Claude」，Base URL 留空。
 4. 模型填控制台可用的 Claude 模型 ID。
@@ -194,18 +194,18 @@ Key 使用 macOS 系统钥匙串加密后保存在 `settings.json`，不会以�
 
 #### Moonshot Kimi
 
-1. 打开 https://platform.moonshot.cn/console/api-keys
+1. 打开 https://platform.kimi.com/console/api-keys
 2. 创建 Key。
-3. 国内版 Base URL 使用 `https://api.moonshot.cn/v1`；国际版改成 `https://api.moonshot.ai/v1`。
+3. Base URL 使用 `https://api.moonshot.cn/v1`；国际版改成 `https://api.moonshot.ai/v1`。控制台入口现在是 platform.kimi.com。
 4. 模型填控制台模型 ID。
 
 适合：长上下文中文材料。
 
 #### 阿里云百炼
 
-1. 打开 https://dashscope.console.aliyun.com/apiKey
+1. 打开 https://bailian.console.aliyun.com/cn-beijing/model/settings/api-key
 2. 创建 API Key。
-3. 页边选择「阿里云百炼」，Base URL 使用兼容模式地址。
+3. 页边选择「阿里云百炼」，北京地域 Base URL 使用 `https://dashscope.aliyuncs.com/compatible-mode/v1`；新账号建议改成控制台里的业务空间专属域名。
 4. 模型填百炼控制台的模型名。
 
 适合：已有阿里云账号，使用通义系列模型。

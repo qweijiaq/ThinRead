@@ -282,18 +282,18 @@ pnpm dist:mac    # 生成 macOS 安装包
 <tbody><tr>
 <td>DeepSeek</td>
 <td><a href="https://platform.deepseek.com/api_keys">https://platform.deepseek.com/api_keys</a></td>
-<td><code>https://api.deepseek.com/v1</code></td>
-<td>中文长文本性价比高；余额和模型以控制台为准</td>
+<td><code>https://api.deepseek.com</code></td>
+<td>中文长文本性价比高；<code>/v1</code> 兼容地址也可用，模型以控制台为准</td>
 </tr>
 <tr>
 <td>智谱 GLM</td>
-<td><a href="https://open.bigmodel.cn/usercenter/apikeys">https://open.bigmodel.cn/usercenter/apikeys</a></td>
+<td><a href="https://bigmodel.cn/usercenter/proj-mgmt/apikeys">https://bigmodel.cn/usercenter/proj-mgmt/apikeys</a></td>
 <td><code>https://open.bigmodel.cn/api/paas/v4</code></td>
 <td>OpenAI 兼容；中文书稳定</td>
 </tr>
 <tr>
 <td>Anthropic Claude</td>
-<td><a href="https://console.anthropic.com/settings/keys">https://console.anthropic.com/settings/keys</a></td>
+<td><a href="https://platform.claude.com/settings/keys">https://platform.claude.com/settings/keys</a></td>
 <td>留空使用官方端点</td>
 <td>长文本和写作质量好；费用相对高</td>
 </tr>
@@ -305,15 +305,15 @@ pnpm dist:mac    # 生成 macOS 安装包
 </tr>
 <tr>
 <td>Moonshot Kimi</td>
-<td><a href="https://platform.moonshot.cn/console/api-keys">https://platform.moonshot.cn/console/api-keys</a></td>
+<td><a href="https://platform.kimi.com/console/api-keys">https://platform.kimi.com/console/api-keys</a></td>
 <td><code>https://api.moonshot.cn/v1</code></td>
 <td>国际版改成 <code>https://api.moonshot.ai/v1</code></td>
 </tr>
 <tr>
 <td>阿里云百炼</td>
-<td><a href="https://dashscope.console.aliyun.com/apiKey">https://dashscope.console.aliyun.com/apiKey</a></td>
+<td><a href="https://bailian.console.aliyun.com/cn-beijing/model/settings/api-key">https://bailian.console.aliyun.com/cn-beijing/model/settings/api-key</a></td>
 <td><code>https://dashscope.aliyuncs.com/compatible-mode/v1</code></td>
-<td>OpenAI 兼容模式</td>
+<td>北京地域兼容地址；新账号建议用业务空间专属域名</td>
 </tr>
 <tr>
 <td>OpenRouter</td>
@@ -336,14 +336,14 @@ pnpm dist:mac    # 生成 macOS 安装包
 <ol>
 <li>打开 <a href="https://platform.deepseek.com/api_keys">https://platform.deepseek.com/api_keys</a></li>
 <li>登录后创建 API Key。</li>
-<li>页边设置里选择「DeepSeek」，Base URL 保持预设。</li>
+<li>页边设置里选择「DeepSeek」，Base URL 使用 <code>https://api.deepseek.com</code>；<code>https://api.deepseek.com/v1</code> 也可以。</li>
 <li>模型填控制台当前可用的模型 ID；预设中的名称只是示例，服务商会更新模型。</li>
 <li>先充少量余额，跑一章「快速」档确认可用，再跑整本。</li>
 </ol>
 <p>适合：中文非虚构、逐章读薄、成本敏感。</p>
 <h4 id="智谱-glm">智谱 GLM</h4>
 <ol>
-<li>打开 <a href="https://open.bigmodel.cn/usercenter/apikeys">https://open.bigmodel.cn/usercenter/apikeys</a></li>
+<li>打开 <a href="https://bigmodel.cn/usercenter/proj-mgmt/apikeys">https://bigmodel.cn/usercenter/proj-mgmt/apikeys</a></li>
 <li>创建 API Key。</li>
 <li>页边选择「智谱 GLM」，Base URL 保持 <code>https://open.bigmodel.cn/api/paas/v4</code>。</li>
 <li>模型填控制台的模型编码。</li>
@@ -351,7 +351,7 @@ pnpm dist:mac    # 生成 macOS 安装包
 <p>适合：中文书籍、希望国内网络稳定。</p>
 <h4 id="anthropic-claude">Anthropic Claude</h4>
 <ol>
-<li>打开 <a href="https://console.anthropic.com/settings/keys">https://console.anthropic.com/settings/keys</a></li>
+<li>打开 <a href="https://platform.claude.com/settings/keys">https://platform.claude.com/settings/keys</a></li>
 <li>创建 Key。</li>
 <li>页边选择「Anthropic Claude」，Base URL 留空。</li>
 <li>模型填控制台可用的 Claude 模型 ID。</li>
@@ -367,17 +367,17 @@ pnpm dist:mac    # 生成 macOS 安装包
 <p>适合：已有 OpenAI 账号，或使用兼容网关。</p>
 <h4 id="moonshot-kimi">Moonshot Kimi</h4>
 <ol>
-<li>打开 <a href="https://platform.moonshot.cn/console/api-keys">https://platform.moonshot.cn/console/api-keys</a></li>
+<li>打开 <a href="https://platform.kimi.com/console/api-keys">https://platform.kimi.com/console/api-keys</a></li>
 <li>创建 Key。</li>
-<li>国内版 Base URL 使用 <code>https://api.moonshot.cn/v1</code>；国际版改成 <code>https://api.moonshot.ai/v1</code>。</li>
+<li>Base URL 使用 <code>https://api.moonshot.cn/v1</code>；国际版改成 <code>https://api.moonshot.ai/v1</code>。控制台入口现在是 platform.kimi.com。</li>
 <li>模型填控制台模型 ID。</li>
 </ol>
 <p>适合：长上下文中文材料。</p>
 <h4 id="阿里云百炼">阿里云百炼</h4>
 <ol>
-<li>打开 <a href="https://dashscope.console.aliyun.com/apiKey">https://dashscope.console.aliyun.com/apiKey</a></li>
+<li>打开 <a href="https://bailian.console.aliyun.com/cn-beijing/model/settings/api-key">https://bailian.console.aliyun.com/cn-beijing/model/settings/api-key</a></li>
 <li>创建 API Key。</li>
-<li>页边选择「阿里云百炼」，Base URL 使用兼容模式地址。</li>
+<li>页边选择「阿里云百炼」，北京地域 Base URL 使用 <code>https://dashscope.aliyuncs.com/compatible-mode/v1</code>；新账号建议改成控制台里的业务空间专属域名。</li>
 <li>模型填百炼控制台的模型名。</li>
 </ol>
 <p>适合：已有阿里云账号，使用通义系列模型。</p>
