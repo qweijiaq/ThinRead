@@ -13,6 +13,7 @@ test('converts the knowledge map to a Mermaid flowchart', () => {
     semanticReady: true,
     totalNotes: 2,
     displayedNotes: 2,
+    untaggedNotes: 0,
   })
   assert.match(text, /^flowchart LR/)
   assert.match(text, /n0\["《书》"\]:::book/)

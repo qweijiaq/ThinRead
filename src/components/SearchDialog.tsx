@@ -6,9 +6,40 @@ import { useDialogFocus } from '../lib/useDialogFocus.js'
 
 interface SearchDialogProps {
   open: boolean
+  hasBook?: boolean
   onClose(): void
   onOpen(result: SearchResult): void
+  onCommand(action: SearchCommandId): void
 }
+
+export type SearchCommandId =
+  | 'library'
+  | 'reader'
+  | 'notes'
+  | 'content'
+  | 'compose'
+  | 'map'
+  | 'lab'
+  | 'stats'
+  | 'weekly'
+  | 'settings'
+  | 'import'
+  | 'manual'
+
+const COMMANDS: Array<{ id: SearchCommandId; label: string; requiresBook?: boolean }> = [
+  { id: 'library', label: '书架' },
+  { id: 'reader', label: '返回阅读', requiresBook: true },
+  { id: 'notes', label: '全库笔记' },
+  { id: 'content', label: '内容库' },
+  { id: 'compose', label: '成书', requiresBook: true },
+  { id: 'map', label: '知识地图' },
+  { id: 'lab', label: 'AI 工作台' },
+  { id: 'stats', label: '阅读统计' },
+  { id: 'weekly', label: '历次周复盘' },
+  { id: 'settings', label: '设置' },
+  { id: 'import', label: '导入' },
+  { id: 'manual', label: '使用手册' },
+]
 
 const GROUPS: Array<{ type: SearchResultType; label: string }> = [
   { type: 'book', label: '书' },
@@ -49,7 +80,7 @@ function highlight(text: string, query: string): JSX.Element {
   )
 }
 
-export function SearchDialog({ open, onClose, onOpen }: SearchDialogProps): JSX.Element | null {
+export function SearchDialog({ open, hasBook = false, onClose, onOpen, onCommand }: SearchDialogProps): JSX.Element | null {
   useLocale()
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SearchResult[]>([])
@@ -81,7 +112,7 @@ export function SearchDialog({ open, onClose, onOpen }: SearchDialogProps): JSX.
   useEffect(() => {
     if (!open) return
     const term = query.trim()
-    if (!term) {
+    if (!term || term.startsWith('>')) {
       setResults([])
       setLoading(false)
       setError(null)
@@ -124,12 +155,28 @@ export function SearchDialog({ open, onClose, onOpen }: SearchDialogProps): JSX.
 
   if (!open) return null
 
+  const trimmedQuery = query.trim()
+  const commandMode = trimmedQuery === '' || trimmedQuery.startsWith('>')
+  const commandTerm = trimmedQuery.startsWith('>') ? trimmedQuery.slice(1).trim().toLowerCase() : ''
+  const commandList = commandMode
+    ? COMMANDS.filter(
+        (command) =>
+          (!command.requiresBook || hasBook) &&
+          (commandTerm === '' || t(command.label).toLowerCase().includes(commandTerm) || command.label.includes(commandTerm)),
+      )
+    : []
+  const usingCommands = commandMode && commandList.length > 0
   const filtered = filter === 'all' ? results : results.filter((result) => result.type === filter)
   const ordered = GROUPS.flatMap((group) => filtered.filter((result) => result.type === group.type))
   const pageCount = Math.max(1, Math.ceil(ordered.length / PAGE_SIZE))
   const safePage = Math.min(page, pageCount - 1)
   const visible = ordered.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE)
   const visibleCount = visible.length
+
+  function runCommand(id: SearchCommandId): void {
+    onCommand(id)
+    onClose()
+  }
 
   function handleKey(event: KeyboardEvent<HTMLInputElement>): void {
     if (event.key === 'Escape') {
@@ -139,16 +186,29 @@ export function SearchDialog({ open, onClose, onOpen }: SearchDialogProps): JSX.
     }
     if (event.key === 'ArrowDown') {
       event.preventDefault()
-      setActive((current) => (visibleCount === 0 ? 0 : (current + 1) % visibleCount))
+      if (usingCommands) {
+        setActive((current) => (current + 1) % commandList.length)
+      } else {
+        setActive((current) => (visibleCount === 0 ? 0 : (current + 1) % visibleCount))
+      }
       return
     }
     if (event.key === 'ArrowUp') {
       event.preventDefault()
-      setActive((current) => (visibleCount === 0 ? 0 : (current - 1 + visibleCount) % visibleCount))
+      if (usingCommands) {
+        setActive((current) => (current - 1 + commandList.length) % commandList.length)
+      } else {
+        setActive((current) => (visibleCount === 0 ? 0 : (current - 1 + visibleCount) % visibleCount))
+      }
       return
     }
     if (event.key === 'Enter') {
       event.preventDefault()
+      if (usingCommands) {
+        const command = commandList[active] ?? commandList[0]
+        if (command) runCommand(command.id)
+        return
+      }
       const result = visible[active]
       if (result) onOpen(result)
     }
@@ -173,7 +233,7 @@ export function SearchDialog({ open, onClose, onOpen }: SearchDialogProps): JSX.
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={handleKey}
-            placeholder={t('搜索书名、章节、笔记或生成内容…')}
+            placeholder={t('搜索，或输入 > 执行命令…')}
             aria-label={t('搜索书名、章节、笔记或生成内容')}
             role="searchbox"
             aria-controls="search-results"
@@ -182,7 +242,7 @@ export function SearchDialog({ open, onClose, onOpen }: SearchDialogProps): JSX.
           <span className="search-shortcut">Esc</span>
         </div>
 
-        {query.trim() ? (
+        {!commandMode && query.trim() ? (
           <div className="search-filters" role="group" aria-label={t('按类型筛选')}>
             {FILTERS.map((item) => {
               const count = item.value === 'all' ? results.length : results.filter((result) => result.type === item.value).length
@@ -210,12 +270,33 @@ export function SearchDialog({ open, onClose, onOpen }: SearchDialogProps): JSX.
           aria-busy={loading}
         >
           {error ? <div className="inline-error" role="alert">{error}</div> : null}
-          {!query.trim() ? (
+          {commandMode ? (
+            commandList.length > 0 ? (
+              <div className="search-commands">
+                <div className="search-commands-label">{t('快速操作')}</div>
+                {commandList.map((command, index) => (
+                  <button
+                    key={command.id}
+                    type="button"
+                    className={`search-command${index === active ? ' is-active' : ''}`}
+                    onMouseEnter={() => setActive(index)}
+                    onClick={() => runCommand(command.id)}
+                  >
+                    <span>{t(command.label)}</span>
+                    <span className="search-command-key">↵</span>
+                  </button>
+                ))}
+                <p className="search-command-hint">{t('↑↓ 选择，回车执行；输入关键词继续搜索。')}</p>
+              </div>
+            ) : (
+              <p className="search-empty">{t('没有匹配的命令。')}</p>
+            )
+          ) : !trimmedQuery ? (
             <p className="search-empty">{t('输入关键词，跨所有书搜索书名、章节正文、笔记和生成内容。')}</p>
           ) : loading && results.length === 0 ? (
             <p className="search-empty">{t('正在搜索…')}</p>
           ) : results.length === 0 ? (
-            <p className="search-empty">{t('没有找到')}「{query.trim()}」。</p>
+            <p className="search-empty">{t('没有找到')}「{trimmedQuery}」。</p>
           ) : ordered.length === 0 ? (
             <p className="search-empty">{t('没有这一类型的结果。')}</p>
           ) : (

@@ -65,7 +65,10 @@ function renderAll(): Record<string, string> {
   return hashes
 }
 
-test('visual baselines match the committed hashes', () => {
+test(
+  'visual baselines match the committed hashes',
+  { skip: process.platform !== 'darwin' ? '视觉基线依赖 macOS 系统字体，仅在 macOS 上校验' : false },
+  () => {
   const actual = renderAll()
   if (UPDATE || !fs.existsSync(BASELINE)) {
     fs.mkdirSync(path.dirname(BASELINE), { recursive: true })
@@ -73,4 +76,5 @@ test('visual baselines match the committed hashes', () => {
   }
   const expected = JSON.parse(fs.readFileSync(BASELINE, 'utf8')) as { hashes: Record<string, string> }
   assert.deepEqual(actual, expected.hashes, '视觉基线变化；确认改动符合预期后运行 UPDATE_VISUAL=1 pnpm test 更新')
-})
+},
+)

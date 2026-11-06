@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type { ChapterMeta, Note, XhsCoverageAudit } from '../../shared/types.js'
 import { useDialogFocus } from '../lib/useDialogFocus.js'
 import { t, useLocale } from '../lib/i18n.js'
+import { Select } from './Select.js'
 import {
   planXhsCarousel,
   renderXhsPage,
@@ -29,18 +30,35 @@ export function XhsCarouselDialog({
   author,
   chapters,
   chapterId,
-  chapterTitle,
   initialScope,
   onClose,
 }: XhsCarouselDialogProps): JSX.Element {
   useLocale()
+  const chapterOptions = useMemo(
+    () => chapters.filter((chapter) => !chapter.hidden && chapter.chars > 0),
+    [chapters],
+  )
   const [scope, setScope] = useState<XhsScope>(initialScope)
+  const [selectedChapterId, setSelectedChapterId] = useState(
+    chapterId ?? chapterOptions.find((chapter) => chapter.kind === 'content')?.id ?? chapterOptions[0]?.id ?? null,
+  )
+  const selectedChapter = useMemo(
+    () => chapterOptions.find((chapter) => chapter.id === selectedChapterId) ?? null,
+    [chapterOptions, selectedChapterId],
+  )
   const [concise, setConcise] = useState(false)
   const [notes, setNotes] = useState<Note[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [title, setTitle] = useState(initialScope === 'chapter' ? chapterTitle ?? bookTitle : bookTitle)
-  const [theme, setTheme] = useState<XhsTheme>('paper')
+  const [title, setTitle] = useState(initialScope === 'chapter' ? selectedChapter?.title ?? bookTitle : bookTitle)
+  const [theme, setTheme] = useState<XhsTheme>('ink')
+  const [brand, setBrand] = useState(() => {
+    try {
+      return localStorage.getItem('reading-notes-share-brand') ?? ''
+    } catch {
+      return ''
+    }
+  })
   const [plan, setPlan] = useState<XhsCarouselPlan | null>(null)
   const [previews, setPreviews] = useState<string[]>([])
   const [index, setIndex] = useState(0)
@@ -62,10 +80,10 @@ export function XhsCarouselDialog({
     setNotice(null)
     setAudit(null)
     setSupplements([])
-    setTitle(scope === 'chapter' ? chapterTitle ?? bookTitle : bookTitle)
+    setTitle(scope === 'chapter' ? selectedChapter?.title ?? bookTitle : bookTitle)
     const request =
-      scope === 'chapter' && chapterId
-        ? window.api.listNotes(bookId, chapterId)
+      scope === 'chapter' && selectedChapterId
+        ? window.api.listNotes(bookId, selectedChapterId)
         : window.api.listNotes(bookId)
     request
       .then((items) => {
@@ -81,7 +99,7 @@ export function XhsCarouselDialog({
     return () => {
       cancelled = true
     }
-  }, [bookId, chapterId, chapterTitle, bookTitle, scope])
+  }, [bookId, selectedChapter?.title, selectedChapterId, bookTitle, scope])
 
   useEffect(() => {
     if (loading || error || notes.length === 0) {
@@ -97,11 +115,12 @@ export function XhsCarouselDialog({
         scope,
         bookTitle,
         author,
-        chapterId,
-        chapterTitle,
+        chapterId: selectedChapterId,
+        chapterTitle: selectedChapter?.title ?? null,
         chapters,
         notes: [...notes, ...supplements],
         title,
+        brand,
         concise,
         measure: ctx,
       })
@@ -110,7 +129,7 @@ export function XhsCarouselDialog({
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
-  }, [author, bookTitle, chapterId, chapterTitle, chapters, concise, error, loading, notes, scope, supplements, title])
+  }, [author, bookTitle, brand, chapters, concise, error, loading, notes, scope, selectedChapter?.title, selectedChapterId, supplements, title])
 
   useEffect(() => {
     if (!plan || plan.totalCards === 0 || plan.pages.length === 0) {
@@ -163,7 +182,7 @@ export function XhsCarouselDialog({
     try {
       const result = await window.api.auditXhsCoverage({
         bookId,
-        chapterId: scope === 'chapter' ? chapterId ?? null : null,
+        chapterId: scope === 'chapter' ? selectedChapterId ?? null : null,
         cards: plan.cards.map((card) => ({
           title: card.heading,
           content: card.body || card.heading,
@@ -185,7 +204,7 @@ export function XhsCarouselDialog({
     const additions: Note[] = audit.missing.map((item) => ({
       id: item.id,
       bookId,
-      chapterId: item.chapterId ?? (scope === 'chapter' ? chapterId ?? null : null),
+      chapterId: item.chapterId ?? (scope === 'chapter' ? selectedChapterId ?? null : null),
       kind: 'point',
       title: item.point.slice(0, 60),
       content: item.point,
@@ -360,7 +379,7 @@ export function XhsCarouselDialog({
           </div>
 
           <div className="xhs-controls">
-            {initialScope === 'chapter' && chapterId ? (
+            {chapterOptions.length > 0 ? (
               <div className="xhs-control-group">
                 <span className="xhs-control-label">{t('范围')}</span>
                 <div className="share-segmented">
@@ -379,6 +398,18 @@ export function XhsCarouselDialog({
                     {t('整本书')}
                   </button>
                 </div>
+                {scope === 'chapter' ? (
+                  <Select
+                    className="xhs-chapter-select"
+                    value={selectedChapterId ?? ''}
+                    onChange={(value) => {
+                      setSelectedChapterId(value)
+                      if (scope !== 'chapter') setScope('chapter')
+                    }}
+                    ariaLabel={t('选择章节')}
+                    options={chapterOptions.map((chapter) => ({ value: chapter.id, label: chapter.title }))}
+                  />
+                ) : null}
               </div>
             ) : null}
 
@@ -398,6 +429,21 @@ export function XhsCarouselDialog({
               {t('封面标题')}
               <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder={bookTitle} />
             </label>
+            <label className="share-field">
+              {t('署名 / 品牌（可选）')}
+              <input
+                value={brand}
+                onChange={(event) => {
+                  setBrand(event.target.value)
+                  try {
+                    localStorage.setItem('reading-notes-share-brand', event.target.value)
+                  } catch {
+                    // 忽略存储失败。
+                  }
+                }}
+                placeholder={t('例如 @你的名字')}
+              />
+            </label>
 
             <div className="xhs-control-group">
               <span className="xhs-control-label">{t('主题')}</span>
@@ -407,6 +453,9 @@ export function XhsCarouselDialog({
                 </button>
                 <button type="button" className={theme === 'ink' ? 'active' : ''} onClick={() => setTheme('ink')}>
                   {t('墨')}
+                </button>
+                <button type="button" className={theme === 'sage' ? 'active' : ''} onClick={() => setTheme('sage')}>
+                  {t('苔绿')}
                 </button>
               </div>
             </div>

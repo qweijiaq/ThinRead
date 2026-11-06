@@ -2,8 +2,27 @@ import type { ChapterMeta, Note } from '../../shared/types.js'
 
 import { titleRepeatsContent } from './note-display.js'
 
+import {
+  SHARE_MONO,
+  SHARE_SANS,
+  drawAccentRule,
+  drawChip,
+  drawEmphasizedLines,
+  drawHairline,
+  drawMarkerLine,
+  findKeyPhrase,
+  drawMasthead,
+  drawTracked,
+  drawTrackedRight,
+  paintSharePage,
+  segmentText,
+  sharePalette,
+  type SharePalette,
+  type ShareTheme,
+} from './share-visual.js'
+
 export type XhsScope = 'chapter' | 'book'
-export type XhsTheme = 'paper' | 'ink'
+export type XhsTheme = ShareTheme
 
 export interface XhsCarouselCard {
   id: string
@@ -40,6 +59,7 @@ export interface XhsCarouselPlan {
   cards: XhsCarouselCard[]
   pages: XhsCarouselPage[]
   chapterTitles: string[]
+  brand: string
   totalCards: number
   coveredCards: number
   warnings: string[]
@@ -56,6 +76,7 @@ interface PlanInput {
   author: string
   chapterId?: string | null
   chapterTitle?: string | null
+  brand?: string
   chapters: ChapterMeta[]
   notes: Note[]
   title?: string
@@ -65,57 +86,28 @@ interface PlanInput {
 
 const PAGE_WIDTH = 1080
 const PAGE_HEIGHT = 1440
-const LEFT = 96
-const RIGHT = 96
+const LEFT = 88
+const RIGHT = 88
 const CONTENT_WIDTH = PAGE_WIDTH - LEFT - RIGHT
 const CONTENT_HEIGHT = 1000
 const CARD_GAP = 26
-const HEADING_SIZE = 36
+const HEADING_SIZE = 34
 const HEADING_LINE_HEIGHT = 48
-const BODY_SIZE = 26
-const BODY_LINE_HEIGHT = 40
-const META_HEIGHT = 24
+const BODY_SIZE = 25
+const BODY_LINE_HEIGHT = 42
+const META_HEIGHT = 30
 
-const SERIF = '"Songti SC", "STSong", "Noto Serif CJK SC", "SimSun", Georgia, serif'
-const SANS = '"PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif'
-
-interface Palette {
-  background: string
-  sheet: string
-  ink: string
-  soft: string
-  muted: string
-  line: string
-  accent: string
-}
-
-const PALETTES: Record<XhsTheme, Palette> = {
-  paper: {
-    background: '#e9e1d2',
-    sheet: '#faf6ec',
-    ink: '#26221b',
-    soft: '#4d4539',
-    muted: '#877a67',
-    line: '#ddd2be',
-    accent: '#a84a2b',
-  },
-  ink: {
-    background: '#111417',
-    sheet: '#1b1f23',
-    ink: '#f2eadb',
-    soft: '#d1c5b3',
-    muted: '#938878',
-    line: '#343a40',
-    accent: '#d68a62',
-  },
-}
+const SERIF = SHARE_SANS
+const SANS = SHARE_SANS
+const MONO = SHARE_MONO
+type Palette = SharePalette
 
 function flatten(value: string): string {
   return value.replace(/\s+/g, ' ').trim()
 }
 
 function tokenize(text: string): string[] {
-  return text.match(/[㐀-鿿]|[^\s㐀-鿿]+|\s+/g) ?? []
+  return segmentText(text)
 }
 
 function wrapLines(ctx: MeasureContext, text: string, width: number, size: number, family: string, weight: string): string[] {
@@ -370,6 +362,7 @@ export function planXhsCarousel(input: PlanInput): XhsCarouselPlan {
     cards: selectedCards,
     pages,
     chapterTitles,
+    brand: input.brand?.trim() ?? '',
     totalCards: selectedCards.length,
     coveredCards: covered,
     warnings,
@@ -384,64 +377,20 @@ export function defaultMeasureContext(): CanvasRenderingContext2D {
   return ctx
 }
 
-function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number): void {
-  const r = Math.min(radius, width / 2, height / 2)
-  ctx.beginPath()
-  ctx.moveTo(x + r, y)
-  ctx.arcTo(x + width, y, x + width, y + height, r)
-  ctx.arcTo(x + width, y + height, x, y + height, r)
-  ctx.arcTo(x, y + height, x, y, r)
-  ctx.arcTo(x, y, x + width, y, r)
-  ctx.closePath()
-}
-
 function drawFrame(ctx: CanvasRenderingContext2D, palette: Palette): void {
-  ctx.fillStyle = palette.background
-  ctx.fillRect(0, 0, PAGE_WIDTH, PAGE_HEIGHT)
-  ctx.save()
-  ctx.shadowColor = 'rgba(20, 18, 14, 0.18)'
-  ctx.shadowBlur = 36
-  ctx.shadowOffsetY = 18
-  ctx.fillStyle = palette.sheet
-  roundRect(ctx, 42, 42, PAGE_WIDTH - 84, PAGE_HEIGHT - 84, 30)
-  ctx.fill()
-  ctx.restore()
-  ctx.strokeStyle = palette.line
-  ctx.lineWidth = 2
-  roundRect(ctx, 42, 42, PAGE_WIDTH - 84, PAGE_HEIGHT - 84, 30)
-  ctx.stroke()
-
-  ctx.fillStyle = palette.accent
-  ctx.fillRect(LEFT, 92, 44, 5)
-  ctx.fillStyle = palette.ink
-  ctx.font = `600 28px ${SERIF}`
-  ctx.fillText('页边', LEFT, 112)
-  ctx.fillStyle = palette.muted
-  ctx.font = `500 16px ${SANS}`
-  ctx.fillText('小红书图文', 178, 122)
+  paintSharePage(ctx, PAGE_WIDTH, PAGE_HEIGHT, palette, 28)
 }
 
 function drawPageNo(ctx: CanvasRenderingContext2D, index: number, total: number, palette: Palette): void {
-  ctx.fillStyle = palette.muted
-  ctx.font = `500 16px ${SANS}`
-  ctx.textAlign = 'right'
-  ctx.fillText(`${String(index + 1).padStart(2, '0')} / ${String(total).padStart(2, '0')}`, PAGE_WIDTH - LEFT, 118)
-  ctx.textAlign = 'left'
-}
-
-function drawFooter(ctx: CanvasRenderingContext2D, palette: Palette): void {
-  ctx.strokeStyle = palette.line
-  ctx.lineWidth = 1
-  ctx.beginPath()
-  ctx.moveTo(LEFT, PAGE_HEIGHT - 92)
-  ctx.lineTo(PAGE_WIDTH - RIGHT, PAGE_HEIGHT - 92)
-  ctx.stroke()
-  ctx.fillStyle = palette.muted
-  ctx.font = `400 15px ${SANS}`
-  ctx.fillText('页边 ThinRead · 书和笔记都留在本机', LEFT, PAGE_HEIGHT - 58)
-  ctx.textAlign = 'right'
-  ctx.fillText('THINREAD / XHS', PAGE_WIDTH - RIGHT, PAGE_HEIGHT - 58)
-  ctx.textAlign = 'left'
+  drawTrackedRight(
+    ctx,
+    `${String(index + 1).padStart(2, '0')} / ${String(total).padStart(2, '0')}`,
+    PAGE_WIDTH - RIGHT,
+    68,
+    `500 10px ${MONO}`,
+    palette.muted,
+    1.8,
+  )
 }
 
 function fitText(
@@ -454,11 +403,15 @@ function fitText(
   lineHeightRatio: number,
   family: string,
   weight: string,
-): { lines: string[]; size: number; lineHeight: number } {
+): { lines: string[]; size: number; lineHeight: number; font: string } {
   for (let size = maxSize; size >= minSize; size -= 2) {
     const lines = wrapLines(ctx, text, width, size, family, weight)
     const lineHeight = Math.round(size * lineHeightRatio)
-    if (lines.length * lineHeight <= maxHeight) return { lines, size, lineHeight }
+    if (lines.length * lineHeight <= maxHeight) {
+      const last = lines[lines.length - 1]?.trim() ?? ''
+      if (lines.length > 1 && last.length <= 2 && size > minSize) continue
+      return { lines, size, lineHeight, font: `${weight} ${size}px ${family}` }
+    }
   }
   const size = minSize
   const lineHeight = Math.round(size * lineHeightRatio)
@@ -467,240 +420,300 @@ function fitText(
     lines: lines.slice(0, Math.max(1, Math.floor(maxHeight / lineHeight))),
     size,
     lineHeight,
+    font: `${weight} ${size}px ${family}`,
   }
+}
+
+function drawFooter(ctx: CanvasRenderingContext2D, palette: Palette, brand = ''): void {
+  drawHairline(ctx, palette, LEFT, PAGE_WIDTH - RIGHT, PAGE_HEIGHT - 90)
+  drawTracked(ctx, '页边 / 小红书图文', LEFT, PAGE_HEIGHT - 64, `500 10px ${MONO}`, palette.muted, 1.6)
+  drawTrackedRight(
+    ctx,
+    brand || 'THINREAD / XHS',
+    PAGE_WIDTH - RIGHT,
+    PAGE_HEIGHT - 64,
+    `500 10px ${MONO}`,
+    palette.muted,
+    1.6,
+  )
+}
+
+function drawProgress(ctx: CanvasRenderingContext2D, palette: Palette, pageIndex: number, total: number): void {
+  const width = PAGE_WIDTH - LEFT - RIGHT
+  const y = PAGE_HEIGHT - 126
+  ctx.fillStyle = palette.line
+  ctx.fillRect(LEFT, y, width, 2)
+  ctx.fillStyle = palette.accent
+  ctx.fillRect(LEFT, y, width * Math.min(1, (pageIndex + 1) / Math.max(1, total)), 2)
 }
 
 function drawCover(ctx: CanvasRenderingContext2D, plan: XhsCarouselPlan, palette: Palette, total: number): void {
   drawFrame(ctx, palette)
+  drawMasthead(ctx, palette, LEFT, PAGE_WIDTH - RIGHT, 66)
   drawPageNo(ctx, 0, total, palette)
-  ctx.fillStyle = palette.accent
-  ctx.font = `600 21px ${SANS}`
-  ctx.fillText(plan.scope === 'chapter' ? 'CHAPTER NOTES / 章节图文' : 'BOOK NOTES / 整本书图文', LEFT, 196)
 
-  const title = fitText(ctx, plan.title, CONTENT_WIDTH, 300, 76, 44, 1.22, SERIF, '700')
+  drawTracked(
+    ctx,
+    plan.scope === 'chapter' ? 'CHAPTER NOTES / 章节图文' : 'BOOK NOTES / 整本书图文',
+    LEFT,
+    164,
+    `500 11px ${MONO}`,
+    palette.accent,
+    2.2,
+  )
+
+  const title = fitText(ctx, plan.title, CONTENT_WIDTH, 250, 58, 40, 1.32, SERIF, '600')
   ctx.fillStyle = palette.ink
-  ctx.font = `700 ${title.size}px ${SERIF}`
-  title.lines.forEach((line, index) => ctx.fillText(line, LEFT, 266 + index * title.lineHeight))
-  const titleBottom = 266 + title.lines.length * title.lineHeight
+  ctx.font = title.font
+  if (title.lines[0]) {
+    drawMarkerLine(ctx, palette, LEFT, 206, Math.min(CONTENT_WIDTH, ctx.measureText(title.lines[0]).width), title.lineHeight)
+  }
+  ctx.fillStyle = palette.ink
+  title.lines.forEach((line, index) => ctx.fillText(line, LEFT, 206 + index * title.lineHeight))
+  const titleBottom = 206 + title.lines.length * title.lineHeight
 
+  drawAccentRule(ctx, palette, LEFT, titleBottom + 18, 96, 6)
   ctx.fillStyle = palette.soft
-  ctx.font = `400 24px ${SANS}`
-  ctx.fillText(plan.subtitle, LEFT, titleBottom + 30)
+  ctx.font = `400 22px ${SANS}`
+  ctx.fillText(plan.subtitle, LEFT, titleBottom + 44)
 
-  ctx.fillStyle = palette.ink
-  ctx.font = `600 22px ${SANS}`
-  ctx.fillText(`${plan.totalCards} 个知识点`, LEFT, titleBottom + 82)
-  ctx.fillStyle = palette.muted
-  ctx.font = `400 18px ${SANS}`
-  ctx.fillText(`已覆盖 ${plan.coveredCards} / ${plan.totalCards} · 无遗漏`, LEFT, titleBottom + 112)
+  const statsY = titleBottom + 100
+  const chipWidth = drawChip(ctx, `${plan.totalCards} 个知识点`, LEFT, statsY, palette, { accent: true })
+  drawChip(ctx, `已覆盖 ${plan.coveredCards} / ${plan.totalCards}`, LEFT + chipWidth + 8, statsY, palette)
+  drawHairline(ctx, palette, LEFT, PAGE_WIDTH - RIGHT, statsY + 44)
 
-  ctx.strokeStyle = palette.line
-  ctx.lineWidth = 2
-  ctx.beginPath()
-  ctx.moveTo(LEFT, titleBottom + 150)
-  ctx.lineTo(PAGE_WIDTH - RIGHT, titleBottom + 150)
-  ctx.stroke()
-
-  const listTop = Math.max(titleBottom + 188, 560)
   const sample = plan.cards[0]
-  ctx.fillStyle = palette.accent
-  ctx.font = `600 15px ${SANS}`
-  ctx.fillText('SELECTED / 选读', LEFT, listTop)
-
   if (sample) {
+    const selectedTop = Math.max(statsY + 106, 628)
+    drawAccentRule(ctx, palette, LEFT, selectedTop, 40, 3)
+    drawTracked(ctx, 'SELECTED / 选读', LEFT + 54, selectedTop - 6, `500 11px ${MONO}`, palette.accent, 2)
+
+    const quoteTop = selectedTop + 64
     const quoteText = [sample.heading, sample.body].filter(Boolean).join(' ')
-    const quote = fitText(ctx, quoteText, CONTENT_WIDTH - 40, 500, 44, 28, 1.58, SERIF, '400')
-    const quoteHeight = quote.lines.length * quote.lineHeight
-    const quoteTop = listTop + 100 + Math.max(0, (PAGE_HEIGHT - 320 - (listTop + 100) - quoteHeight) / 2)
-
-    ctx.save()
-    ctx.fillStyle = palette.accent
-    ctx.globalAlpha = 0.16
-    ctx.font = `400 170px ${SERIF}`
-    ctx.fillText('“', LEFT - 10, quoteTop - 52)
-    ctx.restore()
-
+    const quote = fitText(
+      ctx,
+      quoteText,
+      CONTENT_WIDTH - 30,
+      PAGE_HEIGHT - 294 - quoteTop,
+      32,
+      24,
+      1.75,
+      SERIF,
+      '400',
+    )
     ctx.fillStyle = palette.ink
     ctx.font = `400 ${quote.size}px ${SERIF}`
-    quote.lines.forEach((line, index) => ctx.fillText(line, LEFT + 24, quoteTop + index * quote.lineHeight))
+    drawEmphasizedLines(
+      ctx,
+      quote.lines,
+      LEFT,
+      quoteTop,
+      quote.lineHeight,
+      quote.font,
+      findKeyPhrase(quoteText),
+      palette,
+      palette.ink,
+    )
   }
 
-  ctx.save()
-  ctx.globalAlpha = 0.06
-  ctx.fillStyle = palette.ink
-  ctx.font = `700 220px ${SERIF}`
-  ctx.textAlign = 'right'
-  ctx.fillText(String(plan.totalCards).padStart(2, '0'), PAGE_WIDTH - LEFT, PAGE_HEIGHT - 260)
-  ctx.restore()
-  ctx.textAlign = 'left'
+  const metaY = PAGE_HEIGHT - 174
+  drawAccentRule(ctx, palette, LEFT, metaY - 34, 28, 2)
+  drawTracked(
+    ctx,
+    `${plan.totalCards} 个知识点 · ${total} 页`,
+    LEFT,
+    metaY,
+    `500 14px ${MONO}`,
+    palette.muted,
+    1.4,
+  )
+  drawTrackedRight(ctx, '向右滑 →', PAGE_WIDTH - RIGHT, metaY, `500 14px ${MONO}`, palette.accent, 1.8)
 
-  ctx.fillStyle = palette.muted
-  ctx.font = `400 17px ${SANS}`
-  ctx.fillText(`共 ${plan.totalCards} 个知识点 · 已覆盖 ${plan.coveredCards} / ${plan.totalCards}`, LEFT, PAGE_HEIGHT - 152)
-
-  if (plan.warnings.length > 0) {
-    ctx.fillStyle = palette.accent
-    ctx.font = `400 14px ${SANS}`
-    ctx.fillText(plan.warnings[0]!, LEFT, PAGE_HEIGHT - 142)
-  }
-
-  drawFooter(ctx, palette)
+  drawProgress(ctx, palette, 0, total)
+  drawFooter(ctx, palette, plan.brand)
 }
 
-function drawContent(ctx: CanvasRenderingContext2D, plan: XhsCarouselPlan, page: XhsCarouselPage, pageIndex: number, total: number, palette: Palette): void {
+function drawContent(
+  ctx: CanvasRenderingContext2D,
+  plan: XhsCarouselPlan,
+  page: XhsCarouselPage,
+  pageIndex: number,
+  total: number,
+  palette: Palette,
+): void {
   drawFrame(ctx, palette)
+  drawMasthead(ctx, palette, LEFT, PAGE_WIDTH - RIGHT, 66)
   drawPageNo(ctx, pageIndex, total, palette)
-  const header = fitText(ctx, page.chapterTitle ?? plan.title, CONTENT_WIDTH, 24, 16, 12, 1.2, SANS, '600')
+
+  const header = fitText(ctx, page.chapterTitle ?? plan.title, CONTENT_WIDTH - 120, 22, 14, 11, 1.2, SANS, '600')
   ctx.fillStyle = palette.accent
-  ctx.font = `600 ${header.size}px ${SANS}`
-  ctx.fillText(header.lines[0] ?? '', LEFT, 178)
-  ctx.strokeStyle = palette.line
-  ctx.lineWidth = 1
-  ctx.beginPath()
-  ctx.moveTo(LEFT, 200)
-  ctx.lineTo(PAGE_WIDTH - RIGHT, 200)
-  ctx.stroke()
+  ctx.font = `600 ${header.size}px ${MONO}`
+  ctx.fillText(header.lines[0] ?? '', LEFT, 156)
+  drawHairline(ctx, palette, LEFT, PAGE_WIDTH - RIGHT, 188)
+
+  const contentTop = 226
+  const contentBottom = PAGE_HEIGHT - 152
+  const parts = page.parts
+
+  if (parts.length === 1) {
+    const part = parts[0]!
+    const headingText = part.headingLines.join(' ').trim()
+    const bodyText = part.bodyLines.join(' ').trim()
+    const heading = fitText(ctx, headingText, CONTENT_WIDTH - 60, 300, 44, 32, 1.4, SERIF, '600')
+    const body = fitText(ctx, bodyText, CONTENT_WIDTH - 60, 520, 30, 22, 1.8, SERIF, '400')
+    const headingHeight = heading.lines.length * heading.lineHeight
+    const bodyHeight = body.lines.length * body.lineHeight
+    const tagsHeight = part.tags.length > 0 ? 40 : 0
+    const totalHeight = headingHeight + 30 + bodyHeight + tagsHeight
+    let cursor = contentTop + Math.max(0, (contentBottom - contentTop - totalHeight) / 2)
+
+    drawTracked(ctx, String(part.number).padStart(2, '0'), LEFT, cursor + 2, `700 32px ${MONO}`, palette.accent, 1.8)
+    cursor += 54
+    ctx.fillStyle = palette.ink
+    ctx.font = `800 ${heading.size}px ${SERIF}`
+    heading.lines.forEach((line, index) => ctx.fillText(line, LEFT, cursor + index * heading.lineHeight))
+    cursor += headingHeight + 30
+
+    if (body.lines.length > 0) {
+      ctx.fillStyle = palette.soft
+      ctx.font = body.font
+      drawEmphasizedLines(
+        ctx,
+        body.lines,
+        LEFT,
+        cursor,
+        body.lineHeight,
+        body.font,
+        findKeyPhrase(bodyText),
+        palette,
+        palette.soft,
+      )
+      cursor += bodyHeight + 20
+    }
+    if (part.tags.length > 0) {
+      drawTracked(ctx, part.tags.slice(0, 3).join('  ·  '), LEFT, cursor, `500 14px ${MONO}`, palette.accent, 1.4)
+    }
+
+    ctx.save()
+    ctx.globalAlpha = 0.045
+    ctx.fillStyle = palette.accent
+    ctx.textAlign = 'right'
+    ctx.font = `700 240px ${SERIF}`
+    ctx.fillText(String(part.number).padStart(2, '0'), PAGE_WIDTH - RIGHT, PAGE_HEIGHT - 470)
+    ctx.restore()
+    ctx.textAlign = 'left'
+
+    drawProgress(ctx, palette, pageIndex, total)
+    drawFooter(ctx, palette, plan.brand)
+    return
+  }
 
   const blockHeight = (part: XhsCarouselPart): number => {
     const heading = part.headingLines.length * HEADING_LINE_HEIGHT
     const body = part.bodyLines.length * BODY_LINE_HEIGHT
     const tags = part.tags.length > 0 ? META_HEIGHT : 0
-    return heading + (heading > 0 ? 10 : 0) + body + tags + (part.continuation ? 26 : 0)
-  }
-  const contentTop = 240
-  const contentBottom = PAGE_HEIGHT - 150
-  const parts = page.parts
-  if (parts.length === 1) {
-    const part = parts[0]!
-    const headingText = part.headingLines.join(' ').trim()
-    const bodyText = part.bodyLines.join(' ').trim()
-    const heading = fitText(ctx, headingText, CONTENT_WIDTH - 120, 240, 50, 32, 1.32, SERIF, '600')
-    const body = fitText(ctx, bodyText, CONTENT_WIDTH - 120, 320, 32, 24, 1.72, SERIF, '400')
-    const headingHeight = heading.lines.length * heading.lineHeight
-    const bodyHeight = body.lines.length * body.lineHeight
-    const panelHeight = Math.max(130 + headingHeight + bodyHeight, 360)
-    const panelTop = contentTop + (contentBottom - contentTop - panelHeight) / 2
-
-    ctx.save()
-    ctx.globalAlpha = 0.065
-    ctx.fillStyle = palette.accent
-    roundRect(ctx, LEFT - 22, panelTop, CONTENT_WIDTH + 44, panelHeight, 24)
-    ctx.fill()
-    ctx.restore()
-    ctx.fillStyle = palette.accent
-    ctx.fillRect(LEFT - 22, panelTop, 6, panelHeight)
-
-    let cursor = panelTop + (panelHeight - (headingHeight + bodyHeight + 80)) / 2
-    ctx.fillStyle = palette.accent
-    ctx.font = `600 17px ${SANS}`
-    ctx.fillText(String(part.number).padStart(2, '0'), LEFT + 6, cursor + 4)
-    cursor += 34
-
-    ctx.fillStyle = palette.ink
-    ctx.font = `600 ${heading.size}px ${SERIF}`
-    heading.lines.forEach((line, index) => ctx.fillText(line, LEFT + 52, cursor + index * heading.lineHeight))
-    cursor += headingHeight + 26
-
-    if (body.lines.length > 0) {
-      ctx.fillStyle = palette.soft
-      ctx.font = `400 ${body.size}px ${SERIF}`
-      body.lines.forEach((line, index) => ctx.fillText(line, LEFT + 52, cursor + index * body.lineHeight))
-      cursor += bodyHeight
-    }
-    if (part.tags.length > 0) {
-      ctx.fillStyle = palette.accent
-      ctx.font = `400 15px ${SANS}`
-      ctx.fillText(part.tags.join(' · '), LEFT + 52, cursor + 14)
-    }
-    drawFooter(ctx, palette)
-    return
+    const continuation = part.continuation ? 24 : 0
+    return heading + (heading > 0 ? 12 : 0) + body + tags + continuation
   }
 
+  const gap = 34
   const totalHeight =
-    parts.reduce((sum, part) => sum + blockHeight(part) + 40, 0) + Math.max(0, parts.length - 1) * 22
+    parts.reduce((sum, part) => sum + blockHeight(part), 0) + Math.max(0, parts.length - 1) * gap
   let y = contentTop + Math.max(0, (contentBottom - contentTop - totalHeight) / 2)
 
-  parts.forEach((part) => {
-    const height = blockHeight(part)
-    ctx.save()
-    ctx.globalAlpha = 0.055
-    ctx.fillStyle = palette.accent
-    roundRect(ctx, LEFT - 22, y - 20, CONTENT_WIDTH + 44, height + 40, 18)
-    ctx.fill()
-    ctx.restore()
-    ctx.fillStyle = palette.accent
-    ctx.fillRect(LEFT - 22, y - 20, 4, height + 40)
-
-    ctx.fillStyle = palette.accent
-    ctx.font = `600 15px ${SANS}`
-    ctx.fillText(String(part.number).padStart(2, '0'), LEFT, y + 4)
+  parts.forEach((part, index) => {
+    if (index > 0) drawHairline(ctx, palette, LEFT, PAGE_WIDTH - RIGHT, y - gap / 2)
+    drawTracked(ctx, String(part.number).padStart(2, '0'), LEFT, y + 2, `700 18px ${MONO}`, palette.accent, 1.8)
     let cursor = y
     if (part.continuation) {
-      ctx.fillStyle = palette.muted
-      ctx.font = `400 14px ${SANS}`
-      ctx.fillText('续', LEFT, y + 26)
-      cursor += 26
+      drawTracked(ctx, '续', LEFT + 38, y + 4, `500 13px ${MONO}`, palette.muted, 1)
+      cursor += 24
     }
     if (part.headingLines.length > 0) {
       ctx.fillStyle = palette.ink
-      ctx.font = `600 ${HEADING_SIZE}px ${SERIF}`
+      ctx.font = `700 ${HEADING_SIZE}px ${SERIF}`
       part.headingLines.forEach((line, lineIndex) => {
         ctx.fillText(line, LEFT + 52, cursor + lineIndex * HEADING_LINE_HEIGHT)
       })
-      cursor += part.headingLines.length * HEADING_LINE_HEIGHT + 10
+      cursor += part.headingLines.length * HEADING_LINE_HEIGHT + 12
     }
     if (part.bodyLines.length > 0) {
       ctx.fillStyle = palette.soft
       ctx.font = `400 ${BODY_SIZE}px ${SERIF}`
-      part.bodyLines.forEach((line, lineIndex) => {
-        ctx.fillText(line, LEFT + 52, cursor + lineIndex * BODY_LINE_HEIGHT)
-      })
+      drawEmphasizedLines(
+        ctx,
+        part.bodyLines,
+        LEFT + 52,
+        cursor,
+        BODY_LINE_HEIGHT,
+        `400 ${BODY_SIZE}px ${SERIF}`,
+        findKeyPhrase(part.bodyLines.join('')),
+        palette,
+        palette.soft,
+      )
       cursor += part.bodyLines.length * BODY_LINE_HEIGHT
     }
     if (part.tags.length > 0) {
-      ctx.fillStyle = palette.accent
-      ctx.font = `400 15px ${SANS}`
-      ctx.fillText(part.tags.join(' · '), LEFT + 52, cursor + 8)
+      drawTracked(
+        ctx,
+        part.tags.slice(0, 3).join('  ·  '),
+        LEFT + 52,
+        cursor + 10,
+        `500 14px ${MONO}`,
+        palette.accent,
+        1.4,
+      )
     }
-    y += height + 40 + 22
+    y += blockHeight(part) + gap
   })
 
-  drawFooter(ctx, palette)
+  drawProgress(ctx, palette, pageIndex, total)
+  drawFooter(ctx, palette, plan.brand)
 }
 
 function drawClosing(ctx: CanvasRenderingContext2D, plan: XhsCarouselPlan, palette: Palette, total: number): void {
   drawFrame(ctx, palette)
+  drawMasthead(ctx, palette, LEFT, PAGE_WIDTH - RIGHT, 66)
   drawPageNo(ctx, total - 1, total, palette)
-  ctx.fillStyle = palette.accent
-  ctx.font = `600 20px ${SANS}`
-  ctx.fillText('THE LAST PAGE / 读到这里', LEFT, 210)
+
+  drawTracked(ctx, 'THE LAST PAGE / 回顾', LEFT, 174, `500 13px ${MONO}`, palette.accent, 2.2)
   const title =
     plan.scope === 'chapter'
       ? `这一章，留下 ${plan.totalCards} 个知识点`
       : `这本书，留下 ${plan.totalCards} 个知识点`
-  const block = fitText(ctx, title, CONTENT_WIDTH, 300, 66, 44, 1.25, SERIF, '700')
+  const block = fitText(ctx, title, CONTENT_WIDTH, 240, 50, 34, 1.32, SERIF, '600')
   ctx.fillStyle = palette.ink
-  ctx.font = `700 ${block.size}px ${SERIF}`
-  block.lines.forEach((line, index) => ctx.fillText(line, LEFT, 290 + index * block.lineHeight))
-  let y = 290 + block.lines.length * block.lineHeight + 38
-  ctx.fillStyle = palette.soft
-  ctx.font = `400 24px ${SERIF}`
-  ctx.fillText(`全部 ${plan.totalCards} 个知识点已排进这套图，没有遗漏。`, LEFT, y)
-  y += 48
+  ctx.font = block.font
+  block.lines.forEach((line, index) => ctx.fillText(line, LEFT, 222 + index * block.lineHeight))
+  let y = 222 + block.lines.length * block.lineHeight + 26
+  drawAccentRule(ctx, palette, LEFT, y, 52, 3)
+  y += 52
+
+  const items =
+    plan.scope === 'chapter'
+      ? plan.cards.slice(0, 4).map((card) => card.heading)
+      : plan.chapterTitles.slice(0, 6)
+  items.forEach((item, index) => {
+    drawTracked(ctx, String(index + 1).padStart(2, '0'), LEFT, y + 3, `700 18px ${MONO}`, palette.accent, 1.8)
+    const line = fitText(ctx, item, CONTENT_WIDTH - 62, 56, 26, 19, 1.52, SERIF, '500')
+    ctx.fillStyle = palette.soft
+    ctx.font = line.font
+    line.lines.forEach((text, lineIndex) => ctx.fillText(text, LEFT + 52, y + lineIndex * line.lineHeight))
+    y += Math.max(48, line.lines.length * line.lineHeight) + 20
+    if (index < items.length - 1) drawHairline(ctx, palette, LEFT + 52, PAGE_WIDTH - RIGHT, y - 9)
+  })
+
+  y += 18
   ctx.fillStyle = palette.muted
-  ctx.font = `400 19px ${SANS}`
+  ctx.font = `400 20px ${SANS}`
+  ctx.fillText(`全部 ${plan.totalCards} 个知识点已排进这套图，没有遗漏。`, LEFT, y)
+  y += 36
+  ctx.fillStyle = palette.muted
+  ctx.font = `400 16px ${MONO}`
   ctx.fillText(plan.scope === 'chapter' ? plan.bookTitle : `${plan.author || '未署名'} · ${plan.bookTitle}`, LEFT, y)
-  y += 104
-  ctx.strokeStyle = palette.line
-  ctx.lineWidth = 2
-  ctx.beginPath()
-  ctx.moveTo(LEFT, y)
-  ctx.lineTo(PAGE_WIDTH - RIGHT, y)
-  ctx.stroke()
-  ctx.fillStyle = palette.accent
-  ctx.font = `600 18px ${SANS}`
-  ctx.fillText('页边 · 把一本书读成自己的', LEFT, y + 46)
-  drawFooter(ctx, palette)
+
+  drawProgress(ctx, palette, total - 1, total)
+  drawFooter(ctx, palette, plan.brand)
 }
 
 export function renderXhsPage(
@@ -714,7 +727,7 @@ export function renderXhsPage(
   const ctx = canvas.getContext('2d')
   if (!ctx) throw new Error('无法创建画布。')
   ctx.textBaseline = 'top'
-  const palette = PALETTES[theme]
+  const palette = sharePalette(theme)
   const page = plan.pages[pageIndex]
   if (!page) throw new Error('页面不存在。')
   if (page.kind === 'cover') drawCover(ctx, plan, palette, plan.pages.length)

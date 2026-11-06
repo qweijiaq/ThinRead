@@ -4,10 +4,19 @@ import type { IpcRendererEvent } from 'electron'
 import type { DeepLinkTarget } from '../shared/deep-link.js'
 
 import type {
+  AiUsageSummary,
+  AppNotice,
+  AppInfo,
   BackupInfo,
   BookComposeOptions,
   BookComposeProgress,
   BookComposeResult,
+  ComposeSectionRewriteInput,
+  ComposeSectionRewriteResult,
+  CompareComposeInput,
+  CompareComposeResult,
+  CompareNotesInput,
+  CompareNotesResult,
   BookGenerationDoneEvent,
   BookGenerationOptions,
   BookGenerationProgress,
@@ -30,6 +39,8 @@ import type {
   TrashedChapter,
   FormatResult,
   FeynmanResult,
+  SessionSummary,
+  SessionSummaryInput,
   GenerationDoneEvent,
   GenerationErrorEvent,
   GenerationPartialEvent,
@@ -47,9 +58,11 @@ import type {
   RelationGraph,
   LibraryFilter,
   LibraryNote,
+  LibraryNoteAudit,
   Note,
   NoteDraft,
   NotePatch,
+  NotesExportResult,
   OcrDoneEvent,
   PageResult,
   OcrErrorEvent,
@@ -57,7 +70,6 @@ import type {
   OcrImportStarted,
   TtsAudio,
   TtsStatus,
-  TtsVoice,
   TtsSynthesisRequest,
   OcrJob,
   OcrProgress,
@@ -75,6 +87,11 @@ import type {
   ReadingBookmarkDraft,
   ReadingPositionInput,
   ReadingPositionRecord,
+  ReadingPlanInput,
+  ReadingPlanRecord,
+  ReadingStatsData,
+  UiPreferences,
+  WeeklyReviewRecord,
   XhsCoverageRequest,
   XhsCoverageAudit,
   SearchResult,
@@ -126,6 +143,12 @@ const api: ReadingApi = {
       chapters: ChapterMeta[]
       style: ReaderStyle
     }>,
+  getReadingPlan: (bookId: string) =>
+    ipcRenderer.invoke('reading-plan:get', bookId) as Promise<ReadingPlanRecord | null>,
+  listReadingPlans: () => ipcRenderer.invoke('reading-plan:list') as Promise<ReadingPlanRecord[]>,
+  saveReadingPlan: (input: ReadingPlanInput) =>
+    ipcRenderer.invoke('reading-plan:save', input) as Promise<ReadingPlanRecord>,
+  deleteReadingPlan: (bookId: string) => ipcRenderer.invoke('reading-plan:delete', bookId) as Promise<void>,
   renameBook: (bookId: string, title: string, author?: string) =>
     ipcRenderer.invoke('books:rename', bookId, title, author) as Promise<BookSummary>,
   setBookGenre: (bookId: string, genre: BookGenre) =>
@@ -190,11 +213,22 @@ const api: ReadingApi = {
   composeBook: (bookId: string, options: BookComposeOptions) =>
     ipcRenderer.invoke('book:compose', bookId, options) as Promise<BookComposeResult>,
   cancelBookCompose: () => ipcRenderer.invoke('book:compose-cancel') as Promise<void>,
+  rewriteComposeSection: (input: ComposeSectionRewriteInput) =>
+    ipcRenderer.invoke('compose:rewrite-section', input) as Promise<ComposeSectionRewriteResult>,
+  cancelComposeSectionRewrite: () =>
+    ipcRenderer.invoke('compose:rewrite-section-cancel') as Promise<void>,
   expandNote: (noteId) => ipcRenderer.invoke('notes:expand', noteId) as Promise<Note>,
+  compareChapterNotes: (input: CompareNotesInput) =>
+    ipcRenderer.invoke('notes:compare', input) as Promise<CompareNotesResult>,
+  compareBookCompose: (input: CompareComposeInput) =>
+    ipcRenderer.invoke('book:compose-compare', input) as Promise<CompareComposeResult>,
   getSettings: () => ipcRenderer.invoke('settings:get') as Promise<SettingsView>,
   saveSettings: (patch: SettingsPatch) => ipcRenderer.invoke('settings:save', patch) as Promise<SettingsView>,
+  setAppLock: (passcode: string | null) => ipcRenderer.invoke('app:set-lock', passcode) as Promise<boolean>,
+  verifyAppLock: (passcode: string) => ipcRenderer.invoke('app:verify-lock', passcode) as Promise<boolean>,
   testConnection: () => ipcRenderer.invoke('settings:test') as Promise<TestResult>,
-  getAppInfo: () => ipcRenderer.invoke('app:info') as Promise<{ version: string; dataDir: string; demo: boolean }>,
+  getAppInfo: () => ipcRenderer.invoke('app:info') as Promise<AppInfo>,
+  getAiUsage: (days?: number) => ipcRenderer.invoke('ai:usage', days) as Promise<AiUsageSummary>,
   openDataDir: () => ipcRenderer.invoke('app:open-data') as Promise<void>,
   createBackup: () => ipcRenderer.invoke('backup:create') as Promise<BackupInfo>,
   listBackups: () => ipcRenderer.invoke('backup:list') as Promise<BackupInfo[]>,
@@ -202,6 +236,8 @@ const api: ReadingApi = {
   deleteBackup: (id: string) => ipcRenderer.invoke('backup:delete', id) as Promise<void>,
   openBackupsDir: () => ipcRenderer.invoke('backup:open-dir') as Promise<void>,
   exportBackup: (id: string) => ipcRenderer.invoke('backup:export', id) as Promise<SaveFileResult>,
+  exportLibrary: () => ipcRenderer.invoke('backup:export-library') as Promise<SaveFileResult>,
+  importLibrary: () => ipcRenderer.invoke('backup:import-library') as Promise<SaveFileResult>,
   exportDiagnostics: () => ipcRenderer.invoke('app:export-diagnostics') as Promise<SaveFileResult>,
   logRendererError: (report: RendererErrorReport) =>
     ipcRenderer.invoke('app:log-renderer-error', report) as Promise<void>,
@@ -222,16 +258,16 @@ const api: ReadingApi = {
   getTtsStatus: () => ipcRenderer.invoke('tts:status') as Promise<TtsStatus>,
   synthesizeTts: (request: TtsSynthesisRequest) =>
     ipcRenderer.invoke('tts:synthesize', request) as Promise<TtsAudio>,
-  getBeatraVoices: () => ipcRenderer.invoke('tts:beatra-voices') as Promise<TtsVoice[]>,
-  testBeatra: (token?: string) => ipcRenderer.invoke('tts:test-beatra', token) as Promise<TestResult>,
-  importBeatraCredential: () =>
-    ipcRenderer.invoke('tts:import-beatra-credential') as Promise<TestResult>,
   search: (query: string) => ipcRenderer.invoke('library:search', query) as Promise<SearchResult[]>,
   searchSemantic: (query: string) => ipcRenderer.invoke('library:search-semantic', query) as Promise<SearchResult[]>,
   listLibraryNotes: (filter?: LibraryFilter) =>
     ipcRenderer.invoke('library:notes', filter) as Promise<LibraryNote[]>,
+  exportNotesMarkdown: (filter?: LibraryFilter) =>
+    ipcRenderer.invoke('notes:export-markdown', filter) as Promise<NotesExportResult>,
   listLibraryNotesPage: (filter?: LibraryFilter) =>
     ipcRenderer.invoke('library:notes-page', filter) as Promise<PageResult<LibraryNote>>,
+  getLibraryNoteAudit: (filter?: LibraryFilter) =>
+    ipcRenderer.invoke('library:notes-audit', filter) as Promise<LibraryNoteAudit>,
   listLibraryTags: (bookId) => ipcRenderer.invoke('library:tags', bookId) as Promise<TagCount[]>,
   askChapterStream: (chapterId, question, history, mode, onDelta) => {
     const id = streamId()
@@ -249,6 +285,9 @@ const api: ReadingApi = {
       .invoke('tutor:evaluate-stream', chapterId, explanation, id)
       .finally(unsubscribe) as Promise<FeynmanResult>
   },
+  generateSessionSummary: (input: SessionSummaryInput) =>
+    ipcRenderer.invoke('reader:summary', input) as Promise<SessionSummary>,
+  cancelSessionSummary: () => ipcRenderer.invoke('reader:summary-cancel') as Promise<void>,
   getKnowledgeMap: () => ipcRenderer.invoke('map:get') as Promise<KnowledgeMapData>,
   runLab: (request: LabRequest) => ipcRenderer.invoke('lab:run', request) as Promise<LabReport>,
   labChatStream: (request, history, onDelta) => {
@@ -281,6 +320,17 @@ const api: ReadingApi = {
     ipcRenderer.invoke('reading:position-save', input) as Promise<void>,
   saveReadingPage: (chapterId: string, bookId: string, page: number) =>
     ipcRenderer.invoke('reading:page-save', chapterId, bookId, page) as Promise<void>,
+  getReadingStats: () => ipcRenderer.invoke('reading:stats-get') as Promise<ReadingStatsData>,
+  mergeReadingStats: (data: ReadingStatsData) =>
+    ipcRenderer.invoke('reading:stats-merge', data) as Promise<ReadingStatsData>,
+  recordReading: (day: string, seconds: number, bookId?: string | null) =>
+    ipcRenderer.invoke('reading:stats-record', day, seconds, bookId) as Promise<void>,
+  getUiPreferences: () => ipcRenderer.invoke('preferences:get') as Promise<UiPreferences>,
+  saveUiPreferences: (patch: { autoNext?: boolean; dailyGoal?: number }) =>
+    ipcRenderer.invoke('preferences:save', patch) as Promise<UiPreferences>,
+  saveWeeklyReview: (input: { week: string; title: string; content: string }) =>
+    ipcRenderer.invoke('weekly:save', input) as Promise<WeeklyReviewRecord>,
+  listWeeklyReviews: () => ipcRenderer.invoke('weekly:list') as Promise<WeeklyReviewRecord[]>,
   listBookmarks: (bookId: string) =>
     ipcRenderer.invoke('bookmarks:list', bookId) as Promise<ReadingBookmark[]>,
   createBookmark: (input: ReadingBookmarkDraft) =>
@@ -311,13 +361,19 @@ const api: ReadingApi = {
   listContentPage: (filter?: ContentFilter) =>
     ipcRenderer.invoke('content:list-page', filter) as Promise<PageResult<ContentItem>>,
   getContent: (id: string) => ipcRenderer.invoke('content:get', id) as Promise<ContentItem | null>,
+  getContentVersions: (tool: string, scope: string) =>
+    ipcRenderer.invoke('content:versions', tool, scope) as Promise<ContentItem[]>,
   setContentFavorite: (id: string, favorite: boolean) =>
     ipcRenderer.invoke('content:favorite', id, favorite) as Promise<ContentItem>,
   setContentStatus: (id: string, status: ContentStatus) =>
     ipcRenderer.invoke('content:status', id, status) as Promise<ContentItem>,
   deleteContent: (id: string) => ipcRenderer.invoke('content:delete', id) as Promise<void>,
+  purgeContent: (id: string) => ipcRenderer.invoke('content:purge', id) as Promise<void>,
+  purgeDeletedContent: () => ipcRenderer.invoke('content:purge-all') as Promise<number>,
   applyContent: (id: string, action: ContentApplyAction) =>
     ipcRenderer.invoke('content:apply', id, action) as Promise<ContentApplyResult>,
+  undoContentApply: (token: string) =>
+    ipcRenderer.invoke('content:undo', token) as Promise<ContentApplyResult>,
   onGenerationPartial: (cb) => subscribe<GenerationPartialEvent>('generation:partial', cb),
   onGenerationDone: (cb) => subscribe<GenerationDoneEvent>('generation:done', cb),
   onGenerationError: (cb) => subscribe<GenerationErrorEvent>('generation:error', cb),
@@ -331,6 +387,7 @@ const api: ReadingApi = {
   onChapterFormatted: (cb) => subscribe<FormatResult>('chapter:formatted', cb),
   onBookComposeProgress: (cb) => subscribe<BookComposeProgress>('book:compose:progress', cb),
   onSemanticReady: (cb) => subscribe<void>('semantic:ready', () => cb()),
+  onAppNotice: (cb: (notice: AppNotice) => void) => subscribe<AppNotice>('app:notice', cb),
 }
 
 contextBridge.exposeInMainWorld('api', api)

@@ -106,7 +106,7 @@ export function buildDiagnosticsArchive(dataDir: string): Uint8Array {
       composeModel: settings.composeModel,
       labModel: settings.labModel,
       readwiseConfigured: settings.readwiseConfigured,
-      beatraConfigured: settings.beatraConfigured,
+      qwenTtsConfigured: settings.qwenTtsConfigured,
     },
   }
 

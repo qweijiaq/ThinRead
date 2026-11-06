@@ -263,6 +263,30 @@ export function exportBackup(dataDir: string, id: string, destination: string): 
   fs.copyFileSync(archivePath, destination)
 }
 
+/** 把外部 .zip 整库包导入本机备份目录，供恢复流程使用。 */
+export function importBackupArchive(dataDir: string, sourcePath: string): BackupInfo {
+  const files = unzipSync(new Uint8Array(fs.readFileSync(sourcePath)))
+  if (!files['db/reading-notes.db']) throw new Error('这个文件不是有效的页边整库包：缺少数据库。')
+  const dir = backupsDir(dataDir)
+  ensureDir(dir)
+  const now = new Date()
+  const id = `backup-${timestamp(now)}-manual-${crypto.randomBytes(3).toString('hex')}`
+  const archivePath = path.join(dir, `${id}.zip`)
+  fs.copyFileSync(sourcePath, archivePath)
+  const metadata: BackupMetadata = {
+    version: FORMAT_VERSION,
+    id,
+    kind: 'manual',
+    label: '导入的整库',
+    createdAt: now.toISOString(),
+    appVersion: process.env.npm_package_version,
+  }
+  fs.writeFileSync(metadataPath(archivePath), JSON.stringify(metadata, null, 2))
+  const info = listBackups(dataDir).find((item) => item.id === id)
+  if (!info) throw new Error('导入整库后无法读取备份信息。')
+  return info
+}
+
 /** 每天至少留一份自动备份；已有 24 小时内的每日备份时不重复创建。 */
 export function ensureDailyBackup(dataDir: string): BackupInfo | null {
   const latest = listBackups(dataDir).find((item) => item.kind === 'auto' && item.label === '每日自动备份')

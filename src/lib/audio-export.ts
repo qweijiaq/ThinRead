@@ -1,3 +1,5 @@
+import { Mp3Encoder } from '@breezystack/lamejs'
+
 export interface AudioSegment {
   base64: string
   mime: string
@@ -42,6 +44,42 @@ export function encodeWav(samples: Float32Array, sampleRate: number): ArrayBuffe
   return buffer
 }
 
+/** 单声道 16-bit PCM 转 MP3；语音用 64kbps 足够，文件比 WAV 小很多。 */
+export function encodeMp3(samples: Float32Array, sampleRate: number, bitRate = 64): Uint8Array {
+  const encoder = new Mp3Encoder(1, sampleRate, bitRate)
+  const blockSize = 1152
+  const pcm = new Int16Array(blockSize)
+  const chunks: Uint8Array[] = []
+  for (let offset = 0; offset < samples.length; offset += blockSize) {
+    const length = Math.min(blockSize, samples.length - offset)
+    for (let index = 0; index < length; index++) {
+      const sample = Math.max(-1, Math.min(1, samples[offset + index] ?? 0))
+      pcm[index] = Math.round(sample < 0 ? sample * 0x8000 : sample * 0x7fff)
+    }
+    const buffer = encoder.encodeBuffer(length === blockSize ? pcm : pcm.subarray(0, length))
+    if (buffer.length > 0) chunks.push(new Uint8Array(buffer))
+  }
+  const tail = encoder.flush()
+  if (tail.length > 0) chunks.push(new Uint8Array(tail))
+  const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0)
+  const mp3 = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    mp3.set(chunk, offset)
+    offset += chunk.length
+  }
+  return mp3
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = ''
+  const chunk = 0x8000
+  for (let index = 0; index < bytes.length; index += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunk))
+  }
+  return btoa(binary)
+}
+
 function toMono(buffer: AudioBuffer): Float32Array {
   const length = buffer.length
   const mono = new Float32Array(length)
@@ -70,8 +108,9 @@ async function resampleMono(mono: Float32Array, sourceRate: number, targetRate: 
 /** 把逐句音频解码后拼成一个可播放/可导出的整段 WAV。 */
 export async function combineAudioSegments(
   segments: AudioSegment[],
+  gapSeconds = 0,
   sampleRate = TARGET_SAMPLE_RATE,
-): Promise<{ wav: ArrayBuffer; base64: string; duration: number }> {
+): Promise<{ wav: ArrayBuffer; base64: string; mp3Base64: string; duration: number }> {
   if (segments.length === 0) throw new Error('没有可合并的音频。')
   const AudioContextCtor =
     window.AudioContext ||
@@ -89,6 +128,11 @@ export async function combineAudioSegments(
       const mono = await resampleMono(toMono(decoded), decoded.sampleRate, sampleRate)
       parts.push(mono)
       totalSamples += mono.length
+      if (gapSeconds > 0 && index < segments.length - 1) {
+        const silence = new Float32Array(Math.round(gapSeconds * sampleRate))
+        parts.push(silence)
+        totalSamples += silence.length
+      }
       if (totalSamples / sampleRate > MAX_DURATION_SECONDS) {
         throw new Error(`音频超过 ${MAX_DURATION_SECONDS / 60} 分钟，建议按章节分开导出。`)
       }
@@ -104,11 +148,11 @@ export async function combineAudioSegments(
     offset += part.length
   }
   const wav = encodeWav(merged, sampleRate)
-  let binary = ''
-  const bytes = new Uint8Array(wav)
-  const chunk = 0x8000
-  for (let index = 0; index < bytes.length; index += chunk) {
-    binary += String.fromCharCode(...bytes.subarray(index, index + chunk))
+  const mp3 = encodeMp3(merged, sampleRate)
+  return {
+    wav,
+    base64: bytesToBase64(new Uint8Array(wav)),
+    mp3Base64: bytesToBase64(mp3),
+    duration: totalSamples / sampleRate,
   }
-  return { wav, base64: btoa(binary), duration: totalSamples / sampleRate }
 }

@@ -13,7 +13,6 @@ import type {
 import { setLocale, t, useLocale } from '../lib/i18n.js'
 import { getAutoNext, getDailyGoal, setAutoNext, setDailyGoal } from '../lib/preferences.js'
 import { useDialogFocus } from '../lib/useDialogFocus.js'
-import { BeatraGuideDialog } from './BeatraGuideDialog.js'
 import { Checkbox } from './Checkbox.js'
 import { confirmDialog } from './ConfirmDialog.js'
 import { Select } from './Select.js'
@@ -83,13 +82,17 @@ export function SettingsDialog({
   const [labModel, setLabModel] = useState(settings.labModel)
   const [readwiseToken, setReadwiseToken] = useState('')
   const [readwiseTest, setReadwiseTest] = useState<TestResult | null>(null)
-  const [beatraToken, setBeatraToken] = useState('')
-  const [beatraTest, setBeatraTest] = useState<TestResult | null>(null)
-  const [openaiTtsBaseUrl, setOpenaiTtsBaseUrl] = useState(settings.openaiTtsBaseUrl)
-  const [openaiTtsModel, setOpenaiTtsModel] = useState(settings.openaiTtsModel)
-  const [openaiTtsVoiceA, setOpenaiTtsVoiceA] = useState(settings.openaiTtsVoiceA)
-  const [openaiTtsVoiceB, setOpenaiTtsVoiceB] = useState(settings.openaiTtsVoiceB)
-  const [openaiTtsKey, setOpenaiTtsKey] = useState('')
+  const [qwenTtsBaseUrl, setQwenTtsBaseUrl] = useState(settings.qwenTtsBaseUrl)
+  const [qwenTtsModel, setQwenTtsModel] = useState(settings.qwenTtsModel)
+  const [qwenTtsVoiceA, setQwenTtsVoiceA] = useState(settings.qwenTtsVoiceA)
+  const [qwenTtsVoiceB, setQwenTtsVoiceB] = useState(settings.qwenTtsVoiceB)
+  const [qwenTtsVoiceEn, setQwenTtsVoiceEn] = useState(settings.qwenTtsVoiceEn)
+  const [qwenTtsPricePerK, setQwenTtsPricePerK] = useState(String(settings.qwenTtsPricePerK || ''))
+  const [qwenTtsVoices, setQwenTtsVoices] = useState<string[]>(settings.qwenTtsVoices)
+  const [lockPasscode, setLockPasscode] = useState('')
+  const [lockTest, setLockTest] = useState<TestResult | null>(null)
+  const [newVoice, setNewVoice] = useState('')
+  const [qwenTtsKey, setQwenTtsKey] = useState('')
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
   const [result, setResult] = useState<TestResult | null>(null)
@@ -101,7 +104,6 @@ export function SettingsDialog({
   const [backupBusy, setBackupBusy] = useState<string | null>(null)
   const [backupError, setBackupError] = useState<string | null>(null)
   const [backupNotice, setBackupNotice] = useState<string | null>(null)
-  const [guideOpen, setGuideOpen] = useState(false)
 
   useEffect(() => {
     if (!open) return
@@ -115,13 +117,17 @@ export function SettingsDialog({
     setLabModel(settings.labModel)
     setReadwiseToken('')
     setReadwiseTest(null)
-    setBeatraToken('')
-    setBeatraTest(null)
-    setOpenaiTtsBaseUrl(settings.openaiTtsBaseUrl)
-    setOpenaiTtsModel(settings.openaiTtsModel)
-    setOpenaiTtsVoiceA(settings.openaiTtsVoiceA)
-    setOpenaiTtsVoiceB(settings.openaiTtsVoiceB)
-    setOpenaiTtsKey('')
+    setQwenTtsBaseUrl(settings.qwenTtsBaseUrl)
+    setQwenTtsModel(settings.qwenTtsModel)
+    setQwenTtsVoiceA(settings.qwenTtsVoiceA)
+    setQwenTtsVoiceB(settings.qwenTtsVoiceB)
+    setQwenTtsVoiceEn(settings.qwenTtsVoiceEn)
+    setQwenTtsPricePerK(String(settings.qwenTtsPricePerK || ''))
+    setQwenTtsVoices(settings.qwenTtsVoices)
+    setNewVoice('')
+    setLockPasscode('')
+    setLockTest(null)
+    setQwenTtsKey('')
     setResult(null)
     setBackupError(null)
     setBackupNotice(null)
@@ -146,6 +152,17 @@ export function SettingsDialog({
     setResult(null)
   }
 
+  function addVoice(): void {
+    const value = newVoice.trim()
+    if (!value) return
+    setQwenTtsVoices((current) => [...new Set([...current, value])])
+    setNewVoice('')
+  }
+
+  function removeVoice(voice: string): void {
+    setQwenTtsVoices((current) => current.filter((item) => item !== voice))
+  }
+
   async function persist(): Promise<SettingsView | null> {
     setSaving(true)
     try {
@@ -158,12 +175,14 @@ export function SettingsDialog({
         composeModel,
         labModel,
         ...(readwiseToken.trim() ? { readwiseToken: readwiseToken.trim() } : {}),
-        ...(beatraToken.trim() ? { beatraToken: beatraToken.trim() } : {}),
-        openaiTtsBaseUrl,
-        openaiTtsModel,
-        openaiTtsVoiceA,
-        openaiTtsVoiceB,
-        ...(openaiTtsKey.trim() ? { openaiTtsKey: openaiTtsKey.trim() } : {}),
+        qwenTtsBaseUrl,
+        qwenTtsModel,
+        qwenTtsVoiceA,
+        qwenTtsVoiceB,
+        qwenTtsVoiceEn,
+        qwenTtsPricePerK: Number(qwenTtsPricePerK) || 0,
+        qwenTtsVoices,
+        ...(qwenTtsKey.trim() ? { qwenTtsKey: qwenTtsKey.trim() } : {}),
         ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
       })
       onSaved(saved)
@@ -208,6 +227,43 @@ export function SettingsDialog({
     }
   }
 
+  async function exportLibrary(): Promise<void> {
+    if (backupBusy) return
+    setBackupBusy('library-export')
+    setBackupError(null)
+    setBackupNotice(null)
+    try {
+      const saved = await window.api.exportLibrary()
+      if (saved.saved) setBackupNotice(`${t('整库已导出到')} ${saved.path}`)
+    } catch (error) {
+      setBackupError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setBackupBusy(null)
+    }
+  }
+
+  async function importLibrary(): Promise<void> {
+    if (backupBusy) return
+    const confirmed = await confirmDialog({
+      title: t('导入整库'),
+      message: t('导入会替换当前书籍、笔记、生成内容、设置和阅读统计，并先自动备份当前状态。继续？'),
+      confirmLabel: t('导入并重载'),
+      danger: true,
+    })
+    if (!confirmed) return
+    setBackupBusy('library-import')
+    setBackupError(null)
+    setBackupNotice(null)
+    try {
+      const saved = await window.api.importLibrary()
+      if (saved.saved) setBackupNotice(t('整库已导入，正在重新加载…'))
+    } catch (error) {
+      setBackupError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setBackupBusy(null)
+    }
+  }
+
   async function exportDiagnostics(): Promise<void> {
     if (backupBusy) return
     setBackupBusy('diagnostics')
@@ -232,23 +288,37 @@ export function SettingsDialog({
     }
   }
 
-  async function testBeatraToken(): Promise<void> {
-    setBeatraTest(null)
+  async function saveAppLock(): Promise<void> {
+    const passcode = lockPasscode.trim()
+    if (passcode.length < 4) {
+      setLockTest({ ok: false, message: t('应用锁密码至少 4 个字符。') })
+      return
+    }
     try {
-      setBeatraTest(await window.api.testBeatra(beatraToken.trim() || undefined))
+      await window.api.setAppLock(passcode)
+      setLockPasscode('')
+      setLockTest({ ok: true, message: t('应用锁已开启；下次启动需要输入密码。') })
+      onSaved(await window.api.getSettings())
     } catch (error) {
-      setBeatraTest({ ok: false, message: error instanceof Error ? error.message : String(error) })
+      setLockTest({ ok: false, message: error instanceof Error ? error.message : String(error) })
     }
   }
 
-  async function importBeatraCredential(): Promise<void> {
-    setBeatraTest(null)
+  async function disableAppLock(): Promise<void> {
+    const confirmed = await confirmDialog({
+      title: t('关闭应用锁'),
+      message: t('关闭后下次启动不再需要密码。继续？'),
+      confirmLabel: t('关闭应用锁'),
+      danger: true,
+    })
+    if (!confirmed) return
     try {
-      const imported = await window.api.importBeatraCredential()
-      setBeatraTest(imported)
-      if (imported.ok) onSaved(await window.api.getSettings())
+      await window.api.setAppLock(null)
+      setLockPasscode('')
+      setLockTest({ ok: true, message: t('应用锁已关闭。') })
+      onSaved(await window.api.getSettings())
     } catch (error) {
-      setBeatraTest({ ok: false, message: error instanceof Error ? error.message : String(error) })
+      setLockTest({ ok: false, message: error instanceof Error ? error.message : String(error) })
     }
   }
 
@@ -305,7 +375,7 @@ export function SettingsDialog({
       <div className="modal-backdrop" onMouseDown={onClose}>
       <div
         ref={dialogRef}
-        className="modal"
+        className="modal settings-drawer"
         role="dialog"
         aria-modal="true"
         aria-label={t('设置')}
@@ -318,6 +388,12 @@ export function SettingsDialog({
           </button>
         </div>
 
+        <div className="settings-body">
+        {settings.keysNeedReentry ? (
+          <div className="inline-notice" role="status">
+            {t('这个备份来自另一台机器，部分 API Key 无法在当前系统解密；需要重新填写后才能继续使用。')}
+          </div>
+        ) : null}
         <div className="form-row">
           <label>{t('界面语言（Beta）')}</label>
           <div className="segmented theme-segmented">
@@ -426,7 +502,35 @@ export function SettingsDialog({
 
             <div className="form-row">
               <label>{t('模型')}</label>
-              <input value={model} onChange={(event) => setModel(event.target.value)} placeholder={t('模型 ID')} spellCheck={false} />
+              <div className="form-row-inline">
+                <input
+                  value={model}
+                  onChange={(event) => setModel(event.target.value)}
+                  placeholder={t('模型 ID')}
+                  list="model-suggestions"
+                  spellCheck={false}
+                />
+                <Select
+                  className="filter-select"
+                  value=""
+                  onChange={(value) => {
+                    if (value) setModel(value)
+                  }}
+                  ariaLabel={t('选择推荐模型')}
+                  options={[
+                    { value: '', label: t('推荐模型…') },
+                    ...[...new Set([model, ...(preset?.suggestedModels ?? [])].filter(Boolean))].map((id) => ({
+                      value: id,
+                      label: id,
+                    })),
+                  ]}
+                />
+              </div>
+              <datalist id="model-suggestions">
+                {[...new Set([model, ...(preset?.suggestedModels ?? [])].filter(Boolean))].map((id) => (
+                  <option key={id} value={id} />
+                ))}
+              </datalist>
             </div>
 
             <div className="form-row">
@@ -445,30 +549,11 @@ export function SettingsDialog({
             <div className="form-row">
               <label>{t('任务模型覆盖')}</label>
               <div className="task-model-grid">
-                <input value={notesModel} onChange={(event) => setNotesModel(event.target.value)} placeholder={t('读薄模型（留空用默认）')} spellCheck={false} />
-                <input value={composeModel} onChange={(event) => setComposeModel(event.target.value)} placeholder={t('成稿模型（留空用默认）')} spellCheck={false} />
-                <input value={labModel} onChange={(event) => setLabModel(event.target.value)} placeholder={t('工作台模型（留空用默认）')} spellCheck={false} />
+                <input value={notesModel} onChange={(event) => setNotesModel(event.target.value)} placeholder={t('读薄模型（留空用默认）')} list="model-suggestions" spellCheck={false} />
+                <input value={composeModel} onChange={(event) => setComposeModel(event.target.value)} placeholder={t('成稿模型（留空用默认）')} list="model-suggestions" spellCheck={false} />
+                <input value={labModel} onChange={(event) => setLabModel(event.target.value)} placeholder={t('工作台模型（留空用默认）')} list="model-suggestions" spellCheck={false} />
               </div>
               <p className="field-hint">{t('只覆盖模型 ID，Base URL 和 Key 继续使用上面的服务商。')}</p>
-            </div>
-            <div className="form-row">
-              <label>Readwise API Token</label>
-              <input
-                type="password"
-                value={readwiseToken}
-                onChange={(event) => setReadwiseToken(event.target.value)}
-                placeholder={settings.readwiseConfigured ? t('已保存，留空则不修改') : t('可选，用于同步 Readwise 划线')}
-                spellCheck={false}
-              />
-              <p className="field-hint">{t('在 readwise.io/access_token 获取；Token 用系统钥匙串加密保存在本机。')}</p>
-              <div className="backup-actions">
-                <button type="button" className="ghost-button small" onClick={() => void testReadwiseToken()}>
-                  {t('测试 Readwise')}
-                </button>
-              </div>
-              {readwiseTest ? (
-                <div className={`test-result ${readwiseTest.ok ? 'ok' : 'fail'}`}>{readwiseTest.message}</div>
-              ) : null}
             </div>
           </>
         ) : (
@@ -481,82 +566,140 @@ export function SettingsDialog({
         )}
 
         <div className="form-row">
-          <label>{t('Beatra AI 配音')}</label>
+          <label>Readwise API Token</label>
           <input
             type="password"
-            value={beatraToken}
-            onChange={(event) => setBeatraToken(event.target.value)}
-            placeholder={settings.beatraConfigured ? t('已保存，留空则不修改') : t('可选，填写 Beatra Device Token')}
+            value={readwiseToken}
+            onChange={(event) => setReadwiseToken(event.target.value)}
+            placeholder={settings.readwiseConfigured ? t('已保存，留空则不修改') : t('可选，用于同步 Readwise 划线')}
             spellCheck={false}
           />
-          <p className="field-hint">
-            {t('用于付费 AI 配音。已安装 Beatra Skill 的话，先运行它的 authorize.py，再点「导入本机授权」；也可以手动填写 Device Token。Token 用系统钥匙串加密保存在本机，Beatra 按字符计费。')}
-          </p>
+          <p className="field-hint">{t('在 readwise.io/access_token 获取；Token 用系统钥匙串加密保存在本机。')}</p>
           <div className="backup-actions">
-            <button type="button" className="ghost-button small" onClick={() => void testBeatraToken()}>
-              {t('测试 Beatra')}
-            </button>
-            <button type="button" className="ghost-button small" onClick={() => void importBeatraCredential()}>
-              {t('导入本机授权')}
-            </button>
-            <button type="button" className="ghost-button small" onClick={() => setGuideOpen(true)}>
-              {t('查看教程')}
+            <button type="button" className="ghost-button small" onClick={() => void testReadwiseToken()}>
+              {t('测试 Readwise')}
             </button>
           </div>
-          {beatraTest ? (
-            <div className={`test-result ${beatraTest.ok ? 'ok' : 'fail'}`}>{beatraTest.message}</div>
+          {readwiseTest ? (
+            <div className={`test-result ${readwiseTest.ok ? 'ok' : 'fail'}`}>{readwiseTest.message}</div>
           ) : null}
-          <details className="beatra-guide">
-            <summary>{t('Beatra 怎么配置？')}</summary>
-            <ol>
-              <li>{t('确认 Beatra 账户有额度，并安装 Beatra Skill。')}</li>
-              <li>
-                在终端运行 <code>python3 ~/.claude/skills/@beatra-ai/ai-podcast-voiceover/scripts/authorize.py</code>
-                {t('，登录后点 Allow，直到终端显示 Beatra is ready。')}
-              </li>
-              <li>{t('回到这里点「导入本机授权」，再点「测试 Beatra」。')}</li>
-              <li>{t('在听读面板选择「Beatra 付费」，选 A/B 中文音色。首次播放会确认计费。')}</li>
-            </ol>
-            <p>{t('需要 Python 3.10+；没有 Beatra 的话，可以继续使用免费的 Edge 在线音色。')}</p>
-          </details>
         </div>
 
         <div className="form-row">
-          <label>{t('OpenAI 兼容 TTS')}</label>
+          <label>{t('千问 TTS（阿里云百炼）')}</label>
           <input
-            value={openaiTtsBaseUrl}
-            onChange={(event) => setOpenaiTtsBaseUrl(event.target.value)}
-            placeholder="https://api.openai.com/v1"
+            value={qwenTtsBaseUrl}
+            onChange={(event) => setQwenTtsBaseUrl(event.target.value)}
+            placeholder="https://dashscope.aliyuncs.com/api/v1"
             spellCheck={false}
           />
           <div className="form-row-inline">
             <input
-              value={openaiTtsModel}
-              onChange={(event) => setOpenaiTtsModel(event.target.value)}
-              placeholder="gpt-4o-mini-tts"
+              value={qwenTtsModel}
+              onChange={(event) => setQwenTtsModel(event.target.value)}
+              placeholder="qwen-audio-3.1-tts-flash"
               spellCheck={false}
             />
             <input
-              value={openaiTtsVoiceA}
-              onChange={(event) => setOpenaiTtsVoiceA(event.target.value)}
-              placeholder={t('A 音色，如 alloy')}
+              value={qwenTtsVoiceA}
+              onChange={(event) => setQwenTtsVoiceA(event.target.value)}
+              placeholder={t('A 音色，如 longanhuan_v3.1')}
+              spellCheck={false}
             />
             <input
-              value={openaiTtsVoiceB}
-              onChange={(event) => setOpenaiTtsVoiceB(event.target.value)}
-              placeholder={t('B 音色，如 verse')}
+              value={qwenTtsVoiceB}
+              onChange={(event) => setQwenTtsVoiceB(event.target.value)}
+              placeholder={t('B 音色，可留空复用 A')}
+              spellCheck={false}
             />
           </div>
           <input
+            value={qwenTtsVoiceEn}
+            onChange={(event) => setQwenTtsVoiceEn(event.target.value)}
+            placeholder={t('英文音色（可选，留空复用 A）')}
+            spellCheck={false}
+          />
+          <input
+            type="number"
+            min={0}
+            step={0.001}
+            value={qwenTtsPricePerK}
+            onChange={(event) => setQwenTtsPricePerK(event.target.value)}
+            placeholder={t('价格（元/千字符，可选）')}
+            spellCheck={false}
+          />
+          <div className="voice-library">
+            {qwenTtsVoices.map((voice) => (
+              <span key={voice} className="voice-chip">
+                <code>{voice}</code>
+                <button type="button" onClick={() => setQwenTtsVoiceA(voice)}>{t('设为 A')}</button>
+                <button type="button" onClick={() => setQwenTtsVoiceB(voice)}>{t('设为 B')}</button>
+                <button type="button" onClick={() => setQwenTtsVoiceEn(voice)}>{t('设为英文')}</button>
+                <button
+                  type="button"
+                  className="voice-chip-remove"
+                  onClick={() => removeVoice(voice)}
+                  aria-label={`${t('删除音色')} ${voice}`}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+          <div className="backup-actions">
+            <input
+              value={newVoice}
+              onChange={(event) => setNewVoice(event.target.value)}
+              placeholder={t('输入音色 ID，例如 longanhuan_v3.1')}
+              spellCheck={false}
+            />
+            <button type="button" className="ghost-button small" onClick={addVoice}>
+              {t('加入音色库')}
+            </button>
+          </div>
+          <p className="field-hint">{t('音色库只保存 ID，不会自动验证；建议先在百炼控制台确认音色可用。')}</p>
+          <input
             type="password"
-            value={openaiTtsKey}
-            onChange={(event) => setOpenaiTtsKey(event.target.value)}
-            placeholder={settings.openaiTtsConfigured ? t('已保存，留空则不修改') : t('可选，填写 TTS API Key')}
+            value={qwenTtsKey}
+            onChange={(event) => setQwenTtsKey(event.target.value)}
+            placeholder={settings.qwenTtsConfigured ? t('已保存，留空则不修改') : t('可选，留空复用阿里云百炼主 Key')}
             spellCheck={false}
           />
           <p className="field-hint">
-            {t('任何兼容 /audio/speech 的服务都可以，例如 OpenAI gpt-4o-mini-tts、SiliconFlow 或自建网关。按字符计费，文本会发到你配置的服务；Key 用系统钥匙串加密保存在本机。')}
+            {t('与 english-penpal 同款：千问语音合成，模型 qwen-audio-3.1-tts-flash，走阿里云百炼原生 SpeechSynthesizer 接口。Key 留空时复用「阿里云百炼」主模型的 Key；专属业务空间请把 Base URL 换成自己的域名。文本会发送到该服务，按字符计费。')}
           </p>
+          <p className="field-hint">{t('英文段落会自动使用英文音色；留空时复用 A 音色。')}</p>
+          <p className="field-hint">{t('填写价格后，整章导出会按字符数估算费用；不填只显示字符数。')}</p>
+        </div>
+
+        <div className="settings-divider" />
+
+        <div className="form-row">
+          <label>{t('应用锁')}</label>
+          <input
+            type="password"
+            value={lockPasscode}
+            onChange={(event) => setLockPasscode(event.target.value)}
+            placeholder={settings.appLockEnabled ? t('输入新密码可修改应用锁') : t('设置 4 位以上密码')}
+            autoComplete="new-password"
+            spellCheck={false}
+          />
+          <div className="backup-actions">
+            <button type="button" className="ghost-button small" onClick={() => void saveAppLock()}>
+              {settings.appLockEnabled ? t('修改应用锁') : t('开启应用锁')}
+            </button>
+            {settings.appLockEnabled ? (
+              <button type="button" className="ghost-button small" onClick={() => void disableAppLock()}>
+                {t('关闭应用锁')}
+              </button>
+            ) : null}
+          </div>
+          <p className="field-hint">
+            {t('下次启动需要输入密码。密码哈希保存在本机；忘记后只能手动删除 settings.json 里的 lock 字段。')}
+          </p>
+          {lockTest ? (
+            <div className={`test-result ${lockTest.ok ? 'ok' : 'fail'}`}>{lockTest.message}</div>
+          ) : null}
         </div>
 
         <div className="settings-divider" />
@@ -574,6 +717,22 @@ export function SettingsDialog({
               disabled={backups.length === 0 || backupBusy !== null}
             >
               {backupBusy === 'export' ? t('导出中…') : t('导出最新备份')}
+            </button>
+            <button
+              type="button"
+              className="ghost-button small"
+              onClick={() => void exportLibrary()}
+              disabled={backupBusy !== null}
+            >
+              {backupBusy === 'library-export' ? t('导出中…') : t('导出整库')}
+            </button>
+            <button
+              type="button"
+              className="ghost-button small"
+              onClick={() => void importLibrary()}
+              disabled={backupBusy !== null}
+            >
+              {backupBusy === 'library-import' ? t('导入中…') : t('导入整库')}
             </button>
             <button type="button" className="text-button muted" onClick={() => void window.api.openBackupsDir()}>
               {t('打开备份目录')}
@@ -633,6 +792,8 @@ export function SettingsDialog({
 
         {result ? <div className={`test-result ${result.ok ? 'ok' : 'fail'}`}>{result.message}</div> : null}
 
+        </div>
+
         <div className="modal-footer">
           <button type="button" className="text-button muted" onClick={() => void window.api.openDataDir()}>
             {t('打开数据目录')}
@@ -668,7 +829,6 @@ export function SettingsDialog({
         {appInfo ? <p className="modal-meta">{t('页边')} v{appInfo.version} · {t('数据目录')} {appInfo.dataDir}</p> : null}
       </div>
       </div>
-      <BeatraGuideDialog open={guideOpen} onClose={() => setGuideOpen(false)} />
     </>
   )
 }

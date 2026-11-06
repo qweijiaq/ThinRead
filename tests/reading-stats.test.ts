@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { addReadingSeconds, getReadingMonth, getReadingSummary, getReadingYear, nextStreakMilestone, readingCsv, readingMinutes, unlockedMilestones } from '../src/lib/reading-stats.js'
+import { addReadingSeconds, getReadingMonth, getReadingSummary, getReadingYear, hydrateReadingStats, nextStreakMilestone, readingCsv, readingMinutes, unlockedMilestones } from '../src/lib/reading-stats.js'
 
 function installStorage(): () => void {
   const map = new Map<string, string>()
@@ -139,6 +139,110 @@ test('aggregates monthly and yearly totals', () => {
     assert.deepEqual(current.bestMonth, { month: `${year}-03`, seconds: 1200 })
     assert.equal(getReadingYear(-1).seconds, 300)
   } finally {
+    restore()
+  }
+})
+
+test('keeps more than 90 days of daily stats and 100-day streaks', () => {
+  const restore = installStorage()
+  try {
+    const days: Record<string, number> = {}
+    const date = new Date()
+    for (let offset = 0; offset < 120; offset++) {
+      const current = new Date(date)
+      current.setDate(current.getDate() - offset)
+      days[
+        `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`
+      ] = 60
+    }
+    localStorage.setItem(
+      'reading-notes-reading-stats',
+      JSON.stringify({ total: 7200, days, books: {} }),
+    )
+    const summary = getReadingSummary()
+    assert.equal(summary.currentStreak, 120)
+    assert.equal(summary.longestStreak, 120)
+    assert.equal(Object.keys(JSON.parse(localStorage.getItem('reading-notes-reading-stats')!).days).length, 120)
+  } finally {
+    restore()
+  }
+})
+
+test('migrates local reading stats into the database when the database is empty', async () => {
+  const restore = installStorage()
+  const previousWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
+  let pushed: unknown = null
+  const key = (offset: number) => {
+    const date = new Date()
+    date.setDate(date.getDate() - offset)
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+  }
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: {
+      api: {
+        getReadingStats: async () => ({ total: 0, days: {}, books: {} }),
+        mergeReadingStats: async (data: unknown) => {
+          pushed = data
+          return data
+        },
+      },
+    },
+  })
+  try {
+    localStorage.setItem(
+      'reading-notes-reading-stats',
+      JSON.stringify({ total: 120, days: { [key(0)]: 60, [key(1)]: 60 }, books: { 'book-a': 120 } }),
+    )
+    await hydrateReadingStats()
+    assert.ok(pushed && typeof pushed === 'object')
+    assert.equal((pushed as { total: number }).total, 120)
+    assert.equal((pushed as { days: Record<string, number> }).days[key(1)], 60)
+  } finally {
+    if (previousWindow) Object.defineProperty(globalThis, 'window', previousWindow)
+    else Reflect.deleteProperty(globalThis, 'window')
+    restore()
+  }
+})
+
+test('uses the database snapshot after hydration so backup restore can roll stats back', async () => {
+  const restore = installStorage()
+  const previousWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
+  const key = (offset: number) => {
+    const date = new Date()
+    date.setDate(date.getDate() - offset)
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+  }
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: {
+      api: {
+        getReadingStats: async () => ({
+          total: 180,
+          days: { [key(0)]: 60, [key(2)]: 120 },
+          books: { 'book-b': 120 },
+        }),
+        mergeReadingStats: async (data: unknown) => data,
+      },
+    },
+  })
+  try {
+    localStorage.setItem(
+      'reading-notes-reading-stats',
+      JSON.stringify({ total: 120, days: { [key(0)]: 60, [key(1)]: 60 }, books: { 'book-a': 120 } }),
+    )
+    await hydrateReadingStats()
+    const summary = getReadingSummary()
+    assert.equal(summary.totalSeconds, 180)
+    assert.deepEqual(summary.books, [{ bookId: 'book-b', seconds: 120 }])
+    const stored = JSON.parse(localStorage.getItem('reading-notes-reading-stats')!) as {
+      days: Record<string, number>
+    }
+    assert.equal(stored.days[key(1)], undefined)
+    assert.equal(stored.days[key(2)], 120)
+  } finally {
+    if (previousWindow) Object.defineProperty(globalThis, 'window', previousWindow)
+    else Reflect.deleteProperty(globalThis, 'window')
     restore()
   }
 })

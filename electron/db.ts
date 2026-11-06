@@ -33,6 +33,7 @@ import type {
   SearchResultType,
   LibraryFilter,
   LibraryNote,
+  LibraryNoteAudit,
   LabArtifact,
   PageResult,
   TagCount,
@@ -42,6 +43,10 @@ import type {
   TrashedNote,
   ContentApplyAction,
   ContentApplyResult,
+  WeeklyReviewRecord,
+  ReadingPlanDay,
+  ReadingPlanInput,
+  ReadingPlanRecord,
   ContentFilter,
   ContentItem,
   ContentKind,
@@ -285,6 +290,37 @@ export function initDatabase(dataDir: string): void {
     );
     CREATE INDEX IF NOT EXISTS idx_reading_positions_book ON reading_positions(book_id);
 
+    CREATE TABLE IF NOT EXISTS reading_stats_days (
+      day TEXT PRIMARY KEY,
+      seconds INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS reading_stats_books (
+      book_id TEXT PRIMARY KEY,
+      seconds INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS reading_stats_meta (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS weekly_reviews (
+      id TEXT PRIMARY KEY,
+      week TEXT NOT NULL UNIQUE,
+      title TEXT NOT NULL,
+      content TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS reading_plans (
+      book_id TEXT PRIMARY KEY REFERENCES books(id) ON DELETE CASCADE,
+      plan TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS bookmarks (
       id TEXT PRIMARY KEY,
       book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
@@ -366,6 +402,7 @@ export function initDatabase(dataDir: string): void {
     );
   `)
   runMigrations(db)
+  migrateWeeklyReviewNotes()
   pruneNoteTrash()
   pruneChapterTrash()
   pruneDeletedContent()
@@ -999,6 +1036,321 @@ export function saveReadingPage(chapterId: string, bookId: string, page: number)
          updated_at = excluded.updated_at`,
     )
     .run(chapterId, bookId, Math.max(1, Math.round(page)), now)
+}
+
+export interface ReadingStatsRecord {
+  total: number
+  days: Record<string, number>
+  books: Record<string, number>
+}
+
+const READING_DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/
+const MAX_DAY_SECONDS = 86_400 * 2
+const MAX_TOTAL_SECONDS = 1_000_000_000_000
+
+function normalizeReadingMap(value: unknown, keyPattern?: RegExp): Record<string, number> {
+  const result: Record<string, number> = {}
+  if (!value || typeof value !== 'object') return result
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (keyPattern && !keyPattern.test(key)) continue
+    const seconds = Math.floor(Number(raw))
+    if (!Number.isFinite(seconds) || seconds <= 0) continue
+    result[key] = Math.min(MAX_DAY_SECONDS, seconds)
+  }
+  return result
+}
+
+/** 阅读统计持久化到数据库，随备份一起迁移；渲染层仍保留一份 localStorage 缓存。 */
+export function getReadingStatsRecord(): ReadingStatsRecord {
+  const dayRows = database().prepare('SELECT day, seconds FROM reading_stats_days').all() as unknown as Array<{
+    day: string
+    seconds: number
+  }>
+  const bookRows = database().prepare('SELECT book_id, seconds FROM reading_stats_books').all() as unknown as Array<{
+    book_id: string
+    seconds: number
+  }>
+  const totalRow = database().prepare("SELECT value FROM reading_stats_meta WHERE key = 'total'").get() as
+    | { value: string }
+    | undefined
+  const days: Record<string, number> = {}
+  for (const row of dayRows) {
+    const seconds = Math.floor(Number(row.seconds))
+    if (READING_DAY_PATTERN.test(row.day) && seconds > 0) days[row.day] = seconds
+  }
+  const books: Record<string, number> = {}
+  for (const row of bookRows) {
+    const seconds = Math.floor(Number(row.seconds))
+    if (row.book_id && seconds > 0) books[row.book_id] = seconds
+  }
+  const summed = Object.values(days).reduce((sum, value) => sum + value, 0)
+  const storedTotal = totalRow ? Math.floor(Number(totalRow.value)) : 0
+  return {
+    total: Math.min(MAX_TOTAL_SECONDS, Math.max(Number.isFinite(storedTotal) ? storedTotal : 0, summed)),
+    days,
+    books,
+  }
+}
+
+/** 合并一份阅读统计快照。按天取较大值，避免启动同步或恢复备份时重复累加。 */
+export function mergeReadingStatsRecord(raw: unknown): ReadingStatsRecord {
+  const input = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
+  const days = normalizeReadingMap(input.days, READING_DAY_PATTERN)
+  const books = normalizeReadingMap(input.books)
+  const inputTotal = Math.min(MAX_TOTAL_SECONDS, Math.max(0, Math.floor(Number(input.total) || 0)))
+  const total = Math.max(inputTotal, Object.values(days).reduce((sum, value) => sum + value, 0))
+  const conn = database()
+  conn.exec('BEGIN IMMEDIATE')
+  try {
+    const upsertDay = conn.prepare(
+      `INSERT INTO reading_stats_days (day, seconds) VALUES (?, ?)
+       ON CONFLICT(day) DO UPDATE SET seconds = MAX(reading_stats_days.seconds, excluded.seconds)`,
+    )
+    for (const [day, seconds] of Object.entries(days)) upsertDay.run(day, seconds)
+    const upsertBook = conn.prepare(
+      `INSERT INTO reading_stats_books (book_id, seconds) VALUES (?, ?)
+       ON CONFLICT(book_id) DO UPDATE SET seconds = MAX(reading_stats_books.seconds, excluded.seconds)`,
+    )
+    for (const [bookId, seconds] of Object.entries(books)) upsertBook.run(bookId, seconds)
+    conn
+      .prepare(
+        `INSERT INTO reading_stats_meta (key, value) VALUES ('total', ?)
+         ON CONFLICT(key) DO UPDATE SET value = CAST(MAX(CAST(reading_stats_meta.value AS INTEGER), CAST(excluded.value AS INTEGER)) AS TEXT)`,
+      )
+      .run(String(total))
+    conn.exec('COMMIT')
+  } catch (error) {
+    conn.exec('ROLLBACK')
+    throw error
+  }
+  return getReadingStatsRecord()
+}
+
+/** 阅读器每 15 秒写入一次；日期由渲染层按本地时区传入。 */
+export function recordReadingStats(day: string, seconds: number, bookId?: string | null): void {
+  if (!READING_DAY_PATTERN.test(day)) return
+  const value = Math.floor(Number(seconds))
+  if (!Number.isFinite(value) || value <= 0) return
+  const current = getReadingStatsRecord()
+  const nextTotal = Math.min(MAX_TOTAL_SECONDS, current.total + Math.min(MAX_DAY_SECONDS, value))
+  const conn = database()
+  conn.exec('BEGIN IMMEDIATE')
+  try {
+    conn
+      .prepare(
+        `INSERT INTO reading_stats_days (day, seconds) VALUES (?, ?)
+         ON CONFLICT(day) DO UPDATE SET seconds = MIN(?, reading_stats_days.seconds + excluded.seconds)`,
+      )
+      .run(day, Math.min(MAX_DAY_SECONDS, value), MAX_DAY_SECONDS)
+    if (bookId) {
+      conn
+        .prepare(
+          `INSERT INTO reading_stats_books (book_id, seconds) VALUES (?, ?)
+           ON CONFLICT(book_id) DO UPDATE SET seconds = reading_stats_books.seconds + excluded.seconds`,
+        )
+        .run(bookId, value)
+    }
+    conn
+      .prepare(
+        `INSERT INTO reading_stats_meta (key, value) VALUES ('total', ?)
+         ON CONFLICT(key) DO UPDATE SET value = CAST(? AS TEXT)`,
+      )
+      .run(String(nextTotal), String(nextTotal))
+    conn.exec('COMMIT')
+  } catch (error) {
+    conn.exec('ROLLBACK')
+    throw error
+  }
+}
+
+function isoWeekKey(date: Date): string {
+  const target = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()))
+  const day = target.getUTCDay() || 7
+  target.setUTCDate(target.getUTCDate() + 4 - day)
+  const yearStart = new Date(Date.UTC(target.getUTCFullYear(), 0, 1))
+  const week = Math.ceil((((target.getTime() - yearStart.getTime()) / 86_400_000) + 1) / 7)
+  return `${target.getUTCFullYear()}-W${String(week).padStart(2, '0')}`
+}
+
+function migrateWeeklyReviewNotes(): void {
+  try {
+    const rows = database()
+      .prepare(
+        "SELECT title, content, updated_at FROM notes WHERE title LIKE '%每周复盘%' OR title LIKE '%Weekly review%'",
+      )
+      .all() as unknown as Array<{ title: string; content: string; updated_at: string }>
+    const insert = database().prepare(
+      `INSERT OR IGNORE INTO weekly_reviews (id, week, title, content, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+    for (const row of rows) {
+      const date = new Date(row.updated_at)
+      const week = isoWeekKey(Number.isNaN(date.getTime()) ? new Date() : date)
+      insert.run(crypto.randomUUID(), week, row.title, row.content, row.updated_at, row.updated_at)
+    }
+  } catch {
+    // 旧笔记迁移失败不影响启动。
+  }
+}
+
+export function saveWeeklyReview(input: { week: string; title: string; content: string }): WeeklyReviewRecord {
+  const week = input.week.trim()
+  if (!/^\d{4}-W\d{2}$/.test(week)) throw new Error('周复盘周次无效。')
+  if (!input.content.trim()) throw new Error('周复盘内容为空。')
+  const now = new Date().toISOString()
+  const conn = database()
+  conn
+    .prepare(
+      `INSERT INTO weekly_reviews (id, week, title, content, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(week) DO UPDATE SET
+         title = excluded.title,
+         content = excluded.content,
+         updated_at = excluded.updated_at`,
+    )
+    .run(crypto.randomUUID(), week, input.title.trim() || `每周复盘 · ${week}`, input.content, now, now)
+  const row = conn.prepare('SELECT * FROM weekly_reviews WHERE week = ?').get(week) as unknown as {
+    id: string
+    week: string
+    title: string
+    content: string
+    created_at: string
+    updated_at: string
+  }
+  return {
+    id: row.id,
+    week: row.week,
+    title: row.title,
+    content: row.content,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
+export function listWeeklyReviews(limit = 200): WeeklyReviewRecord[] {
+  const rows = database()
+    .prepare('SELECT * FROM weekly_reviews ORDER BY updated_at DESC, created_at DESC LIMIT ?')
+    .all(Math.min(Math.max(limit, 1), 500)) as unknown as Array<{
+    id: string
+    week: string
+    title: string
+    content: string
+    created_at: string
+    updated_at: string
+  }>
+  return rows.map((row) => ({
+    id: row.id,
+    week: row.week,
+    title: row.title,
+    content: row.content,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }))
+}
+
+function readingPlanDateKey(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
+
+type ReadingPlanRow = { book_id: string; plan: string; created_at: string; updated_at: string }
+
+function mapReadingPlanRow(row: ReadingPlanRow): ReadingPlanRecord | null {
+  try {
+    const parsed = JSON.parse(row.plan) as {
+      startDate?: unknown
+      dailyMinutes?: unknown
+      days?: unknown
+      done?: unknown
+    }
+    const days = Array.isArray(parsed.days)
+      ? (parsed.days as Array<{ date?: unknown; chapterIds?: unknown; chars?: unknown }>)
+          .map((day) => ({
+            date: typeof day.date === 'string' ? day.date : '',
+            chapterIds: Array.isArray(day.chapterIds)
+              ? day.chapterIds.filter((id): id is string => typeof id === 'string')
+              : [],
+            chars: Math.max(0, Math.floor(Number(day.chars) || 0)),
+          }))
+          .filter((day) => day.chapterIds.length > 0)
+      : []
+    if (days.length === 0) return null
+    return {
+      bookId: row.book_id,
+      startDate: typeof parsed.startDate === 'string' ? parsed.startDate : readingPlanDateKey(new Date()),
+      dailyMinutes: Math.min(1440, Math.max(1, Math.floor(Number(parsed.dailyMinutes) || 30))),
+      days,
+      done: Array.isArray(parsed.done) ? parsed.done.filter((id): id is string => typeof id === 'string') : [],
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }
+  } catch {
+    return null
+  }
+}
+
+/** 阅读计划只保存“哪天读哪些章、哪些章已读”，章节顺序和字数在生成时已经确定。 */
+export function getReadingPlan(bookId: string): ReadingPlanRecord | null {
+  if (!bookId) return null
+  const row = database()
+    .prepare('SELECT book_id, plan, created_at, updated_at FROM reading_plans WHERE book_id = ?')
+    .get(bookId) as ReadingPlanRow | undefined
+  return row ? mapReadingPlanRow(row) : null
+}
+
+export function listReadingPlans(): ReadingPlanRecord[] {
+  const rows = database()
+    .prepare('SELECT book_id, plan, created_at, updated_at FROM reading_plans ORDER BY updated_at DESC')
+    .all() as unknown as ReadingPlanRow[]
+  return rows.map(mapReadingPlanRow).filter((plan): plan is ReadingPlanRecord => plan !== null)
+}
+
+export function saveReadingPlan(input: ReadingPlanInput): ReadingPlanRecord {
+  if (!input || typeof input !== 'object') throw new Error('阅读计划参数无效。')
+  if (!getBookSummary(input.bookId)) throw new Error('找不到这本书。')
+  const known = new Set(getChapters(input.bookId).map((chapter) => chapter.id))
+  const seen = new Set<string>()
+  const days: ReadingPlanDay[] = []
+  for (const day of input.days ?? []) {
+    const chapterIds = (day.chapterIds ?? []).filter((id) => known.has(id) && !seen.has(id))
+    for (const id of chapterIds) seen.add(id)
+    if (chapterIds.length === 0) continue
+    days.push({
+      date: /^\d{4}-\d{2}-\d{2}$/.test(day.date) ? day.date : readingPlanDateKey(new Date()),
+      chapterIds,
+      chars: Math.max(0, Math.floor(Number(day.chars) || 0)),
+    })
+  }
+  if (days.length === 0) throw new Error('阅读计划里还没有章节。')
+  const startDate = /^\d{4}-\d{2}-\d{2}$/.test(input.startDate)
+    ? input.startDate
+    : readingPlanDateKey(new Date())
+  const dailyMinutes = Math.min(1440, Math.max(1, Math.floor(Number(input.dailyMinutes) || 30)))
+  const done = [...new Set((input.done ?? []).filter((id) => known.has(id)))]
+  const now = new Date().toISOString()
+  const conn = database()
+  const existing = conn.prepare('SELECT created_at FROM reading_plans WHERE book_id = ?').get(input.bookId) as
+    | { created_at: string }
+    | undefined
+  conn
+    .prepare(
+      `INSERT INTO reading_plans (book_id, plan, created_at, updated_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(book_id) DO UPDATE SET plan = excluded.plan, updated_at = excluded.updated_at`,
+    )
+    .run(
+      input.bookId,
+      JSON.stringify({ startDate, dailyMinutes, days, done }),
+      existing?.created_at ?? now,
+      now,
+    )
+  const saved = getReadingPlan(input.bookId)
+  if (!saved) throw new Error('阅读计划保存失败。')
+  return saved
+}
+
+export function deleteReadingPlan(bookId: string): void {
+  if (!bookId) return
+  database().prepare('DELETE FROM reading_plans WHERE book_id = ?').run(bookId)
 }
 
 export function listBookmarks(bookId: string): BookmarkRecord[] {
@@ -2508,7 +2860,12 @@ function mapLibraryNote(row: LibraryRow): LibraryNote {
   }
 }
 
-export function listLibraryNotesPage(filter: LibraryFilter = {}): PageResult<LibraryNote> {
+function libraryNoteFilter(filter: LibraryFilter = {}): {
+  from: string
+  where: string
+  params: Array<string | number>
+  bookId: string | null
+} {
   const where: string[] = []
   const params: Array<string | number> = []
   const term = filter.query?.replace(/\s+/g, ' ').trim() ?? ''
@@ -2525,17 +2882,44 @@ export function listLibraryNotesPage(filter: LibraryFilter = {}): PageResult<Lib
     where.push("n.tags LIKE ? ESCAPE '\\'")
     params.push(`%"${escaped}"%`)
   }
+  if (filter.untagged) {
+    where.push("(n.tags IS NULL OR TRIM(n.tags) = '' OR n.tags = '[]')")
+  }
   if (term) {
     const escaped = term.replace(/[\\%_]/g, (char) => `\\${char}`)
     where.push("(n.title LIKE ? ESCAPE '\\' OR n.content LIKE ? ESCAPE '\\')")
     params.push(`%${escaped}%`, `%${escaped}%`)
   }
-  const limit = Math.min(Math.max(filter.limit ?? 30, 1), 200)
-  const offset = Math.max(filter.offset ?? 0, 0)
-  const from = `FROM notes n
+  if (filter.audit === 'unverified') {
+    where.push("n.quote IS NOT NULL AND TRIM(n.quote) <> '' AND n.quote_verified = 0")
+  } else if (filter.audit === 'noQuote') {
+    where.push("(n.quote IS NULL OR TRIM(n.quote) = '')")
+  } else if (filter.audit === 'edited') {
+    where.push('n.edited = 1')
+  }
+  if (filter.ids) {
+    if (filter.ids.length === 0) {
+      where.push('1 = 0')
+    } else {
+      where.push(`n.id IN (${filter.ids.map(() => '?').join(',')})`)
+      params.push(...filter.ids)
+    }
+  }
+  return {
+    from: `FROM notes n
     JOIN books b ON b.id = n.book_id
     LEFT JOIN chapters c ON c.id = n.chapter_id
-    ${where.length ? `WHERE ${where.join(' AND ')}` : ''}`
+    ${where.length ? `WHERE ${where.join(' AND ')}` : ''}`,
+    where: where.length ? `WHERE ${where.join(' AND ')}` : '',
+    params,
+    bookId: filter.bookId ?? null,
+  }
+}
+
+export function listLibraryNotesPage(filter: LibraryFilter = {}): PageResult<LibraryNote> {
+  const { from, params } = libraryNoteFilter(filter)
+  const limit = Math.min(Math.max(filter.limit ?? 30, 1), 200)
+  const offset = Math.max(filter.offset ?? 0, 0)
   const total = Number(
     (database().prepare(`SELECT COUNT(*) AS total ${from}`).get(...params) as { total: number } | undefined)?.total ?? 0,
   )
@@ -2546,6 +2930,54 @@ export function listLibraryNotesPage(filter: LibraryFilter = {}): PageResult<Lib
     )
     .all(...params, limit, offset) as unknown as LibraryRow[]
   return { items: rows.map(mapLibraryNote), total }
+}
+
+/** 笔记库摘要：引用核对、人工修改，以及当前书（或全库）的章节覆盖度。 */
+export function getLibraryNoteAudit(filter: LibraryFilter = {}): LibraryNoteAudit {
+  const { from, params, bookId } = libraryNoteFilter({ ...filter, audit: null })
+  const row = database()
+    .prepare(
+      `SELECT COUNT(*) AS notes,
+        COALESCE(SUM(CASE WHEN n.author = 'ai' THEN 1 ELSE 0 END), 0) AS ai,
+        COALESCE(SUM(CASE WHEN n.edited = 1 THEN 1 ELSE 0 END), 0) AS edited,
+        COALESCE(SUM(CASE WHEN n.quote_verified = 1 THEN 1 ELSE 0 END), 0) AS verified,
+        COALESCE(SUM(CASE WHEN n.quote IS NOT NULL AND TRIM(n.quote) <> '' AND n.quote_verified = 0 THEN 1 ELSE 0 END), 0) AS unverified,
+        COALESCE(SUM(CASE WHEN n.quote IS NULL OR TRIM(n.quote) = '' THEN 1 ELSE 0 END), 0) AS no_quote
+       ${from}`,
+    )
+    .get(...params) as unknown as {
+    notes: number
+    ai: number
+    edited: number
+    verified: number
+    unverified: number
+    no_quote: number
+  }
+  const coverage = database()
+    .prepare(
+      `SELECT COUNT(DISTINCT c.id) AS total,
+        COUNT(DISTINCT CASE WHEN n.id IS NOT NULL THEN c.id END) AS with_notes,
+        COUNT(DISTINCT CASE WHEN n.kind = 'condensed' THEN c.id END) AS with_condensed
+       FROM chapters c
+       LEFT JOIN notes n ON n.chapter_id = c.id
+       WHERE c.hidden = 0${bookId ? ' AND c.book_id = ?' : ''}`,
+    )
+    .get(...(bookId ? [bookId] : [])) as unknown as {
+    total: number
+    with_notes: number
+    with_condensed: number
+  }
+  return {
+    notes: Number(row?.notes) || 0,
+    ai: Number(row?.ai) || 0,
+    edited: Number(row?.edited) || 0,
+    verified: Number(row?.verified) || 0,
+    unverified: Number(row?.unverified) || 0,
+    noQuote: Number(row?.no_quote) || 0,
+    chapterTotal: Number(coverage?.total) || 0,
+    chapterWithNotes: Number(coverage?.with_notes) || 0,
+    chapterWithCondensed: Number(coverage?.with_condensed) || 0,
+  }
 }
 
 export function listLibraryNotes(filter: LibraryFilter = {}): LibraryNote[] {
@@ -2877,6 +3309,20 @@ export function getContent(id: string): ContentItem | null {
   return row ? mapContentItem(row) : null
 }
 
+/** 同一工具 + 同一作用域的历史版本，用于内容库的版本对比。 */
+export function listContentVersions(tool: string, scope: string): ContentItem[] {
+  if (!tool || !scope) return []
+  const rows = database()
+    .prepare(
+      `${contentSelect()}
+       WHERE a.tool = ? AND a.scope = ? AND a.status != 'deleted'
+       ORDER BY a.updated_at DESC, a.created_at DESC
+       LIMIT 100`,
+    )
+    .all(tool, scope) as unknown as ContentRow[]
+  return rows.map(mapContentItem)
+}
+
 export function setContentFavorite(id: string, favorite: boolean): ContentItem {
   database().prepare('UPDATE lab_artifact_versions SET favorite = ? WHERE id = ?').run(favorite ? 1 : 0, id)
   const item = getContent(id)
@@ -2898,6 +3344,17 @@ export function setContentStatus(id: string, status: ContentStatus): ContentItem
 
 export function deleteContent(id: string): void {
   setContentStatus(id, 'deleted')
+}
+
+export function purgeContent(id: string): void {
+  const item = getContent(id)
+  if (!item || item.status !== 'deleted') throw new Error('只有回收站里的内容可以彻底删除。')
+  database().prepare('DELETE FROM lab_artifact_versions WHERE id = ?').run(id)
+}
+
+export function purgeDeletedContent(): number {
+  const result = database().prepare("DELETE FROM lab_artifact_versions WHERE status = 'deleted'").run()
+  return Number(result.changes) || 0
 }
 
 function readableArtifactContent(tool: string, content: string): string {
@@ -3031,6 +3488,50 @@ export function contentAsMarkdown(item: ContentItem): string {
   return item.content
 }
 
+const contentUndoStack = new Map<string, { kind: 'format' | 'notes'; chapterId: string; bookId: string | null; content: string }>()
+
+function rememberContentUndo(entry: { kind: 'format' | 'notes'; chapterId: string; bookId: string | null; content: string }): string {
+  const token = crypto.randomUUID()
+  contentUndoStack.set(token, entry)
+  while (contentUndoStack.size > 20) {
+    const oldest = contentUndoStack.keys().next().value
+    if (typeof oldest !== 'string') break
+    contentUndoStack.delete(oldest)
+  }
+  return token
+}
+
+/** 撤销最近一次“应用到章节”；只保留当前进程内最近 20 次。 */
+export function undoContentApply(token: string): ContentApplyResult {
+  const entry = contentUndoStack.get(token)
+  if (!entry) throw new Error('这次应用已经无法撤销。')
+  contentUndoStack.delete(token)
+  if (entry.kind === 'format') {
+    const parsed = formatArtifactSchema.safeParse(JSON.parse(entry.content))
+    if (!parsed.success) throw new Error('撤销快照已损坏。')
+    saveChapterFormat(entry.chapterId, parsed.data.html, parsed.data.removed)
+    if (parsed.data.style && entry.bookId) saveBookStyle(entry.bookId, parsed.data.style)
+    return { appliedTo: 'chapter', chapterId: entry.chapterId, message: '已撤销上次排版应用。' }
+  }
+  const parsed = notesArtifactSchema.safeParse(JSON.parse(entry.content))
+  if (!parsed.success) throw new Error('撤销快照已损坏。')
+  const generated: GeneratedNote[] = parsed.data.notes.map((note) => ({
+    kind: note.kind,
+    title: note.title,
+    content: note.content,
+    quote: note.quote,
+    quoteVerified: note.quoteVerified,
+    tags: note.tags,
+    section: note.section,
+    importance: note.importance,
+    role: note.role,
+    divergences: note.divergences,
+  }))
+  replaceAiNotes(entry.chapterId, generated)
+  if (parsed.data.report) saveNoteReport(entry.chapterId, parsed.data.report)
+  return { appliedTo: 'chapter', chapterId: entry.chapterId, message: '已撤销上次笔记恢复。' }
+}
+
 export function applyContent(id: string, action: ContentApplyAction): ContentApplyResult {
   const item = getContent(id)
   if (!item || item.status === 'deleted') throw new Error('这份生成内容已经删除。')
@@ -3047,16 +3548,40 @@ export function applyContent(id: string, action: ContentApplyAction): ContentApp
     if (item.kind === 'format') {
       const parsed = formatArtifactSchema.safeParse(JSON.parse(item.content))
       if (!parsed.success) throw new Error('这份排版的格式异常，无法应用。')
+      const chapter = getChapter(item.chapterId)
+      const currentHtml = chapter.formattedHtml ?? chapter.html ?? ''
+      const undoToken = currentHtml.trim()
+        ? rememberContentUndo({
+            kind: 'format',
+            chapterId: item.chapterId,
+            bookId: item.bookId,
+            content: JSON.stringify({
+              html: currentHtml,
+              removed: chapter.removed,
+              style: item.bookId ? getBookStyle(item.bookId) : undefined,
+            }),
+          })
+        : undefined
       saveChapterFormat(item.chapterId, parsed.data.html, parsed.data.removed)
       if (parsed.data.style && item.bookId) saveBookStyle(item.bookId, parsed.data.style)
       database()
         .prepare("UPDATE lab_artifact_versions SET status = 'adopted', updated_at = ? WHERE id = ?")
         .run(new Date().toISOString(), id)
-      return { appliedTo: 'chapter', chapterId: item.chapterId, message: '排版已应用到章节。' }
+      return { appliedTo: 'chapter', chapterId: item.chapterId, message: '排版已应用到章节。', undoToken }
     }
     if (item.kind === 'notes') {
       const parsed = notesArtifactSchema.safeParse(JSON.parse(item.content))
       if (!parsed.success) throw new Error('这份记录的格式异常，无法恢复笔记。')
+      const existing = item.bookId ? listNotes(item.bookId, item.chapterId).filter((note) => note.author === 'ai' && !note.edited) : []
+      const chapter = getChapter(item.chapterId)
+      const undoToken = existing.length > 0
+        ? rememberContentUndo({
+            kind: 'notes',
+            chapterId: item.chapterId,
+            bookId: item.bookId,
+            content: JSON.stringify({ notes: existing, report: chapter.noteReport }),
+          })
+        : undefined
       const generated: GeneratedNote[] = parsed.data.notes.map((note) => ({
         kind: note.kind,
         title: note.title,
@@ -3074,7 +3599,7 @@ export function applyContent(id: string, action: ContentApplyAction): ContentApp
       database()
         .prepare("UPDATE lab_artifact_versions SET status = 'adopted', updated_at = ? WHERE id = ?")
         .run(new Date().toISOString(), id)
-      return { appliedTo: 'chapter', chapterId: item.chapterId, message: '这组笔记已恢复到章节。' }
+      return { appliedTo: 'chapter', chapterId: item.chapterId, message: '这组笔记已恢复到章节。', undoToken }
     }
     throw new Error('这份内容不能直接应用到来源章节。')
   }

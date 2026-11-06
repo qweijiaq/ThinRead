@@ -6,7 +6,7 @@ import { app, BrowserWindow, ClipboardItem, clipboard, dialog, ipcMain, nativeIm
 import type { IpcMainInvokeEvent, OpenDialogOptions } from 'electron'
 import { generateText } from 'ai'
 
-import { backupsDir, createBackup, deleteBackup, exportBackup, listBackups, restoreBackup } from './backup.js'
+import { backupsDir, createBackup, deleteBackup, exportBackup, importBackupArchive, listBackups, restoreBackup } from './backup.js'
 import { buildDiagnosticsArchive } from './diagnostics.js'
 import { logErrorEvent } from './logger.js'
 import { bookStorageDir } from './safe-path.js'
@@ -14,6 +14,7 @@ import { bookStorageDir } from './safe-path.js'
 import {
   applyChapterFlags,
   applyContent,
+  undoContentApply,
   createChapterMark,
   createNote,
   createOcrJob,
@@ -22,6 +23,8 @@ import {
   updateOcrJob,
   deleteChapterMark,
   deleteContent,
+  purgeContent,
+  purgeDeletedContent,
   deleteChapters,
   listTrashedChapters,
   restoreTrashedChapter,
@@ -35,6 +38,15 @@ import {
   getReadingPosition,
   saveReadingPosition,
   saveReadingPage,
+  getReadingPlan,
+  listReadingPlans,
+  saveReadingPlan,
+  deleteReadingPlan,
+  getReadingStatsRecord,
+  mergeReadingStatsRecord,
+  recordReadingStats,
+  saveWeeklyReview,
+  listWeeklyReviews,
   listBookmarks,
   createBookmark,
   deleteBookmark,
@@ -49,6 +61,7 @@ import {
   getChapter,
   getChapters,
   getContent,
+  listContentVersions,
   getLabArtifact,
   getNote,
   listLabArtifacts,
@@ -58,6 +71,7 @@ import {
   listContentPage,
   listLibraryNotes,
   listLibraryNotesPage,
+  getLibraryNoteAudit,
   listLibraryTags,
   listNotes,
   listRelatedNotes,
@@ -101,19 +115,22 @@ import {
   suggestConceptMerges,
 } from './ai/lab.js'
 import { composeBook } from './ai/book-compose.js'
+import { rewriteComposeSection } from './ai/section-rewrite.js'
 import { expandPoint, generateChapterNotes } from './ai/notes.js'
 import { createLanguageModel } from './ai/provider.js'
 import { askChapter, evaluateExplanation } from './ai/tutor.js'
+import { generateSessionSummary } from './ai/session-summary.js'
 import { traceAsync } from './ai/trace.js'
 import { classifyImportedChapters, importBookFile, importHighlightEntries, importHighlightsFile, importScannedPdf, importTextBook, importUrlBook, reparseBookFile } from './import.js'
 import { renderHtmlToPdf } from './pdf.js'
 import { buildKnowledgeMap } from './knowledge-map.js'
+import { readAiUsage } from './ai/usage.js'
 import { configureSemantic, semanticRelatedNotes, warmSemanticIndex } from './semantic.js'
-import { getActiveSettings, getBeatraToken, getReadwiseToken, getSettingsView, isDemoMode, saveBeatraToken, saveSettings } from './settings.js'
+import { getActiveSettings, getReadwiseToken, getSettingsView, getUiPreferences, getAppLockEnabled, isDemoMode, saveSettings, saveUiPreferences, setAppLockPasscode, verifyAppLockPasscode } from './settings.js'
 import { fetchReadwiseEntries } from './readwise.js'
 import { parseWechatReadingNotes } from './parsers/wechat-reading.js'
-import { listBeatraVoices, readLocalBeatraCredential, synthesizeBeatra, testBeatra } from './beatra.js'
 import { getTtsStatus, synthesizeTts } from './tts.js'
+import { exportNotesMarkdown } from './note-export.js'
 import { searchIndexAsync, searchIndexIds } from './search-index.js'
 import type {
   BookComposeOptions,
@@ -132,6 +149,9 @@ import type {
   ContentFilter,
   ContentStatus,
   ChatTurn,
+  CompareComposeInput,
+  CompareNotesInput,
+  ComposeSectionRewriteInput,
   GeneratePartial,
   HighlightImportResult,
   LabRequest,
@@ -143,8 +163,10 @@ import type {
   OcrImportOptions,
   OcrImportStarted,
   ReaderStyle,
+  ReadingPlanInput,
   SaveFileResult,
   SaveImagesResult,
+  SessionSummaryInput,
   SettingsPatch,
   TestResult,
   TtsSynthesisRequest,
@@ -209,6 +231,21 @@ let composeActive: AbortController | null = null
 let activeFormat: AbortController | null = null
 let activeOcr: { controller: AbortController; fileName: string; jobId: string } | null = null
 let activeLab: AbortController | null = null
+let activeSummary: AbortController | null = null
+let activeSection: AbortController | null = null
+let activeCompare: AbortController | null = null
+let activeComposeCompare: AbortController | null = null
+
+function notifyPreviousTaskCancelled(sender: {
+  isDestroyed(): boolean
+  send(channel: string, payload: unknown): void
+}): void {
+  try {
+    if (!sender.isDestroyed()) sender.send('app:notice', { kind: 'info', text: '已取消上一个 AI 任务。' })
+  } catch {
+    // 窗口已关闭时忽略。
+  }
+}
 
 interface NotesRun {
   settings: ReturnType<typeof getActiveSettings>
@@ -219,9 +256,10 @@ interface NotesRun {
 
 /** 单章生成和整本生成共用的启动逻辑：取消上一次、检查 Key、建立 controller 和事件通道。 */
 function beginNotesRun(event: IpcMainInvokeEvent, chapterId: string): NotesRun {
+  if (active) notifyPreviousTaskCancelled(event.sender)
   active?.controller.abort()
   const settings = getActiveSettings('notes')
-  if (settings.provider !== 'demo' && !settings.apiKey) {
+  if (settings.provider !== 'demo' && settings.provider !== 'ollama' && !settings.apiKey) {
     throw new Error('还没有配置 API Key。请打开右上角设置，选择模型并填入 Key。')
   }
   const controller = new AbortController()
@@ -239,7 +277,11 @@ function beginNotesRun(event: IpcMainInvokeEvent, chapterId: string): NotesRun {
   }
 }
 
-function beginLabSignal(): AbortSignal {
+function beginLabSignal(sender: {
+  isDestroyed(): boolean
+  send(channel: string, payload: unknown): void
+}): AbortSignal {
+  if (activeLab) notifyPreviousTaskCancelled(sender)
   activeLab?.abort()
   activeLab = new AbortController()
   return activeLab.signal
@@ -577,6 +619,16 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     return { book, chapters: getChapters(bookId), style: getBookStyle(bookId) }
   })
 
+  ipcMain.handle('reading-plan:get', (_event, bookId: string) => getReadingPlan(bookId))
+
+  ipcMain.handle('reading-plan:list', () => listReadingPlans())
+
+  ipcMain.handle('reading-plan:save', (_event, input: ReadingPlanInput) => saveReadingPlan(input))
+
+  ipcMain.handle('reading-plan:delete', (_event, bookId: string) => {
+    deleteReadingPlan(bookId)
+  })
+
   ipcMain.handle('books:rename', (_event, bookId: string, title: string, author?: string) =>
     renameBook(bookId, title, typeof author === 'string' ? author : undefined),
   )
@@ -596,6 +648,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
   )
 
   ipcMain.handle('chapters:format', async (event, chapterId: string, instruction?: string) => {
+    if (activeFormat) notifyPreviousTaskCancelled(event.sender)
     activeFormat?.abort()
     const controller = new AbortController()
     activeFormat = controller
@@ -610,6 +663,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
   })
 
   ipcMain.handle('chapters:format-book', (event, bookId: string, options?: BookFormatOptions) => {
+    if (activeFormat) notifyPreviousTaskCancelled(event.sender)
     activeFormat?.abort()
     const book = getBookSummary(bookId)
     if (!book) throw new Error('找不到这本书。')
@@ -850,6 +904,39 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     saveReadingPage(chapterId, bookId, Number(page))
   })
 
+  ipcMain.handle('reading:stats-get', () => getReadingStatsRecord())
+
+  ipcMain.handle('reading:stats-merge', (_event, raw: unknown) => mergeReadingStatsRecord(raw))
+
+  ipcMain.handle('reading:stats-record', (_event, day: string, seconds: number, bookId?: string | null) => {
+    if (typeof day !== 'string') throw new Error('阅读日期无效。')
+    recordReadingStats(day, Number(seconds), typeof bookId === 'string' ? bookId : null)
+  })
+
+  ipcMain.handle('preferences:get', () => getUiPreferences())
+
+  ipcMain.handle('preferences:save', (_event, patch: unknown) => {
+    if (!patch || typeof patch !== 'object') throw new Error('偏好设置无效。')
+    const input = patch as { autoNext?: unknown; dailyGoal?: unknown }
+    return saveUiPreferences({
+      ...(typeof input.autoNext === 'boolean' ? { autoNext: input.autoNext } : {}),
+      ...(input.dailyGoal !== undefined ? { dailyGoal: Number(input.dailyGoal) } : {}),
+    })
+  })
+
+  ipcMain.handle('weekly:save', (_event, input: { week: string; title: string; content: string }) => {
+    if (!input || typeof input.week !== 'string' || typeof input.content !== 'string') {
+      throw new Error('周复盘参数无效。')
+    }
+    return saveWeeklyReview({
+      week: input.week,
+      title: typeof input.title === 'string' ? input.title : '',
+      content: input.content,
+    })
+  })
+
+  ipcMain.handle('weekly:list', () => listWeeklyReviews())
+
   ipcMain.handle('bookmarks:list', (_event, bookId: string) =>
     typeof bookId === 'string' ? listBookmarks(bookId) : [],
   )
@@ -881,34 +968,11 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     return new Uint8Array(await fs.readFile(record.filePath))
   })
 
-  ipcMain.handle('tts:status', () => getTtsStatus(Boolean(getBeatraToken())))
+  ipcMain.handle('tts:status', () => getTtsStatus())
 
   ipcMain.handle('tts:synthesize', async (_event, request: TtsSynthesisRequest) => {
     if (!request || typeof request !== 'object') throw new Error('语音参数无效。')
-    if (request.engine === 'beatra') {
-      const token = getBeatraToken()
-      if (!token) throw new Error('请先在设置里配置 Beatra Device Token。')
-      return synthesizeBeatra(token, request.text, request.voice, request.rate)
-    }
     return synthesizeTts(request)
-  })
-
-  ipcMain.handle('tts:beatra-voices', async () => {
-    const token = getBeatraToken()
-    if (!token) throw new Error('请先在设置里配置 Beatra Device Token。')
-    return listBeatraVoices(token)
-  })
-
-  ipcMain.handle('tts:test-beatra', async (_event, token?: string) =>
-    testBeatra(typeof token === 'string' && token.trim() ? token.trim() : getBeatraToken() ?? ''),
-  )
-
-  ipcMain.handle('tts:import-beatra-credential', async () => {
-    const token = readLocalBeatraCredential()
-    if (!token) return { ok: false, message: '没有找到本机 Beatra 授权。先运行 Beatra Skill 的 authorize.py。' }
-    const result = await testBeatra(token)
-    if (result.ok) saveBeatraToken(token)
-    return result
   })
 
   ipcMain.handle('books:cover', async (_event, bookId: string) => {
@@ -1003,6 +1067,10 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     listLibraryNotesPage(filter && typeof filter === 'object' ? filter : {}),
   )
 
+  ipcMain.handle('library:notes-audit', (_event, filter?: LibraryFilter) =>
+    getLibraryNoteAudit(filter && typeof filter === 'object' ? filter : {}),
+  )
+
   ipcMain.handle('library:tags', (_event, bookId?: string | null) =>
     listLibraryTags(typeof bookId === 'string' ? bookId : null),
   )
@@ -1078,18 +1146,54 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     )
   })
 
+  ipcMain.handle('reader:summary', async (event, input: SessionSummaryInput) => {
+    if (!input || typeof input.chapterId !== 'string') throw new Error('阅读小结参数无效。')
+    const chapter = getChapter(input.chapterId)
+    const book = getBookSummary(chapter.bookId)
+    if (!book) throw new Error('找不到章节所属的书。')
+    const minutes = Math.max(1, Math.min(24 * 60, Math.round(Number(input.minutes) || 1)))
+    const config = getActiveSettings('notes')
+    if (activeSummary) notifyPreviousTaskCancelled(event.sender)
+    activeSummary?.abort()
+    const controller = new AbortController()
+    activeSummary = controller
+    try {
+      return await traceAsync(
+        { step: 'reader-summary', scope: chapter.id, model: config.model, promptVersion: 'reader-summary-v1' },
+        () =>
+          generateSessionSummary({
+            config,
+            demo: isDemoMode(),
+            bookTitle: book.title,
+            chapterTitle: chapter.title,
+            chapterText: chapter.text,
+            notes: listNotes(chapter.bookId, chapter.id).slice(0, 24),
+            minutes,
+            signal: controller.signal,
+          }),
+      )
+    } finally {
+      if (activeSummary === controller) activeSummary = null
+    }
+  })
+
+  ipcMain.handle('reader:summary-cancel', () => {
+    activeSummary?.abort()
+    activeSummary = null
+  })
+
   ipcMain.handle('map:get', () => {
     const map = buildKnowledgeMap()
     if (!map.semanticReady && map.displayedNotes > 0) warmSemanticIndex()
     return map
   })
 
-  ipcMain.handle('lab:run', async (_event, request: LabRequest) => {
+  ipcMain.handle('lab:run', async (event, request: LabRequest) => {
     if (!request || typeof request !== 'object') throw new Error('任务无效。')
     const config = getActiveSettings('lab')
     return traceAsync(
       { step: `lab-run:${request.tool}`, model: config.model, promptVersion: 'lab-v1' },
-      () => runLab({ config, demo: isDemoMode(), request, signal: beginLabSignal() }),
+      () => runLab({ config, demo: isDemoMode(), request, signal: beginLabSignal(event.sender) }),
     )
   })
 
@@ -1109,32 +1213,32 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
             demo: isDemoMode(),
             request,
             history: Array.isArray(history) ? history : [],
-            signal: beginLabSignal(),
+            signal: beginLabSignal(event.sender),
           },
           send,
         ),
     )
   })
 
-  ipcMain.handle('lab:margin-note', async (_event, chapterId: string, quote: string) => {
+  ipcMain.handle('lab:margin-note', async (event, chapterId: string, quote: string) => {
     if (typeof chapterId !== 'string' || typeof quote !== 'string') throw new Error('边注参数无效。')
     const config = getActiveSettings('lab')
     return traceAsync(
       { step: 'lab-margin-note', scope: chapterId, model: config.model, promptVersion: 'lab-v1' },
-      () => marginNote({ config, demo: isDemoMode(), chapterId, quote, signal: beginLabSignal() }),
+      () => marginNote({ config, demo: isDemoMode(), chapterId, quote, signal: beginLabSignal(event.sender) }),
     )
   })
 
-  ipcMain.handle('lab:quiz', async (_event, chapterId: string) => {
+  ipcMain.handle('lab:quiz', async (event, chapterId: string) => {
     if (typeof chapterId !== 'string') throw new Error('章节无效。')
     const config = getActiveSettings('lab')
     return traceAsync(
       { step: 'lab-quiz', scope: chapterId, model: config.model, promptVersion: 'lab-quiz-v1' },
-      () => generateQuiz({ config, demo: isDemoMode(), chapterId, signal: beginLabSignal() }),
+      () => generateQuiz({ config, demo: isDemoMode(), chapterId, signal: beginLabSignal(event.sender) }),
     )
   })
 
-  ipcMain.handle('lab:quiz-check', async (_event, chapterId: string, question: string, answer: string) => {
+  ipcMain.handle('lab:quiz-check', async (event, chapterId: string, question: string, answer: string) => {
     if (typeof chapterId !== 'string' || typeof question !== 'string' || typeof answer !== 'string') {
       throw new Error('答案参数无效。')
     }
@@ -1148,16 +1252,16 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
           chapterId,
           question,
           answer,
-          signal: beginLabSignal(),
+          signal: beginLabSignal(event.sender),
         }),
     )
   })
 
-  ipcMain.handle('lab:concept-merges', async () => {
+  ipcMain.handle('lab:concept-merges', async (event) => {
     const config = getActiveSettings('lab')
     return traceAsync(
       { step: 'lab-concept-merges', model: config.model, promptVersion: 'lab-v1' },
-      () => suggestConceptMerges({ config, demo: isDemoMode(), signal: beginLabSignal() }),
+      () => suggestConceptMerges({ config, demo: isDemoMode(), signal: beginLabSignal(event.sender) }),
     )
   })
 
@@ -1184,7 +1288,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
           config,
           demo: isDemoMode(),
           bookId,
-          signal: beginLabSignal(),
+          signal: beginLabSignal(event.sender),
           onProgress: (stage) => {
             if (!event.sender.isDestroyed()) event.sender.send('relation:progress', { stage })
           },
@@ -1202,12 +1306,12 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     return graph
   })
 
-  ipcMain.handle('lab:pdf-page', async (_event, bookId: string, page: number) => {
+  ipcMain.handle('lab:pdf-page', async (event, bookId: string, page: number) => {
     if (typeof bookId !== 'string' || typeof page !== 'number') throw new Error('页面参数无效。')
     const config = getActiveSettings('lab')
     return traceAsync(
       { step: 'lab-pdf-page', scope: `${bookId}:${page}`, model: config.model, promptVersion: 'lab-v1' },
-      () => analyzePdfPage({ config, demo: isDemoMode(), bookId, page, signal: beginLabSignal() }),
+      () => analyzePdfPage({ config, demo: isDemoMode(), bookId, page, signal: beginLabSignal(event.sender) }),
     )
   })
 
@@ -1286,6 +1390,10 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
 
   ipcMain.handle('content:get', (_event, id: string) => (typeof id === 'string' ? getContent(id) : null))
 
+  ipcMain.handle('content:versions', (_event, tool: string, scope: string) =>
+    typeof tool === 'string' && typeof scope === 'string' ? listContentVersions(tool, scope) : [],
+  )
+
   ipcMain.handle('content:favorite', (_event, id: string, favorite: boolean) => {
     if (typeof id !== 'string' || typeof favorite !== 'boolean') throw new Error('收藏参数无效。')
     return setContentFavorite(id, favorite)
@@ -1304,6 +1412,18 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
   ipcMain.handle('content:apply', (_event, id: string, action: ContentApplyAction) => {
     if (typeof id !== 'string') throw new Error('内容参数无效。')
     return applyContent(id, action)
+  })
+
+  ipcMain.handle('content:purge', (_event, id: string) => {
+    if (typeof id !== 'string') throw new Error('内容参数无效。')
+    purgeContent(id)
+  })
+
+  ipcMain.handle('content:purge-all', () => purgeDeletedContent())
+
+  ipcMain.handle('content:undo', (_event, token: string) => {
+    if (typeof token !== 'string') throw new Error('撤销参数无效。')
+    return undoContentApply(token)
   })
 
   ipcMain.handle('marks:list', (_event, chapterId: string) => {
@@ -1326,6 +1446,19 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
   ipcMain.handle('notes:list', (_event, bookId: string, chapterId?: string | null) =>
     listNotes(bookId, chapterId ?? null),
   )
+
+  ipcMain.handle('notes:export-markdown', async (_event, filter?: LibraryFilter) => {
+    const win = getWindow()
+    const options: OpenDialogOptions = {
+      title: '导出笔记为 Markdown',
+      properties: ['openDirectory', 'createDirectory'],
+    }
+    const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options)
+    if (result.canceled || result.filePaths.length === 0) {
+      return { saved: false, path: null, count: 0, canceled: true }
+    }
+    return exportNotesMarkdown(result.filePaths[0]!, filter && typeof filter === 'object' ? filter : {})
+  })
 
   ipcMain.handle('notes:related', async (_event, bookId: string, tags: string[], queryText?: string) => {
     try {
@@ -1536,6 +1669,70 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     active = null
   })
 
+  ipcMain.handle('notes:compare', async (event, input: CompareNotesInput) => {
+    if (!input || typeof input.chapterId !== 'string' || typeof input.model !== 'string') {
+      throw new Error('模型对比参数无效。')
+    }
+    if (isDemoMode()) throw new Error('演示模式不支持模型对比，请先配置真实模型。')
+    const model = input.model.trim()
+    if (!model) throw new Error('请填写对比模型 ID。')
+    const chapter = getChapter(input.chapterId)
+    const book = getBookSummary(chapter.bookId)
+    if (!book) throw new Error('找不到章节所属的书。')
+    const base = listContent({ tool: 'chapter-notes', chapterId: chapter.id, limit: 1 })[0]
+    if (!base) throw new Error('这一章还没有生成过笔记，先生成一版再对比。')
+    const config = { ...getActiveSettings('notes'), model }
+    if (!config.apiKey && config.provider !== 'ollama') throw new Error('对比模型还没有配置 API Key。')
+    if (activeCompare) notifyPreviousTaskCancelled(event.sender)
+    activeCompare?.abort()
+    const controller = new AbortController()
+    activeCompare = controller
+    try {
+      const result = await traceAsync(
+        { step: 'notes-compare', scope: chapter.id, model, promptVersion: 'notes-compare-v1' },
+        () =>
+          generateChapterNotes(
+            {
+              bookTitle: book.title,
+              chapterTitle: chapter.title,
+              chapterText: chapter.text,
+              chapterHtml: chapter.formattedHtml ?? chapter.html ?? '',
+              config,
+              genre: book.genre,
+              mode: config.generationMode,
+              lookupRelatedNotes: (concepts: string[]) =>
+                listRelatedNotes(chapter.bookId, concepts, 4).map((item) => ({
+                  bookTitle: item.bookTitle,
+                  chapterTitle: item.chapterTitle ?? '',
+                  title: item.title,
+                  content: item.content.slice(0, 300),
+                })),
+              demo: false,
+              cacheDir: path.join(app.getPath('userData'), 'notes-cache'),
+              fresh: true,
+            },
+            () => undefined,
+            controller.signal,
+          ),
+      )
+      const artifact = saveLabArtifact({
+        tool: 'chapter-notes',
+        scope: `chapter:${chapter.id}`,
+        title: `${book.title} · ${chapter.title} · 对比 ${model}`,
+        kind: 'notes',
+        bookId: chapter.bookId,
+        chapterId: chapter.id,
+        content: JSON.stringify({ notes: result.notes, report: result.report }),
+        meta: JSON.stringify({ bookId: chapter.bookId, chapterId: chapter.id, chapterTitle: chapter.title, model }),
+      })
+      const compare = getContent(artifact.id)
+      if (!compare) throw new Error('对比结果保存失败。')
+      return { base, compare }
+    } finally {
+      if (activeCompare === controller) activeCompare = null
+    }
+  })
+
   ipcMain.handle('notes:expand', async (_event, noteId: string) => {
     const note = getNote(noteId)
     const chapter = note.chapterId ? getChapter(note.chapterId) : null
@@ -1592,6 +1789,43 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     return { saved: true, path: destination }
   })
 
+  ipcMain.handle('backup:export-library', async (): Promise<SaveFileResult> => {
+    const info = createBackup(dataDir, 'manual', '整库导出')
+    const win = getWindow()
+    const options = {
+      title: '导出整库',
+      defaultPath: `ThinRead-library-${new Date().toISOString().slice(0, 10)}.zip`,
+      filters: [{ name: 'ZIP', extensions: ['zip'] }],
+    }
+    const result = win ? await dialog.showSaveDialog(win, options) : await dialog.showSaveDialog(options)
+    if (result.canceled || !result.filePath) return { saved: false, path: null }
+    const destination = result.filePath.toLowerCase().endsWith('.zip') ? result.filePath : `${result.filePath}.zip`
+    exportBackup(dataDir, info.id, destination)
+    return { saved: true, path: destination }
+  })
+
+  ipcMain.handle('backup:import-library', async (): Promise<SaveFileResult> => {
+    const win = getWindow()
+    const options: OpenDialogOptions = {
+      title: '导入整库',
+      properties: ['openFile'],
+      filters: [{ name: '页边整库包', extensions: ['zip'] }],
+    }
+    const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options)
+    if (result.canceled || result.filePaths.length === 0) return { saved: false, path: null }
+    active?.controller.abort()
+    active = null
+    composeActive?.abort()
+    composeActive = null
+    activeFormat?.abort()
+    activeFormat = null
+    const info = importBackupArchive(dataDir, result.filePaths[0]!)
+    restoreBackup(dataDir, info.id, { safetyBackup: true })
+    const window = getWindow()
+    setTimeout(() => window?.webContents.reload(), 250)
+    return { saved: true, path: result.filePaths[0]! }
+  })
+
   ipcMain.handle('backup:open-dir', async () => {
     const dir = backupsDir(dataDir)
     await fs.mkdir(dir, { recursive: true })
@@ -1643,6 +1877,16 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
 
   ipcMain.handle('settings:save', (_event, patch: SettingsPatch) => saveSettings(patch))
 
+  ipcMain.handle('app:set-lock', (_event, passcode: string | null) => {
+    if (passcode !== null && typeof passcode !== 'string') throw new Error('应用锁密码无效。')
+    return setAppLockPasscode(passcode)
+  })
+
+  ipcMain.handle('app:verify-lock', (_event, passcode: string) => {
+    if (typeof passcode !== 'string') return false
+    return verifyAppLockPasscode(passcode)
+  })
+
   ipcMain.handle('settings:test', async (): Promise<TestResult> => {
     const settings = getActiveSettings()
     if (settings.provider === 'demo') {
@@ -1662,10 +1906,13 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     }
   })
 
+  ipcMain.handle('ai:usage', (_event, days?: number) => readAiUsage(dataDir, days))
+
   ipcMain.handle('app:info', () => ({
     version: app.getVersion(),
     dataDir,
     demo: getSettingsView().demo,
+    lockEnabled: getAppLockEnabled(),
   }))
 
   ipcMain.handle('app:open-data', async () => {
@@ -1675,6 +1922,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
   ipcMain.handle(
     'book:compose',
     async (event, bookId: string, options?: BookComposeOptions): Promise<BookComposeResult> => {
+      if (composeActive) notifyPreviousTaskCancelled(event.sender)
       composeActive?.abort()
       const book = getBookSummary(bookId)
       if (!book) throw new Error('找不到这本书')
@@ -1742,6 +1990,121 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     composeActive = null
   })
 
+  ipcMain.handle('book:compose-compare', async (event, input: CompareComposeInput) => {
+    if (!input || typeof input.bookId !== 'string' || typeof input.model !== 'string') {
+      throw new Error('成稿对比参数无效。')
+    }
+    if (isDemoMode()) throw new Error('演示模式不支持模型对比，请先配置真实模型。')
+    const model = input.model.trim()
+    if (!model) throw new Error('请填写对比模型 ID。')
+    const book = getBookSummary(input.bookId)
+    if (!book) throw new Error('找不到这本书。')
+    const base = listContent({ tool: 'book-compose', bookId: book.id, limit: 1 })[0]
+    if (!base) throw new Error('这本书还没有成稿，先生成一版再对比。')
+    const settings = { ...getActiveSettings('compose'), model }
+    if (!settings.apiKey && settings.provider !== 'ollama') throw new Error('对比模型还没有配置 API Key。')
+    const notes = listNotes(book.id)
+    const chapters = getChapters(book.id).filter((chapter) => !chapter.hidden)
+    const sources = chapters.flatMap((chapter) => {
+      const condensed = notes.find((note) => note.chapterId === chapter.id && note.kind === 'condensed')
+      if (!condensed || !condensed.content.trim()) return []
+      const cards = notes
+        .filter((note) => note.chapterId === chapter.id && (note.kind === 'point' || note.kind === 'claim'))
+        .map((note) => note.title)
+        .filter(Boolean)
+        .slice(0, 12)
+      return [{ title: chapter.title, content: condensed.content.trim(), cards }]
+    })
+    if (sources.length === 0) throw new Error('这本书还没有读薄稿。先给章节生成笔记。')
+    if (activeComposeCompare) notifyPreviousTaskCancelled(event.sender)
+    activeComposeCompare?.abort()
+    const controller = new AbortController()
+    activeComposeCompare = controller
+    try {
+      const result = await traceAsync(
+        {
+          step: 'book-compose-compare',
+          scope: book.id,
+          model,
+          promptVersion: settings.generationMode === 'deep' ? 'compose-v4-deep' : 'compose-v4',
+        },
+        () =>
+          composeBook({
+            bookTitle: book.title,
+            author: book.author,
+            sources,
+            options: {
+              length: input.options?.length === 'full' ? 'full' : 'tight',
+              voice:
+                input.options?.voice === 'sharp'
+                  ? 'sharp'
+                  : input.options?.voice === 'personal'
+                    ? 'personal'
+                    : 'calm',
+            },
+            genre: book.genre,
+            mode: settings.generationMode,
+            config: settings,
+            demo: false,
+            signal: controller.signal,
+            onProgress: () => undefined,
+          }),
+      )
+      const artifact = saveLabArtifact({
+        tool: 'book-compose',
+        scope: `book:${book.id}`,
+        title: `${result.title} · 对比 ${model}`,
+        content: JSON.stringify(result),
+        meta: JSON.stringify({ bookId: book.id, model }),
+      })
+      const compare = getContent(artifact.id)
+      if (!compare) throw new Error('对比结果保存失败。')
+      return { base, compare }
+    } finally {
+      if (activeComposeCompare === controller) activeComposeCompare = null
+    }
+  })
+
+  ipcMain.handle('compose:rewrite-section', async (event, input: ComposeSectionRewriteInput) => {
+    if (!input || typeof input !== 'object') throw new Error('重写参数无效。')
+    if (typeof input.bookId !== 'string' || typeof input.fullText !== 'string') {
+      throw new Error('重写参数无效。')
+    }
+    const fullText = input.fullText.slice(0, 200_000)
+    const start = Math.max(0, Math.min(fullText.length, Math.floor(Number(input.start) || 0)))
+    const end = Math.max(start, Math.min(fullText.length, Math.floor(Number(input.end) || 0)))
+    if (end <= start) throw new Error('先选中要重写的文字。')
+    const book = getBookSummary(input.bookId)
+    if (!book) throw new Error('找不到这本书。')
+    const config = getActiveSettings('compose')
+    if (activeSection) notifyPreviousTaskCancelled(event.sender)
+    activeSection?.abort()
+    const controller = new AbortController()
+    activeSection = controller
+    try {
+      return await traceAsync(
+        { step: 'compose-section-rewrite', scope: input.bookId, model: config.model, promptVersion: 'section-rewrite-v1' },
+        () =>
+          rewriteComposeSection({
+            config,
+            demo: isDemoMode(),
+            bookTitle: book.title,
+            fullText,
+            start,
+            end,
+            signal: controller.signal,
+          }),
+      )
+    } finally {
+      if (activeSection === controller) activeSection = null
+    }
+  })
+
+  ipcMain.handle('compose:rewrite-section-cancel', () => {
+    activeSection?.abort()
+    activeSection = null
+  })
+
   ipcMain.handle('app:copy-text', (_event, text: string) => {
     if (typeof text !== 'string') throw new Error('复制内容无效。')
     clipboard.writeText(text)
@@ -1786,14 +2149,17 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     if (buffer.length === 0) throw new Error('音频数据为空。')
     const win = getWindow()
     const suggested = path.basename(typeof defaultName === 'string' && defaultName.trim() ? defaultName : 'reading-audio.wav')
+    const wantsMp3 = suggested.toLowerCase().endsWith('.mp3')
+    const extension = wantsMp3 ? 'mp3' : 'wav'
     const options = {
       title: '保存整章音频',
-      defaultPath: suggested.toLowerCase().endsWith('.wav') ? suggested : `${suggested}.wav`,
-      filters: [{ name: 'WAV', extensions: ['wav'] }],
+      defaultPath: suggested.toLowerCase().endsWith(`.${extension}`) ? suggested : `${suggested}.${extension}`,
+      filters: wantsMp3 ? [{ name: 'MP3', extensions: ['mp3'] }] : [{ name: 'WAV', extensions: ['wav'] }],
     }
     const result = win ? await dialog.showSaveDialog(win, options) : await dialog.showSaveDialog(options)
     if (result.canceled || !result.filePath) return { saved: false, path: null }
-    const filePath = path.extname(result.filePath).toLowerCase() === '.wav' ? result.filePath : `${result.filePath}.wav`
+    const filePath =
+      path.extname(result.filePath).toLowerCase() === `.${extension}` ? result.filePath : `${result.filePath}.${extension}`
     await fs.writeFile(filePath, buffer)
     return { saved: true, path: filePath }
   })

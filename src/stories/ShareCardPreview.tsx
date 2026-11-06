@@ -10,7 +10,7 @@ interface ShareCardPreviewProps {
 
 /**
  * 只依赖 renderShareCard 的纯展示组件：不经过 ShareDialog，也不需要 window.api。
- * 用于在 Storybook 里并列检查六种模板和 paper/ink 两套配色。
+ * 用于在 Storybook 里并列检查六种模板和 paper/ink/sage 三套配色。
  */
 export function ShareCardPreview({ input, width = 320, className = '' }: ShareCardPreviewProps): JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement>(null)

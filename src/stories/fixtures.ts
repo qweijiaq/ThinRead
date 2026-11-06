@@ -479,4 +479,5 @@ export const knowledgeMapFixture: KnowledgeMapData = {
   semanticReady: true,
   totalNotes: 8,
   displayedNotes: 6,
+  untaggedNotes: 0,
 }

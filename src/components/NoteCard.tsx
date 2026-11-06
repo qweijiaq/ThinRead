@@ -4,6 +4,7 @@ import type { Note, NoteKind, NotePatch } from '../../shared/types.js'
 import { getLocale, t, useLocale } from '../lib/i18n.js'
 import { confirmDialog } from './ConfirmDialog.js'
 import { Select } from './Select.js'
+import { TextDiffDialog } from './TextDiffDialog.js'
 import { titleRepeatsContent } from '../lib/note-display.js'
 import { Markdown } from './Markdown.js'
 
@@ -75,6 +76,14 @@ function NoteCardImpl({
   const [previewOpen, setPreviewOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [selection, setSelection] = useState({ start: 0, end: 0, text: '' })
+  const [sectionRewrite, setSectionRewrite] = useState<{
+    start: number
+    end: number
+    before: string
+    after: string
+  } | null>(null)
+  const [rewriting, setRewriting] = useState(false)
   const rootRef = useRef<HTMLElement>(null)
   const repeatsTitle = titleRepeatsContent(note)
   // 链接候选只在编辑时用到；memo 化后按 allNotes 缓存，避免每次父组件渲染都filter 一遍。
@@ -122,6 +131,43 @@ function NoteCardImpl({
     setEditing(false)
   }
 
+  async function rewriteSelection(): Promise<void> {
+    if (selection.text.trim().length < 20) {
+      setSaveError(t('先选中一段文字再重写。'))
+      return
+    }
+    setRewriting(true)
+    setSaveError(null)
+    try {
+      const rewritten = await window.api.rewriteComposeSection({
+        bookId: note.bookId,
+        fullText: draftContent,
+        start: selection.start,
+        end: selection.end,
+      })
+      if (rewritten.demo && rewritten.text.trim() === selection.text.trim()) return
+      setSectionRewrite({
+        start: selection.start,
+        end: selection.end,
+        before: draftContent.slice(selection.start, selection.end),
+        after: rewritten.text,
+      })
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setRewriting(false)
+    }
+  }
+
+  function applySectionRewrite(): void {
+    if (!sectionRewrite) return
+    setDraftContent(
+      `${draftContent.slice(0, sectionRewrite.start)}${sectionRewrite.after}${draftContent.slice(sectionRewrite.end)}`,
+    )
+    setSectionRewrite(null)
+    setSelection({ start: 0, end: 0, text: '' })
+  }
+
   function insertLink(title: string): void {
     if (!title) return
     setDraftContent((current) => `${current}${current && !current.endsWith('\n') ? '\n' : ''}[[${title}]]`)
@@ -134,7 +180,8 @@ function NoteCardImpl({
   }
 
   return (
-    <article className={`note-card kind-${note.kind}`} ref={rootRef}>
+    <>
+      <article className={`note-card kind-${note.kind}`} ref={rootRef}>
       <div className="note-head">
         <span className={`kind-badge kind-${note.kind}`}>{t(KIND_LABEL[note.kind])}</span>
         <span className={`author-badge ${note.author}`}>
@@ -204,6 +251,12 @@ function NoteCardImpl({
             className="note-textarea"
             value={draftContent}
             onChange={(event) => setDraftContent(event.target.value)}
+            onSelect={(event) => {
+              const target = event.currentTarget
+              const start = target.selectionStart ?? 0
+              const end = target.selectionEnd ?? 0
+              setSelection({ start, end, text: target.value.slice(start, end) })
+            }}
             placeholder={t('写下你的想法，或用 [[另一条笔记的标题]] 建立联系…')}
             rows={5}
             autoFocus={note.content.trim() === ''}
@@ -212,6 +265,11 @@ function NoteCardImpl({
             <button type="button" className="text-button" onClick={insertMermaid}>
               {t('插入 Mermaid')}
             </button>
+            {selection.text.trim().length >= 20 ? (
+              <button type="button" className="text-button" onClick={() => void rewriteSelection()} disabled={rewriting}>
+                {rewriting ? t('正在重写…') : t('重写选中')}
+              </button>
+            ) : null}
             <button type="button" className="text-button" onClick={() => setPreviewOpen((value) => !value)}>
               {previewOpen ? t('隐藏预览') : t('预览 Markdown')}
             </button>
@@ -313,6 +371,17 @@ function NoteCardImpl({
         </div>
       ) : null}
     </article>
+      {sectionRewrite ? (
+        <TextDiffDialog
+          title={t('按段重写对比')}
+          before={sectionRewrite.before}
+          after={sectionRewrite.after}
+          applyLabel={t('应用改写')}
+          onApply={applySectionRewrite}
+          onClose={() => setSectionRewrite(null)}
+        />
+      ) : null}
+    </>
   )
 }
 

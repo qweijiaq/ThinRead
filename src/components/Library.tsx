@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState, useSyncExternalStore, type JSX } from 'react'
-import type { BookSummary } from '../../shared/types.js'
+import type { BookSummary, ReadingPlanRecord } from '../../shared/types.js'
 import { bookGenreLabel } from '../lib/genres.js'
 import { countUnit, getLocale, t, useLocale } from '../lib/i18n.js'
 import { getDailyGoal, subscribePreferences } from '../lib/preferences.js'
+import { readingPlanDateKey, readingPlanMinutes } from '../lib/reading-plan.js'
 import { getReadingSummary, readingMinutes } from '../lib/reading-stats.js'
 import { confirmDialog } from './ConfirmDialog.js'
 import { Select } from './Select.js'
@@ -15,6 +16,9 @@ interface LibraryProps {
   onDelete(bookId: string): void
   onRename(book: BookSummary): void
   onCompose(bookId: string): void
+  onPlan(book: BookSummary): void
+  onOpenPlan(bookId: string, chapterId: string): void
+  planVersion: number
   onMerge(): void
   onSettings(): void
   onStats(): void
@@ -34,12 +38,12 @@ function formatWords(value: number): string {
 
 type LibrarySort = 'recent' | 'title' | 'progress' | 'chars'
 
-export function Library({ books, importing, onOpen, onImport, onDelete, onRename, onCompose, onMerge, onSettings, onStats, demo }: LibraryProps): JSX.Element {
+export function Library({ books, importing, onOpen, onImport, onDelete, onRename, onCompose, onPlan, onOpenPlan, planVersion, onMerge, onSettings, onStats, demo }: LibraryProps): JSX.Element {
   useLocale()
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState<LibrarySort>('recent')
   const [covers, setCovers] = useState<Record<string, string>>({})
-  const reading = useMemo(() => getReadingSummary(), [])
+  const reading = getReadingSummary()
   const goalMinutes = useSyncExternalStore(subscribePreferences, getDailyGoal, getDailyGoal)
   useEffect(() => {
     let cancelled = false
@@ -58,6 +62,59 @@ export function Library({ books, importing, onOpen, onImport, onDelete, onRename
       cancelled = true
     }
   }, [books])
+
+  const [plans, setPlans] = useState<ReadingPlanRecord[]>([])
+  useEffect(() => {
+    let cancelled = false
+    void window.api
+      .listReadingPlans()
+      .then((items) => {
+        if (!cancelled) setPlans(Array.isArray(items) ? items : [])
+      })
+      .catch(() => {
+        if (!cancelled) setPlans([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [planVersion, books])
+
+  const todayPlans = useMemo(() => {
+    const today = readingPlanDateKey()
+    const bookMap = new Map(books.map((book) => [book.id, book]))
+    const items: Array<{
+      plan: ReadingPlanRecord
+      book: BookSummary
+      chapterIds: string[]
+      firstChapterId: string
+      chars: number
+      total: number
+      done: number
+    }> = []
+    for (const plan of plans) {
+      const book = bookMap.get(plan.bookId)
+      if (!book) continue
+      const done = new Set(plan.done)
+      const total = plan.days.reduce((sum, day) => sum + day.chapterIds.length, 0)
+      if (total === 0) continue
+      const day =
+        plan.days.find((item) => item.date === today && item.chapterIds.some((id) => !done.has(id))) ??
+        plan.days.find((item) => item.chapterIds.some((id) => !done.has(id)))
+      if (!day) continue
+      const remaining = day.chapterIds.filter((id) => !done.has(id))
+      items.push({
+        plan,
+        book,
+        chapterIds: remaining,
+        firstChapterId: remaining[0] ?? day.chapterIds[0]!,
+        chars: day.chars,
+        total,
+        done: plan.done.length,
+      })
+      if (items.length >= 3) break
+    }
+    return items
+  }, [books, plans])
 
   const visibleBooks = useMemo(() => {
     const term = query.trim().toLowerCase()
@@ -166,6 +223,34 @@ export function Library({ books, importing, onOpen, onImport, onDelete, onRename
         />
         <span>{visibleBooks.length} {t('本')}</span>
       </div>
+      {todayPlans.length > 0 ? (
+        <section className="library-plan" aria-label={t('今日阅读计划')}>
+          <div className="library-plan-head">
+            <strong>{t('今日阅读计划')}</strong>
+            <span>{t('按计划继续，读一点也算进度')}</span>
+          </div>
+          <div className="library-plan-list">
+            {todayPlans.map((item) => (
+              <div key={item.plan.bookId} className="library-plan-item">
+                <div>
+                  <strong>{item.book.title}</strong>
+                  <span>
+                    {item.chapterIds.length} {t('节')} · {t('约')} {readingPlanMinutes(item.chars)} {t('分钟')} ·{' '}
+                    {t('已完成')} {item.done} / {item.total}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className="ghost-button small"
+                  onClick={() => onOpenPlan(item.book.id, item.firstChapterId)}
+                >
+                  {t('继续')}
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
       <div className="book-grid">
         {visibleBooks.map((book) => (
           <article
@@ -220,6 +305,16 @@ export function Library({ books, importing, onOpen, onImport, onDelete, onRename
                     : t('尚未开始')}
                 </span>
                 <span className="book-action-buttons">
+                  <button
+                    type="button"
+                    className="text-button"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      onPlan(book)
+                    }}
+                  >
+                    {t('计划')}
+                  </button>
                   <button
                     type="button"
                     className="text-button"

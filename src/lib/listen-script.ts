@@ -5,18 +5,6 @@ export interface ListenSegment {
   text: string
 }
 
-export interface VoiceLike {
-  name: string
-  lang: string
-}
-
-export interface PodcastVoicePlan {
-  lang: string
-  a: VoiceLike | null
-  b: VoiceLike | null
-  distinct: boolean
-}
-
 const SPEAKER_LINE = /^\s*(?:[-*]\s*)?(?:主持人\s*)?([ABＡＢ])\s*(?:[（(][^）)]{0,20}[）)])?\s*[：:]\s*(.*)$/i
 
 function normalizeSpeaker(value: string): 'A' | 'B' {
@@ -144,18 +132,17 @@ export function parseListenScript(source: string): ListenSegment[] {
   )
 }
 
-/** 优先选两个不同的中文音色；只有一个时用音高区分 B。 */
-export function pickPodcastVoices(voices: VoiceLike[]): PodcastVoicePlan {
-  const normalized = voices.map((voice) => ({ ...voice, lang: voice.lang.replace('_', '-') }))
-  const chinese = normalized.filter((voice) => /^zh(?:-|$)/i.test(voice.lang))
-  const simplified = chinese.filter((voice) => /^zh-cn/i.test(voice.lang))
-  const pool = simplified.length > 0 ? simplified : chinese
-  const unique = pool.filter((voice, index) => pool.findIndex((item) => item.name === voice.name) === index)
-  const a = unique[0] ?? null
-  const b = unique[1] ?? a
-  return { lang: 'zh-CN', a, b, distinct: Boolean(a && b && a.name !== b.name) }
-}
-
-export function voiceLabel(voice: VoiceLike | null): string {
-  return voice ? `${voice.name}（${voice.lang}）` : '系统默认中文语音'
+/** 纯英文段落优先使用英文音色；其余按 A/B 角色分配，B 留空时复用 A。 */
+export function chooseTtsVoice(options: {
+  speaker: 'A' | 'B' | null
+  text: string
+  voiceA: string
+  voiceB: string
+  voiceEn: string
+}): string {
+  if (options.voiceEn && /[A-Za-z]/.test(options.text) && !/[一-鿿]/.test(options.text)) {
+    return options.voiceEn
+  }
+  if (options.speaker === 'B') return options.voiceB || options.voiceA
+  return options.voiceA || options.voiceB
 }

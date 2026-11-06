@@ -1,5 +1,5 @@
 import { useEffect, useState, type JSX } from 'react'
-import type { BookSummary, LibraryNote, NoteKind, TagCount } from '../../shared/types.js'
+import type { BookSummary, LibraryNote, LibraryNoteAudit, NoteAuditFilter, NoteKind, TagCount } from '../../shared/types.js'
 import { countUnit, t, useLocale } from '../lib/i18n.js'
 import { snippet } from '../lib/links.js'
 import { noteDisplayTitle, titleRepeatsContent } from '../lib/note-display.js'
@@ -41,12 +41,16 @@ export function NotesLibrary({ books, onBack, onOpen, onShare, onShareDeck }: No
   useLocale()
   const [notes, setNotes] = useState<LibraryNote[]>([])
   const [tags, setTags] = useState<TagCount[]>([])
+  const [audit, setAudit] = useState<LibraryNoteAudit | null>(null)
+  const [auditFilter, setAuditFilter] = useState<NoteAuditFilter | ''>('')
   const [query, setQuery] = useState('')
   const [bookId, setBookId] = useState('')
   const [kind, setKind] = useState<NoteKind | ''>('')
   const [tag, setTag] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  const [exporting, setExporting] = useState(false)
   const [page, setPage] = useState(0)
   const [total, setTotal] = useState(0)
   const [selectMode, setSelectMode] = useState(false)
@@ -62,9 +66,29 @@ export function NotesLibrary({ books, onBack, onOpen, onShare, onShareDeck }: No
   }, [bookId])
 
   useEffect(() => {
+    let cancelled = false
+    void window.api
+      .getLibraryNoteAudit({
+        bookId: bookId || null,
+        kind: kind || null,
+        tag,
+        query: query.trim() || undefined,
+      })
+      .then((result) => {
+        if (!cancelled) setAudit(result)
+      })
+      .catch(() => {
+        if (!cancelled) setAudit(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [bookId, kind, tag, query, refreshTick])
+
+  useEffect(() => {
     setPage(0)
     setSelected(new Set())
-  }, [bookId, kind, tag, query])
+  }, [bookId, kind, tag, query, auditFilter])
 
   useEffect(() => {
     setSelected(new Set())
@@ -80,6 +104,7 @@ export function NotesLibrary({ books, onBack, onOpen, onShare, onShareDeck }: No
           kind: kind || null,
           tag,
           query: query.trim() || undefined,
+          audit: auditFilter || null,
           limit: PAGE_SIZE,
           offset: page * PAGE_SIZE,
         })
@@ -102,7 +127,7 @@ export function NotesLibrary({ books, onBack, onOpen, onShare, onShareDeck }: No
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [bookId, kind, tag, query, page, refreshTick])
+  }, [bookId, kind, tag, query, page, auditFilter, refreshTick])
 
   function toggleSelected(id: string): void {
     setSelected((current) => {
@@ -124,14 +149,50 @@ export function NotesLibrary({ books, onBack, onOpen, onShare, onShareDeck }: No
     onShareDeck(chosen)
   }
 
+  async function exportMarkdown(): Promise<void> {
+    if (exporting) return
+    if (selectMode && selected.size === 0) {
+      setError(t('先选择要导出的笔记。'))
+      return
+    }
+    setExporting(true)
+    setError(null)
+    setNotice(null)
+    try {
+      const result = await window.api.exportNotesMarkdown({
+        bookId: bookId || null,
+        kind: kind || null,
+        tag,
+        query: query.trim() || undefined,
+        audit: auditFilter || null,
+        ...(selectMode ? { ids: [...selected] } : {}),
+      })
+      if (result.canceled) return
+      if (!result.saved || result.count === 0) {
+        setNotice(t('没有可导出的笔记。'))
+        return
+      }
+      setNotice(`${t('已导出')} ${result.count} ${t('条笔记到')} ${result.path}`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setExporting(false)
+    }
+  }
+
   function clearFilters(): void {
     setQuery('')
     setBookId('')
     setKind('')
     setTag(null)
+    setAuditFilter('')
   }
 
-  const hasFilters = Boolean(query.trim() || bookId || kind || tag)
+  function toggleAuditFilter(next: NoteAuditFilter): void {
+    setAuditFilter((current) => (current === next ? '' : next))
+  }
+
+  const hasFilters = Boolean(query.trim() || bookId || kind || tag || auditFilter)
 
   return (
     <main className="notes-library">
@@ -156,6 +217,14 @@ export function NotesLibrary({ books, onBack, onOpen, onShare, onShareDeck }: No
               >
                 {t('长图')} · {t('已选')} {selected.size}
               </button>
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={() => void exportMarkdown()}
+                disabled={exporting || selected.size === 0}
+              >
+                {exporting ? t('正在导出…') : t('导出选中')}
+              </button>
             </>
           ) : (
             <>
@@ -164,6 +233,14 @@ export function NotesLibrary({ books, onBack, onOpen, onShare, onShareDeck }: No
               </button>
               <button type="button" className="ghost-button" onClick={() => setSelectMode(true)}>
                 {t('多选')}
+              </button>
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={() => void exportMarkdown()}
+                disabled={exporting || total === 0}
+              >
+                {exporting ? t('正在导出…') : t('导出 Markdown')}
               </button>
               <button type="button" className="ghost-button" onClick={onBack}>
                 {t('返回')}
@@ -219,7 +296,42 @@ export function NotesLibrary({ books, onBack, onOpen, onShare, onShareDeck }: No
         </div>
       ) : null}
 
+      {audit ? (
+        <div className="notes-audit" role="group" aria-label={t('笔记审计')}>
+          <span className="notes-audit-title">{t('笔记审计')}</span>
+          <span>{audit.notes} {t('条笔记')}</span>
+          <button
+            type="button"
+            className={auditFilter === 'unverified' ? 'is-active' : ''}
+            onClick={() => toggleAuditFilter('unverified')}
+            disabled={audit.unverified === 0}
+          >
+            {t('待核对')} {audit.unverified}
+          </button>
+          <button
+            type="button"
+            className={auditFilter === 'noQuote' ? 'is-active' : ''}
+            onClick={() => toggleAuditFilter('noQuote')}
+            disabled={audit.noQuote === 0}
+          >
+            {t('无引用')} {audit.noQuote}
+          </button>
+          <button
+            type="button"
+            className={auditFilter === 'edited' ? 'is-active' : ''}
+            onClick={() => toggleAuditFilter('edited')}
+            disabled={audit.edited === 0}
+          >
+            {t('人工修改')} {audit.edited}
+          </button>
+          <span className="notes-audit-coverage">
+            {t('有笔记')} {audit.chapterWithNotes}/{audit.chapterTotal} {t('章')} · {t('读薄覆盖')} {audit.chapterWithCondensed}/{audit.chapterTotal} {t('章')}
+          </span>
+        </div>
+      ) : null}
+
       {error ? <div className="inline-error" role="alert">{error}</div> : null}
+      {notice ? <div className="inline-notice" role="status" aria-live="polite">{notice}</div> : null}
 
       <div className="notes-result-bar">
         <span>

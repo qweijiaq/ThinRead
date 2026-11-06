@@ -45,6 +45,33 @@
   const books = await window.api.listBooks()
   const book = books[0]
   assert(book, '示例书没有写入数据库')
+
+  const planButton = [...document.querySelectorAll('.book-action-buttons button')].find(
+    (button) => button.textContent.trim() === '计划',
+  )
+  assert(planButton, '书架没有阅读计划入口')
+  planButton.click()
+  const planDialog = await waitFor(() => document.querySelector('.reading-plan-modal'), '打开阅读计划')
+  await waitFor(() => planDialog.querySelectorAll('.reading-plan-day').length > 0, '生成阅读计划')
+  const planCheckbox = planDialog.querySelector('.reading-plan-day .ui-checkbox')
+  assert(planCheckbox, '阅读计划没有章节勾选')
+  planCheckbox.click()
+  let planDone = 0
+  for (let attempt = 0; attempt < 40; attempt++) {
+    const savedPlan = await window.api.getReadingPlan(book.id)
+    if (savedPlan?.done.length === 1) {
+      planDone = savedPlan.done.length
+      break
+    }
+    await delay(80)
+  }
+  assert(planDone === 1, '阅读计划勾选没有保存')
+  const closePlanDialog = planDialog.querySelector('button[aria-label="关闭"]')
+  assert(closePlanDialog, '阅读计划没有关闭按钮')
+  closePlanDialog.click()
+  await waitFor(() => !document.querySelector('.reading-plan-modal'), '关闭阅读计划')
+  const libraryPlan = await waitFor(() => document.querySelector('.library-plan'), '书架今日阅读计划')
+  assert(libraryPlan.textContent.includes('今日阅读计划'), '书架没有显示今日阅读计划')
   for (let index = 0; index < 35; index++) {
     await window.api.createNote({
       bookId: book.id,
@@ -62,6 +89,22 @@
     })
   }
 
+  const trashItem = await window.api.saveLabArtifact({
+    tool: 'book-club',
+    scope: 'latest',
+    title: '回收站条目',
+    content: '准备彻底删除的生成内容。',
+    bookId: book.id,
+  })
+  await window.api.deleteContent(trashItem.id)
+  await window.api.createNote({
+    bookId: book.id,
+    kind: 'thought',
+    title: '未归类笔记',
+    content: '这条笔记故意没有标签。',
+    tags: [],
+  })
+
   const searchButton = [...document.querySelectorAll('button')].find((button) => button.textContent.trim() === '搜索')
   assert(searchButton, '找不到搜索按钮')
   searchButton.focus()
@@ -72,6 +115,12 @@
   const input = modal.querySelector('input')
   assert(input, '搜索弹窗没有输入框')
   await waitFor(() => document.activeElement === input, '搜索输入框自动聚焦')
+  await waitFor(() => document.querySelectorAll('.search-command').length > 0, '搜索快速操作')
+  setInput(input, '>设置')
+  await waitFor(
+    () => document.querySelectorAll('.search-command').length === 1 && document.querySelector('.search-command')?.textContent.includes('设置'),
+    '命令面板过滤',
+  )
 
   setInput(input, '专注')
   await waitFor(() => document.querySelectorAll('.search-result').length > 0, '搜索「专注」的结果')
@@ -142,17 +191,13 @@
     '设置弹窗',
   )
   await waitFor(() => settingsModal.contains(document.activeElement), '设置弹窗获得焦点')
-  assert(settingsModal.textContent.includes('Beatra AI 配音'), '设置里没有 Beatra 配音配置')
-  const guideButton = [...settingsModal.querySelectorAll('button')].find((button) => button.textContent.trim() === '查看教程')
-  assert(guideButton, '设置里没有 Beatra 教程入口')
-  guideButton.click()
-  const guide = await waitFor(() => document.querySelector('[role="dialog"][aria-label="Beatra 使用教程"]'), 'Beatra 教程弹窗')
-  assert(guide.textContent.includes('Device Token') && guide.textContent.includes('Beatra is ready'), 'Beatra 教程内容不完整')
-  const closeGuide = guide.querySelector('button[aria-label="关闭"]')
-  assert(closeGuide, 'Beatra 教程没有关闭按钮')
-  closeGuide.click()
-  await waitFor(() => !document.querySelector('[role="dialog"][aria-label="Beatra 使用教程"]'), '关闭 Beatra 教程')
-  assert(document.querySelector('[role="dialog"][aria-label="设置"]'), '关闭教程时误关了设置')
+  assert(settingsModal.textContent.includes('千问 TTS（阿里云百炼）'), '设置里没有千问 TTS 配置')
+  assert(settingsModal.textContent.includes('英文音色'), '设置里没有英文音色配置')
+  assert(settingsModal.textContent.includes('加入音色库'), '设置里没有音色库入口')
+  assert(settingsModal.textContent.includes('导出整库'), '设置里没有整库导出入口')
+  assert(settingsModal.textContent.includes('导入整库'), '设置里没有整库导入入口')
+  assert(settingsModal.textContent.includes('应用锁'), '设置里没有应用锁配置')
+  assert(settingsModal.textContent.includes('Readwise API Token'), '演示模式下设置里没有 Readwise 配置')
   const unnamedButtons = [...document.querySelectorAll('button')].filter(
     (button) => !button.textContent.trim() && !button.getAttribute('aria-label') && !button.getAttribute('title'),
   )
@@ -215,12 +260,60 @@
   const readerListenPanel = await waitFor(() => document.querySelector('.listen-panel'), '打开章节听读')
   const ttsEngines = Boolean(readerListenPanel.querySelector('.listen-engine-bar'))
   const fullAudio = Boolean(readerListenPanel.querySelector('.listen-full-audio'))
+  const sleepTimer = readerListenPanel.querySelector('[aria-label="睡眠定时"]')
+  const voiceA = readerListenPanel.querySelector('[aria-label="千问 A 音色"]')
+  const voiceB = readerListenPanel.querySelector('[aria-label="千问 B 音色"]')
+  const segmentGap = readerListenPanel.querySelector('[aria-label="段落间隔"]')
   assert(ttsEngines, '听读面板没有音色引擎入口')
   assert(fullAudio, '听读面板没有整章音频入口')
-  const closeReaderListen = readerListenPanel.querySelector('button[aria-label="关闭"]')
+  assert(sleepTimer, '听读面板没有睡眠定时入口')
+  assert(voiceA && voiceB, '听读面板没有 A/B 音色选择')
+  assert(segmentGap, '整章音频没有段落间隔设置')
+  assert(voiceA.textContent !== voiceB.textContent, '听读面板 A/B 默认音色相同')
+  voiceA.click()
+  const voiceOption = await waitFor(
+    () => [...document.querySelectorAll('[role="option"]')].find((option) => option.textContent.trim() === '龙安灵心 · 女声'),
+    '打开 A 音色下拉',
+  )
+  voiceOption.click()
+  let savedVoiceA = ''
+  for (let attempt = 0; attempt < 40; attempt++) {
+    savedVoiceA = (await window.api.getSettings()).qwenTtsVoiceA
+    if (savedVoiceA === 'longanlingxin_v3.1') break
+    await delay(80)
+  }
+  assert(savedVoiceA === 'longanlingxin_v3.1', '听读面板更改音色后没有保存到设置')
+  const minimizeListen = readerListenPanel.querySelector('button[aria-label="最小化"]')
+  assert(minimizeListen, '听读面板没有最小化按钮')
+  minimizeListen.click()
+  const miniPlayer = await waitFor(() => document.querySelector('.listen-mini'), '听读迷你播放器')
+  const expandListen = [...miniPlayer.querySelectorAll('button')].find((button) => button.textContent.trim() === '展开')
+  assert(expandListen, '迷你播放器没有展开按钮')
+  expandListen.click()
+  const expandedListenPanel = await waitFor(() => document.querySelector('.listen-panel'), '展开听读')
+  const closeReaderListen = expandedListenPanel.querySelector('button[aria-label="关闭"]')
   assert(closeReaderListen, '听读面板没有关闭按钮')
   closeReaderListen.click()
   await waitFor(() => !document.querySelector('.listen-panel'), '关闭章节听读')
+  const moreReaderButton = [...document.querySelectorAll('.chapter-head-actions button')].find(
+    (button) => button.textContent.trim() === '更多',
+  )
+  assert(moreReaderButton, '阅读器没有更多操作入口')
+  moreReaderButton.click()
+  const summaryButton = await waitFor(
+    () => [...document.querySelectorAll('.reader-more-menu button')].find((button) => button.textContent.trim() === '阅读小结'),
+    '阅读小结入口',
+  )
+  summaryButton.click()
+  const summaryDialog = await waitFor(
+    () => document.querySelector('[role="dialog"][aria-label="阅读小结"]'),
+    '阅读小结弹窗',
+  )
+  await waitFor(() => summaryDialog.textContent.includes('本次读到'), '阅读小结内容')
+  const closeSummary = summaryDialog.querySelector('button[aria-label="关闭"]')
+  assert(closeSummary, '阅读小结没有关闭按钮')
+  closeSummary.click()
+  await waitFor(() => !document.querySelector('[role="dialog"][aria-label="阅读小结"]'), '关闭阅读小结')
   const streamed = []
   const streamedAnswer = await window.api.askChapterStream(
     currentChapterId,
@@ -323,6 +416,13 @@
   assert(xhsPreview, '小红书图文没有生成预览图')
   const xhsCoverage = await waitFor(() => xhsModal.querySelector('.xhs-coverage'), '小红书知识点覆盖报告')
   assert(xhsCoverage.textContent.includes('/'), '小红书覆盖报告没有知识点数量')
+  const xhsScope = xhsModal.querySelector('.xhs-controls .share-segmented')
+  assert(xhsScope && [...xhsScope.querySelectorAll('button')].some((button) => button.textContent.trim() === '整本书'), '小红书没有范围切换')
+  assert(xhsModal.querySelector('button[aria-label="选择章节"]'), '小红书章节范围没有章节选择')
+  assert(
+    [...xhsModal.querySelectorAll('button')].some((button) => button.textContent.trim() === '苔绿'),
+    '小红书没有苔绿主题',
+  )
   const xhsThumbs = xhsModal.querySelectorAll('.xhs-thumb')
   assert(xhsThumbs.length >= 2, '小红书图文没有封面和内容页')
   const closeXhs = xhsModal.querySelector('button[aria-label="关闭"]')
@@ -336,6 +436,10 @@
   await waitFor(() => document.querySelector('.map-view'), '打开知识地图')
   const mapNodes = await waitFor(() => document.querySelectorAll('.map-node').length, '知识地图节点', 10000)
   assert(mapNodes > 0, '带有标签的笔记没有生成地图节点')
+  assert(
+    [...document.querySelectorAll('.map-node')].some((node) => node.textContent.includes('未归类')),
+    '没有标签的笔记没有出现在知识地图',
+  )
   const mapSearch = document.querySelector('input.map-search')
   assert(mapSearch, '知识地图没有搜索框')
   setInput(mapSearch, '专注')
@@ -432,6 +536,12 @@
   await waitFor(() => document.querySelector('.notes-library'), '打开笔记库')
   const notesPager = await waitFor(() => document.querySelector('.library-pager'), '笔记库分页')
   assert(notesPager.textContent.includes('/'), '笔记库分页缺少页码')
+  const noteAudit = await waitFor(() => document.querySelector('.notes-audit'), '笔记审计摘要')
+  assert(noteAudit.textContent.includes('笔记审计'), '笔记审计摘要缺少标题')
+  const exportNotesButton = [...document.querySelectorAll('.notes-library-actions button')].find(
+    (button) => button.textContent.trim() === '导出 Markdown',
+  )
+  assert(exportNotesButton, '笔记库没有 Markdown 导出入口')
   const trashButton = [...document.querySelectorAll('button')].find((button) => button.textContent.trim() === '回收站')
   assert(trashButton, '笔记库没有回收站入口')
   trashButton.click()
@@ -451,11 +561,37 @@
   assert(contentPager.textContent.includes('/'), '内容库分页缺少页码')
   const contentSearch = document.querySelector('.content-toolbar input')
   assert(contentSearch, '内容库没有搜索框')
+  const compareVersionButton = [...document.querySelectorAll('.content-actions button')].find(
+    (button) => button.textContent.trim() === '对比版本',
+  )
+  assert(compareVersionButton, '内容库没有版本对比入口')
   setInput(contentSearch, '独特词条')
   await waitFor(
     () => document.querySelectorAll('.content-row').length === 1 && document.querySelector('.content-row')?.textContent.includes('生成内容 8'),
     '内容库索引搜索',
   )
+
+  setInput(contentSearch, '')
+  const statusTrigger = document.querySelector('button[aria-label="内容状态"]')
+  assert(statusTrigger, '内容库没有状态筛选')
+  statusTrigger.click()
+  const trashOption = await waitFor(
+    () => [...document.querySelectorAll('[role="option"]')].find((option) => option.textContent.trim() === '回收站'),
+    '回收站筛选项',
+  )
+  trashOption.click()
+  await waitFor(
+    () => document.querySelector('.content-row')?.textContent.includes('回收站条目'),
+    '回收站列表',
+  )
+  const purgeButton = [...document.querySelectorAll('.content-actions button')].find(
+    (button) => button.textContent.trim() === '彻底删除',
+  )
+  assert(purgeButton, '回收站没有彻底删除按钮')
+  purgeButton.click()
+  const confirmPurge = await waitFor(() => document.querySelector('.confirm-dialog .primary-button'), '彻底删除确认框')
+  confirmPurge.click()
+  await waitFor(() => document.querySelectorAll('.content-row').length === 0, '彻底删除后列表更新')
 
   const labButton = [...document.querySelectorAll('button')].find((button) => button.textContent.trim() === '工作台')
   assert(labButton, '找不到工作台按钮')
@@ -524,6 +660,7 @@
     notesPager: true,
     contentPager: true,
     contentSearch: true,
+    contentPurge: true,
     podcastScript: true,
     ttsEngines,
     fullAudio,
@@ -531,6 +668,7 @@
     xhsCoverage: true,
     bookmarks: bookmarkRows.length,
     bookshelfButtons: actionButtons.length,
+    readingPlan: true,
     horizontalOverflow: overflow,
     a11yViolations: a11y.violations.length,
   }

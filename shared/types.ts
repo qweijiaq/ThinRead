@@ -276,13 +276,32 @@ export interface BackgroundTaskRecord {
   updatedAt: string
 }
 
+export type NoteAuditFilter = 'unverified' | 'noQuote' | 'edited'
+
 export interface LibraryFilter {
   bookId?: string | null
   tag?: string | null
+  /** 只看没有任何标签的笔记。 */
+  untagged?: boolean
   kind?: NoteKind | null
   query?: string
+  audit?: NoteAuditFilter | null
+  /** 只导出/筛选指定笔记；空数组表示没有结果。 */
+  ids?: string[]
   limit?: number
   offset?: number
+}
+
+export interface LibraryNoteAudit {
+  notes: number
+  ai: number
+  edited: number
+  verified: number
+  unverified: number
+  noQuote: number
+  chapterTotal: number
+  chapterWithNotes: number
+  chapterWithCondensed: number
 }
 
 export interface PageResult<T> {
@@ -319,6 +338,103 @@ export interface FeynmanResult {
   misconceptions: string[]
 }
 
+export interface SessionSummary {
+  title: string
+  markdown: string
+}
+
+export interface SessionSummaryInput {
+  chapterId: string
+  minutes: number
+}
+
+export interface WeeklyReviewRecord {
+  id: string
+  week: string
+  title: string
+  content: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ReadingPlanDay {
+  date: string
+  chapterIds: string[]
+  chars: number
+}
+
+export interface ReadingPlanRecord {
+  bookId: string
+  startDate: string
+  dailyMinutes: number
+  days: ReadingPlanDay[]
+  done: string[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ReadingPlanInput {
+  bookId: string
+  startDate: string
+  dailyMinutes: number
+  days: ReadingPlanDay[]
+  done: string[]
+}
+
+export interface AppNotice {
+  kind: 'info' | 'error'
+  text: string
+}
+
+export interface AiUsageDay {
+  date: string
+  calls: number
+  failed: number
+  tokens: number
+}
+
+export interface AiUsageSummary {
+  days: AiUsageDay[]
+  models: Array<{ model: string; calls: number; tokens: number }>
+  steps: Array<{ step: string; calls: number; tokens: number }>
+  totalCalls: number
+  totalFailed: number
+  totalTokens: number
+}
+
+export interface ComposeSectionRewriteInput {
+  bookId: string
+  fullText: string
+  start: number
+  end: number
+}
+
+export interface ComposeSectionRewriteResult {
+  text: string
+  demo?: boolean
+}
+
+export interface CompareNotesInput {
+  chapterId: string
+  model: string
+}
+
+export interface CompareNotesResult {
+  base: ContentItem
+  compare: ContentItem
+}
+
+export interface CompareComposeInput {
+  bookId: string
+  model: string
+  options?: BookComposeOptions
+}
+
+export interface CompareComposeResult {
+  base: ContentItem
+  compare: ContentItem
+}
+
 export type KnowledgeNodeType = 'book' | 'note' | 'concept'
 
 export interface KnowledgeMapNode {
@@ -352,6 +468,7 @@ export interface KnowledgeMapData {
   semanticReady: boolean
   totalNotes: number
   displayedNotes: number
+  untaggedNotes: number
 }
 
 export type LabToolId =
@@ -536,6 +653,7 @@ export interface ContentApplyResult {
   appliedTo: 'note' | 'chapter' | 'current' | 'none'
   noteId?: string
   chapterId?: string
+  undoToken?: string
   message: string
 }
 
@@ -595,6 +713,7 @@ export interface ProviderPreset {
   label: string
   baseUrl: string
   defaultModel: string
+  suggestedModels?: string[]
   keyUrl: string
   hint: string
 }
@@ -605,6 +724,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     label: '演示模式（无需 API Key）',
     baseUrl: '',
     defaultModel: 'demo',
+    suggestedModels: ['demo'],
     keyUrl: '',
     hint: '用固定样例演示完整流程，生成的引用不可校验。',
   },
@@ -613,6 +733,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     label: 'DeepSeek',
     baseUrl: 'https://api.deepseek.com',
     defaultModel: 'deepseek-flash',
+    suggestedModels: ['deepseek-flash', 'deepseek-chat', 'deepseek-reasoner'],
     keyUrl: 'https://platform.deepseek.com/api_keys',
     hint: '中文长文本性价比高。官方 OpenAI 端点是 api.deepseek.com；/v1 也可用。',
   },
@@ -621,6 +742,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     label: '智谱 GLM',
     baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
     defaultModel: 'glm-5.3',
+    suggestedModels: ['glm-5.3', 'glm-4.6v', 'glm-4-plus'],
     keyUrl: 'https://bigmodel.cn/usercenter/proj-mgmt/apikeys',
     hint: 'API Key 在 bigmodel.cn 的业务空间管理页创建。',
   },
@@ -629,6 +751,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     label: 'Anthropic Claude',
     baseUrl: '',
     defaultModel: 'claude-sonnet-5',
+    suggestedModels: ['claude-sonnet-5', 'claude-opus-5', 'claude-haiku-5'],
     keyUrl: 'https://platform.claude.com/settings/keys',
     hint: '留空 Base URL 使用官方端点；Key 在 Claude 平台创建。',
   },
@@ -637,6 +760,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     label: 'OpenAI',
     baseUrl: 'https://api.openai.com/v1',
     defaultModel: 'gpt-5.6-sol',
+    suggestedModels: ['gpt-5.6-sol', 'gpt-4o-mini', 'gpt-4o'],
     keyUrl: 'https://platform.openai.com/api-keys',
     hint: '也可以填任何 OpenAI 兼容网关；模型 ID 以控制台为准。',
   },
@@ -645,6 +769,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     label: 'Moonshot Kimi',
     baseUrl: 'https://api.moonshot.cn/v1',
     defaultModel: 'kimi-k3',
+    suggestedModels: ['kimi-k3', 'kimi-k3.1-pro', 'moonshot-v1-128k'],
     keyUrl: 'https://platform.kimi.com/console/api-keys',
     hint: '控制台已迁移到 platform.kimi.com；API 仍是 api.moonshot.cn/v1。',
   },
@@ -653,6 +778,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     label: '阿里云百炼',
     baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     defaultModel: 'qwen3.8-max',
+    suggestedModels: ['qwen3.8-max', 'qwen3.7-plus', 'qwen-max', 'qwen-plus'],
     keyUrl: 'https://bailian.console.aliyun.com/cn-beijing/model/settings/api-key',
     hint: '北京地域兼容地址；新账号建议改用业务空间专属域名。',
   },
@@ -661,6 +787,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     label: 'OpenRouter',
     baseUrl: 'https://openrouter.ai/api/v1',
     defaultModel: 'anthropic/claude-sonnet-5',
+    suggestedModels: ['anthropic/claude-sonnet-5', 'deepseek/deepseek-chat', 'openai/gpt-4o'],
     keyUrl: 'https://openrouter.ai/keys',
     hint: '一个 Key 访问多家模型；模型 ID 要带厂商前缀。',
   },
@@ -669,6 +796,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     label: '本地 Ollama',
     baseUrl: 'http://localhost:11434/v1',
     defaultModel: 'qwen3:8b',
+    suggestedModels: ['qwen3:8b', 'llama3.1', 'llava'],
     keyUrl: '',
     hint: '本地推理，书和笔记都不出设备。',
   },
@@ -686,12 +814,16 @@ export interface SettingsView {
   composeModel: string
   labModel: string
   readwiseConfigured: boolean
-  beatraConfigured: boolean
-  openaiTtsConfigured: boolean
-  openaiTtsBaseUrl: string
-  openaiTtsModel: string
-  openaiTtsVoiceA: string
-  openaiTtsVoiceB: string
+  keysNeedReentry: boolean
+  appLockEnabled: boolean
+  qwenTtsConfigured: boolean
+  qwenTtsBaseUrl: string
+  qwenTtsModel: string
+  qwenTtsVoiceA: string
+  qwenTtsVoiceB: string
+  qwenTtsVoiceEn: string
+  qwenTtsPricePerK: number
+  qwenTtsVoices: string[]
 }
 
 export interface SettingsPatch {
@@ -704,12 +836,14 @@ export interface SettingsPatch {
   composeModel?: string
   labModel?: string
   readwiseToken?: string
-  beatraToken?: string
-  openaiTtsBaseUrl?: string
-  openaiTtsModel?: string
-  openaiTtsVoiceA?: string
-  openaiTtsVoiceB?: string
-  openaiTtsKey?: string
+  qwenTtsBaseUrl?: string
+  qwenTtsModel?: string
+  qwenTtsVoiceA?: string
+  qwenTtsVoiceB?: string
+  qwenTtsVoiceEn?: string
+  qwenTtsPricePerK?: number
+  qwenTtsVoices?: string[]
+  qwenTtsKey?: string
 }
 
 export interface TestResult {
@@ -777,6 +911,11 @@ export interface SaveFileResult {
   path: string | null
 }
 
+export interface NotesExportResult extends SaveFileResult {
+  count: number
+  canceled?: boolean
+}
+
 export interface SaveImagesResult {
   saved: boolean
   path: string | null
@@ -798,6 +937,19 @@ export interface ReadingPositionInput {
   scrollRatio: number
   scrollTop: number
   page?: number | null
+}
+
+export interface ReadingStatsData {
+  total: number
+  days: Record<string, number>
+  books: Record<string, number>
+}
+
+export interface UiPreferences {
+  autoNext: boolean
+  dailyGoal: number
+  /** 主进程是否已经保存过偏好；用于首次迁移和备份恢复时判断优先级。 */
+  configured: boolean
 }
 
 export interface ReadingBookmark {
@@ -870,8 +1022,6 @@ export interface SearchResult {
   score?: number
 }
 
-export type TtsEngine = 'system' | 'edge' | 'beatra' | 'openai'
-
 export interface TtsVoice {
   id: string
   label: string
@@ -880,27 +1030,21 @@ export interface TtsVoice {
 }
 
 export interface TtsStatus {
-  edge: {
-    online: boolean
-    voices: TtsVoice[]
-  }
-  beatra: {
-    configured: boolean
-  }
-  openai: {
+  qwen: {
     configured: boolean
     baseUrl: string
     model: string
     voiceA: string
     voiceB: string
+    voiceEn: string
+    pricePerK: number
+    voices: TtsVoice[]
   }
 }
 
 export interface TtsSynthesisRequest {
-  engine: 'edge' | 'beatra' | 'openai'
   text: string
   voice: string
-  rate: number
 }
 
 export interface TtsAudio {
@@ -1029,6 +1173,7 @@ export interface AppInfo {
   version: string
   dataDir: string
   demo: boolean
+  lockEnabled: boolean
 }
 
 export interface ShareCopyInput {
@@ -1062,6 +1207,10 @@ export interface ReadingApi {
   importHighlights(options?: HighlightImportOptions): Promise<HighlightImportResult | null>
   importWechatHighlights(options?: HighlightImportOptions): Promise<HighlightImportResult | null>
   openBook(bookId: string): Promise<{ book: BookSummary; chapters: ChapterMeta[]; style: ReaderStyle }>
+  getReadingPlan(bookId: string): Promise<ReadingPlanRecord | null>
+  listReadingPlans(): Promise<ReadingPlanRecord[]>
+  saveReadingPlan(input: ReadingPlanInput): Promise<ReadingPlanRecord>
+  deleteReadingPlan(bookId: string): Promise<void>
   renameBook(bookId: string, title: string, author?: string): Promise<BookSummary>
   setBookGenre(bookId: string, genre: BookGenre): Promise<BookSummary>
   renameChapter(chapterId: string, title: string): Promise<void>
@@ -1094,7 +1243,9 @@ export interface ReadingApi {
   listNotes(bookId: string, chapterId?: string | null): Promise<Note[]>
   listRelatedNotes(bookId: string, tags: string[], queryText?: string): Promise<RelatedNote[]>
   listLibraryNotes(filter?: LibraryFilter): Promise<LibraryNote[]>
+  exportNotesMarkdown(filter?: LibraryFilter): Promise<NotesExportResult>
   listLibraryNotesPage(filter?: LibraryFilter): Promise<PageResult<LibraryNote>>
+  getLibraryNoteAudit(filter?: LibraryFilter): Promise<LibraryNoteAudit>
   listLibraryTags(bookId?: string | null): Promise<TagCount[]>
   askChapterStream(
     chapterId: string,
@@ -1104,6 +1255,8 @@ export interface ReadingApi {
     onDelta: (text: string) => void,
   ): Promise<ChatAnswer>
   evaluateExplanation(chapterId: string, explanation: string): Promise<FeynmanResult>
+  generateSessionSummary(input: SessionSummaryInput): Promise<SessionSummary>
+  cancelSessionSummary(): Promise<void>
   evaluateExplanationStream(
     chapterId: string,
     explanation: string,
@@ -1129,6 +1282,13 @@ export interface ReadingApi {
   getReadingPosition(chapterId: string): Promise<ReadingPositionRecord | null>
   saveReadingPosition(input: ReadingPositionInput): Promise<void>
   saveReadingPage(chapterId: string, bookId: string, page: number): Promise<void>
+  getReadingStats(): Promise<ReadingStatsData>
+  mergeReadingStats(data: ReadingStatsData): Promise<ReadingStatsData>
+  recordReading(day: string, seconds: number, bookId?: string | null): Promise<void>
+  getUiPreferences(): Promise<UiPreferences>
+  saveUiPreferences(patch: { autoNext?: boolean; dailyGoal?: number }): Promise<UiPreferences>
+  saveWeeklyReview(input: { week: string; title: string; content: string }): Promise<WeeklyReviewRecord>
+  listWeeklyReviews(): Promise<WeeklyReviewRecord[]>
   listBookmarks(bookId: string): Promise<ReadingBookmark[]>
   createBookmark(input: ReadingBookmarkDraft): Promise<ReadingBookmark>
   deleteBookmark(id: string): Promise<void>
@@ -1159,10 +1319,14 @@ export interface ReadingApi {
   listContent(filter?: ContentFilter): Promise<ContentItem[]>
   listContentPage(filter?: ContentFilter): Promise<PageResult<ContentItem>>
   getContent(id: string): Promise<ContentItem | null>
+  getContentVersions(tool: string, scope: string): Promise<ContentItem[]>
   setContentFavorite(id: string, favorite: boolean): Promise<ContentItem>
   setContentStatus(id: string, status: ContentStatus): Promise<ContentItem>
   deleteContent(id: string): Promise<void>
+  purgeContent(id: string): Promise<void>
+  purgeDeletedContent(): Promise<number>
   applyContent(id: string, action: ContentApplyAction): Promise<ContentApplyResult>
+  undoContentApply(token: string): Promise<ContentApplyResult>
   createNote(draft: NoteDraft): Promise<Note>
   updateNote(id: string, patch: NotePatch): Promise<Note>
   deleteNote(id: string): Promise<void>
@@ -1171,15 +1335,24 @@ export interface ReadingApi {
   cancelGeneration(): Promise<void>
   composeBook(bookId: string, options: BookComposeOptions): Promise<BookComposeResult>
   cancelBookCompose(): Promise<void>
+  rewriteComposeSection(input: ComposeSectionRewriteInput): Promise<ComposeSectionRewriteResult>
+  cancelComposeSectionRewrite(): Promise<void>
+  compareChapterNotes(input: CompareNotesInput): Promise<CompareNotesResult>
+  compareBookCompose(input: CompareComposeInput): Promise<CompareComposeResult>
   saveHtml(defaultName: string, content: string): Promise<SaveFileResult>
   savePdf(defaultName: string, html: string): Promise<SaveFileResult>
   saveBinary(defaultName: string, base64: string): Promise<SaveFileResult>
   copyImage(dataUrl: string): Promise<void>
   expandNote(noteId: string): Promise<Note>
+  compareChapterNotes(input: CompareNotesInput): Promise<CompareNotesResult>
+  compareBookCompose(input: CompareComposeInput): Promise<CompareComposeResult>
   getSettings(): Promise<SettingsView>
   saveSettings(patch: SettingsPatch): Promise<SettingsView>
+  setAppLock(passcode: string | null): Promise<boolean>
+  verifyAppLock(passcode: string): Promise<boolean>
   testConnection(): Promise<TestResult>
   getAppInfo(): Promise<AppInfo>
+  getAiUsage(days?: number): Promise<AiUsageSummary>
   openDataDir(): Promise<void>
   createBackup(): Promise<BackupInfo>
   listBackups(): Promise<BackupInfo[]>
@@ -1187,6 +1360,8 @@ export interface ReadingApi {
   deleteBackup(id: string): Promise<void>
   openBackupsDir(): Promise<void>
   exportBackup(id: string): Promise<SaveFileResult>
+  exportLibrary(): Promise<SaveFileResult>
+  importLibrary(): Promise<SaveFileResult>
   exportDiagnostics(): Promise<SaveFileResult>
   logRendererError(report: RendererErrorReport): Promise<void>
   copyText(text: string): Promise<void>
@@ -1195,9 +1370,6 @@ export interface ReadingApi {
   readBookFile(bookId: string): Promise<Uint8Array>
   getTtsStatus(): Promise<TtsStatus>
   synthesizeTts(request: TtsSynthesisRequest): Promise<TtsAudio>
-  getBeatraVoices(): Promise<TtsVoice[]>
-  testBeatra(token?: string): Promise<TestResult>
-  importBeatraCredential(): Promise<TestResult>
   search(query: string): Promise<SearchResult[]>
   searchSemantic(query: string): Promise<SearchResult[]>
   onGenerationPartial(cb: (event: GenerationPartialEvent) => void): () => void
@@ -1213,4 +1385,5 @@ export interface ReadingApi {
   onChapterFormatted(cb: (event: FormatResult) => void): () => void
   onBookComposeProgress(cb: (event: BookComposeProgress) => void): () => void
   onSemanticReady(cb: () => void): () => void
+  onAppNotice(cb: (notice: AppNotice) => void): () => void
 }

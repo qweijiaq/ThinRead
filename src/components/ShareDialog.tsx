@@ -69,11 +69,18 @@ export function ShareDialog({ note, book, notes, initialTemplate, onClose }: Sha
     initialTemplate ?? (note ? preferredTemplate(note) : (notes?.length ?? 0) > 1 ? 'deck' : 'book'),
   )
   const [theme, setTheme] = useState<ShareTheme>(() =>
-    readPreference<'paper' | 'ink'>('reading-notes-share-theme', ['paper', 'ink'], 'paper'),
+    readPreference<ShareTheme>('reading-notes-share-theme', ['paper', 'ink', 'sage'], 'ink'),
   )
   const [ratio, setRatio] = useState<ShareRatio>(() =>
     readPreference<'portrait' | 'square'>('reading-notes-share-ratio', ['portrait', 'square'], 'portrait'),
   )
+  const [brand, setBrand] = useState(() => {
+    try {
+      return localStorage.getItem('reading-notes-share-brand') ?? ''
+    } catch {
+      return ''
+    }
+  })
   const [title, setTitle] = useState(note?.title ?? book?.title ?? ((notes?.length ?? 0) > 0 ? t('读书摘录') : ''))
   const [body, setBody] = useState(note?.content ?? '')
   const [quote, setQuote] = useState(note ? quoteFallback(note) : '')
@@ -121,10 +128,11 @@ export function ShareDialog({ note, book, notes, initialTemplate, onClose }: Sha
     try {
       localStorage.setItem('reading-notes-share-theme', theme)
       localStorage.setItem('reading-notes-share-ratio', ratio)
+      localStorage.setItem('reading-notes-share-brand', brand)
     } catch {
       // 忽略存储失败。
     }
-  }, [theme, ratio])
+  }, [theme, ratio, brand])
 
   const templateOptions = useMemo(
     () =>
@@ -151,8 +159,9 @@ export function ShareDialog({ note, book, notes, initialTemplate, onClose }: Sha
       book: book ?? null,
       deck: notes ?? null,
       points,
+      brand,
     }),
-    [template, theme, ratio, title, body, quote, source, tags, hideSource, hideTags, book, notes, points],
+    [template, theme, ratio, title, body, quote, source, tags, hideSource, hideTags, book, notes, points, brand],
   )
 
   useEffect(() => {
@@ -318,6 +327,9 @@ export function ShareDialog({ note, book, notes, initialTemplate, onClose }: Sha
                   <button type="button" className={theme === 'ink' ? 'active' : ''} onClick={() => setTheme('ink')}>
                     {t('墨')}
                   </button>
+                  <button type="button" className={theme === 'sage' ? 'active' : ''} onClick={() => setTheme('sage')}>
+                    {t('苔绿')}
+                  </button>
                 </div>
               </div>
               {template === 'deck' ? null : (
@@ -392,6 +404,10 @@ export function ShareDialog({ note, book, notes, initialTemplate, onClose }: Sha
             <label className="share-field">
               {t('出处')}
               <input value={source} onChange={(event) => setSource(event.target.value)} placeholder={t('书名 · 章节')} />
+            </label>
+            <label className="share-field">
+              {t('署名 / 品牌（可选）')}
+              <input value={brand} onChange={(event) => setBrand(event.target.value)} placeholder={t('例如 @你的名字')} />
             </label>
 
             <div className="share-toggles">

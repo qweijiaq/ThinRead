@@ -14,15 +14,25 @@ const OUT = path.join(ROOT, 'storybook-screenshots')
 const CURRENT = path.join(ROOT, 'storybook-screenshots-current')
 const STORIES = [
   '分享-sharecardpreview--quote-paper',
+  '分享-sharecardpreview--quote-ink',
   '分享-sharecardpreview--knowledge-ink',
+  '分享-sharecardpreview--all-templates',
+  '分享-sharecardpreview--all-templates-ink',
+  '分享-sharecardpreview--condensed-paper',
+  '分享-sharecardpreview--book-paper',
+  '分享-sharecardpreview--book-ink',
   '分享-sharedialog--deck',
   '阅读-reader--folio-serif',
+  '阅读-reader--warm-serif',
   '书架-library--shelf',
+  '书架-library--warm-shelf',
   '笔记-notecard--point-with-quote',
   '地图-knowledgemap--default',
   '地图-labrelationgraph--default',
   '小红书-xhscarouseldialog--default',
-  '听读-listenpanel--edge',
+  '小红书-xhspagepreview--all-pages',
+  '小红书-xhspagepreview--all-pages-ink',
+  '听读-listenpanel--qwen',
 ]
 const CHECK = process.argv.includes('--check')
 // 允许字体抗锯齿和渲染器差异；结构性布局变化仍会明显超过这个比例。

@@ -6,6 +6,7 @@ import { getAutoNext, getDailyGoal, setAutoNext as setAutoNextPreference, subscr
 import { addReadingSeconds, getReadingSummary } from '../lib/reading-stats.js'
 import { EchoDialog } from './EchoDialog.js'
 import { PdfOriginalView } from './PdfOriginalView.js'
+import { ReadingSummaryDialog } from './ReadingSummaryDialog.js'
 
 interface ReaderProps {
   chapter: ChapterContent | null
@@ -45,6 +46,7 @@ interface ReaderProps {
   onAdjustStyle?(patch: Partial<ReaderStyle>): void
   focusMode?: boolean
   onToggleFocus?(): void
+  onSaveSummary?(title: string, markdown: string): Promise<void>
 }
 
 /** 旧版本解析出的章节会把标题重复放进正文；渲染时去掉与章节标题相同的前导标题文本。 */
@@ -146,6 +148,7 @@ export function Reader({
   onAdjustStyle,
   focusMode = false,
   onToggleFocus,
+  onSaveSummary,
 }: ReaderProps): JSX.Element {
   useLocale()
   const containerRef = useRef<HTMLDivElement>(null)
@@ -166,6 +169,53 @@ export function Reader({
   const [countdown, setCountdown] = useState<number | null>(null)
   const autoNextSuppressed = useRef(false)
   const bookmarkRef = useRef<() => void>(() => undefined)
+  const lastActivityRef = useRef(Date.now())
+  const sessionSecondsRef = useRef(0)
+  const sessionBookRef = useRef<string | null>(null)
+  const [summaryOpen, setSummaryOpen] = useState(false)
+  const [summaryMinutes, setSummaryMinutes] = useState(1)
+  const [moreOpen, setMoreOpen] = useState(false)
+  const moreRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (!moreOpen) return
+    function onPointerDown(event: PointerEvent): void {
+      if (!moreRef.current?.contains(event.target as Node)) setMoreOpen(false)
+    }
+    function onKey(event: KeyboardEvent): void {
+      if (event.key === 'Escape') setMoreOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [moreOpen])
+
+  useEffect(() => {
+    const mark = (): void => {
+      lastActivityRef.current = Date.now()
+    }
+    window.addEventListener('pointerdown', mark, { passive: true })
+    window.addEventListener('keydown', mark)
+    window.addEventListener('wheel', mark, { passive: true })
+    window.addEventListener('touchstart', mark, { passive: true })
+    window.addEventListener('scroll', mark, { passive: true, capture: true })
+    return () => {
+      window.removeEventListener('pointerdown', mark)
+      window.removeEventListener('keydown', mark)
+      window.removeEventListener('wheel', mark)
+      window.removeEventListener('touchstart', mark)
+      window.removeEventListener('scroll', mark, { capture: true })
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!chapter?.bookId || sessionBookRef.current === chapter.bookId) return
+    sessionBookRef.current = chapter.bookId
+    sessionSecondsRef.current = 0
+  }, [chapter?.bookId])
 
   useEffect(() => {
     function onKey(event: KeyboardEvent): void {
@@ -354,7 +404,9 @@ export function Reader({
     if (!chapter) return
     const timer = window.setInterval(() => {
       if (document.visibilityState !== 'visible') return
+      if (Date.now() - lastActivityRef.current > 120_000) return
       addReadingSeconds(15, chapter.bookId)
+      sessionSecondsRef.current += 15
       if (dailyGoal <= 0) return
       const now = new Date()
       const dayKey = `reading-notes-goal-${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
@@ -547,98 +599,146 @@ export function Reader({
         ) : (
           <article style={{ maxWidth: `${style.maxWidth}px` }}>
             <header className="chapter-head">
-              <div className="chapter-head-row">
-                <div className="chapter-kicker">
-                  {chapter.partTitle && !chapter.isPart ? (
-                    <span className="chapter-part">{chapter.partTitle}</span>
-                  ) : null}
-                  {chapter.partTitle && !chapter.isPart ? ' · ' : null}
-                  {chapter.isPart ? `${t('篇首')} · ` : null}
-                  {t('约')} {chapter.chars.toLocaleString()} {t('字')}
-                  {chapterIndex != null && chapterTotal != null && chapterTotal > 0
-                    ? ` · ${chapterIndex + 1} / ${chapterTotal} ${t('章')}`
-                    : ''}
-                  {` · ${t('预计')} ${Math.max(1, Math.round(chapter.chars / 400))} ${t('分钟')}`}
-                </div>
-                <div className="chapter-head-actions">
-                  {onToggleFocus ? (
-                    <button type="button" className="ghost-button small" onClick={onToggleFocus} title={t('专注阅读')}>
-                      {focusMode ? t('退出专注') : t('专注')}
-                    </button>
-                  ) : null}
-                  {onAdjustStyle ? (
-                    <span className="reader-font-controls">
-                      <button
-                        type="button"
-                        className="ghost-button small"
-                        title={t('减小字号')}
-                        onClick={() => onAdjustStyle({ fontSize: Math.max(13, style.fontSize - 1) })}
-                      >
-                        A−
-                      </button>
-                      <button
-                        type="button"
-                        className="ghost-button small"
-                        title={t('增大字号')}
-                        onClick={() => onAdjustStyle({ fontSize: Math.min(28, style.fontSize + 1) })}
-                      >
-                        A+
-                      </button>
-                    </span>
-                  ) : null}
-                  {pdfBookId ? (
-                    <button type="button" className="ghost-button small" onClick={() => setPdfOpen(true)}>
-                      {t('原版 PDF')}
-                    </button>
-                  ) : null}
-                  {echoes.length > 0 ? (
-                    <button type="button" className="ghost-button small" onClick={() => setEchoOpen(true)}>
-                      {t('回声')} · {echoes.length}
-                    </button>
-                  ) : null}
-                  <button type="button" className="ghost-button small" onClick={onListen}>
-                    {t('听读')}
-                  </button>
-                  <button type="button" className="ghost-button small" onClick={onOpenXhs}>
-                    {t('小红书')}
-                  </button>
-                  <button type="button" className="ghost-button small" onClick={bookmarkHere}>
-                    {t('书签')}
-                  </button>
-                  <button
-                    type="button"
-                    className="ghost-button small"
-                    onClick={() => {
-                      void window.api.copyText(`${chapter.title}\n\n${chapter.text}`).then(() => {
-                        setFullCopied(true)
-                        window.setTimeout(() => setFullCopied(false), 1600)
-                      })
-                    }}
-                    title={t('复制这一章标题和正文')}
-                  >
-                    {fullCopied ? t('已复制') : t('复制全文')}
-                  </button>
-                  <button
-                    type="button"
-                    className="ghost-button small"
-                    onClick={() => {
-                      void window.api.copyText(`thinread://book/${chapter.bookId}/chapter/${chapter.id}`)
-                      setLinkCopied(true)
-                      window.setTimeout(() => setLinkCopied(false), 1600)
-                    }}
-                    title={t('复制指向这一章的 thinread:// 链接')}
-                  >
-                    {linkCopied ? t('已复制链接') : t('深链')}
-                  </button>
-                  <button type="button" className="ghost-button small" onClick={onRenameChapter}>
-                    {t('改名')}
-                  </button>
-                  <button type="button" className="ghost-button small" onClick={onOpenFormat}>
-                    {t('排版')}
-                  </button>
-                </div>
+              <div className="chapter-kicker">
+                {chapter.partTitle && !chapter.isPart ? (
+                  <span className="chapter-part">{chapter.partTitle}</span>
+                ) : null}
+                {chapter.partTitle && !chapter.isPart ? ' · ' : null}
+                {chapter.isPart ? `${t('篇首')} · ` : null}
+                {t('约')} {chapter.chars.toLocaleString()} {t('字')}
+                {chapterIndex != null && chapterTotal != null && chapterTotal > 0
+                  ? ` · ${chapterIndex + 1} / ${chapterTotal} ${t('章')}`
+                  : ''}
+                {` · ${t('预计')} ${Math.max(1, Math.round(chapter.chars / 400))} ${t('分钟')}`}
               </div>
               <h1>{chapter.title}</h1>
+              <div className="chapter-head-actions">
+                {onToggleFocus ? (
+                  <button type="button" className="ghost-button small" onClick={onToggleFocus} title={t('专注阅读')}>
+                    {focusMode ? t('退出专注') : t('专注')}
+                  </button>
+                ) : null}
+                {onAdjustStyle ? (
+                  <span className="reader-font-controls">
+                    <button
+                      type="button"
+                      className="ghost-button small"
+                      title={t('减小字号')}
+                      onClick={() => onAdjustStyle({ fontSize: Math.max(13, style.fontSize - 1) })}
+                    >
+                      A−
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost-button small"
+                      title={t('增大字号')}
+                      onClick={() => onAdjustStyle({ fontSize: Math.min(28, style.fontSize + 1) })}
+                    >
+                      A+
+                    </button>
+                  </span>
+                ) : null}
+                <button type="button" className="ghost-button small" onClick={onListen}>
+                  {t('听读')}
+                </button>
+                <button type="button" className="ghost-button small" onClick={bookmarkHere}>
+                  {t('书签')}
+                </button>
+                <button type="button" className="ghost-button small" onClick={onOpenXhs}>
+                  {t('小红书')}
+                </button>
+                <button type="button" className="ghost-button small" onClick={onOpenFormat}>
+                  {t('排版')}
+                </button>
+
+                <div className="reader-more" ref={moreRef}>
+                  <button
+                    type="button"
+                    className={`ghost-button small${moreOpen ? ' is-active' : ''}`}
+                    aria-haspopup="menu"
+                    aria-expanded={moreOpen}
+                    onClick={() => setMoreOpen((value) => !value)}
+                  >
+                    {t('更多')}
+                  </button>
+                  {moreOpen ? (
+                    <div className="reader-more-menu" role="menu" aria-label={t('更多操作')}>
+                      {pdfBookId ? (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            setMoreOpen(false)
+                            setPdfOpen(true)
+                          }}
+                        >
+                          {t('原版 PDF')}
+                        </button>
+                      ) : null}
+                      {echoes.length > 0 ? (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            setMoreOpen(false)
+                            setEchoOpen(true)
+                          }}
+                        >
+                          {t('回声')} · {echoes.length}
+                        </button>
+                      ) : null}
+                      {onSaveSummary && chapter ? (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            setMoreOpen(false)
+                            setSummaryMinutes(Math.max(1, Math.round(sessionSecondsRef.current / 60)))
+                            setSummaryOpen(true)
+                          }}
+                        >
+                          {t('阅读小结')}
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setMoreOpen(false)
+                          void window.api.copyText(`${chapter.title}\n\n${chapter.text}`).then(() => {
+                            setFullCopied(true)
+                            window.setTimeout(() => setFullCopied(false), 1600)
+                          })
+                        }}
+                      >
+                        {fullCopied ? t('已复制') : t('复制全文')}
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setMoreOpen(false)
+                          void window.api.copyText(`thinread://book/${chapter.bookId}/chapter/${chapter.id}`)
+                          setLinkCopied(true)
+                          window.setTimeout(() => setLinkCopied(false), 1600)
+                        }}
+                      >
+                        {linkCopied ? t('已复制链接') : t('复制深链')}
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setMoreOpen(false)
+                          onRenameChapter()
+                        }}
+                      >
+                        {t('改名')}
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
             </header>
             {html ? (
               <div className="chapter-html" style={contentStyle} dangerouslySetInnerHTML={{ __html: html }} />
@@ -776,6 +876,16 @@ export function Reader({
             {t('复制')}
           </button>
         </div>
+      ) : null}
+      {summaryOpen && chapter && onSaveSummary ? (
+        <ReadingSummaryDialog
+          chapterId={chapter.id}
+          bookTitle={bookTitle}
+          chapterTitle={chapter.title}
+          minutes={summaryMinutes}
+          onSave={onSaveSummary}
+          onClose={() => setSummaryOpen(false)}
+        />
       ) : null}
       {pdfOpen && pdfBookId ? (
         <PdfOriginalView

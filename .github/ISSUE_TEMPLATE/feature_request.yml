@@ -1,0 +1,41 @@
+name: Feature request
+description: 提出一个使用场景或功能建议
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 你遇到的具体问题
+      description: 尽量描述场景，而不是只写功能名。
+    validations:
+      required: true
+  - type: textarea
+    id: current
+    attributes:
+      label: 现在怎么绕过
+      description: 现有功能或手动流程能解决到什么程度。
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 你希望怎么改
+  - type: dropdown
+    id: area
+    attributes:
+      label: 相关模块
+      options:
+        - 导入 / 阅读器
+        - 笔记 / 读薄
+        - 成书 / 导出
+        - 分享卡 / 小红书
+        - 听读 / 播客
+        - 知识地图 / 关系图
+        - AI 工作台
+        - 设置 / 数据 / 安全
+        - 其他
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: 隐私确认
+      options:
+        - label: 我没有在描述里粘贴真实 API Key 或受版权保护的整本书正文
+          required: true

@@ -13,6 +13,7 @@ import { confirmDialog } from './ConfirmDialog.js'
 import { Select } from './Select.js'
 import { CONTENT_KIND_LABELS, contentSnippet, contentToMarkdown } from '../lib/content-view.js'
 import { Markdown } from './Markdown.js'
+import { VersionDiffDialog } from './VersionDiffDialog.js'
 
 interface ContentViewProps {
   books: BookSummary[]
@@ -86,6 +87,8 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
   const [listCollapsed, setListCollapsed] = useState(false)
   const [page, setPage] = useState(0)
   const [total, setTotal] = useState(0)
+  const [undoToken, setUndoToken] = useState<string | null>(null)
+  const [diffVersions, setDiffVersions] = useState<ContentItem[] | null>(null)
 
   const selected = useMemo(
     () => items.find((item) => item.id === selectedId) ?? items[0] ?? null,
@@ -196,6 +199,52 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
     await changeStatus(item, 'deleted')
   }
 
+  async function purge(item: ContentItem): Promise<void> {
+    const confirmed = await confirmDialog({
+      title: t('彻底删除'),
+      message: `${t('彻底删除')}「${item.title}」${t('？这个操作不可撤销，内容会从本机数据库移除。')}`,
+      confirmLabel: t('彻底删除'),
+      danger: true,
+    })
+    if (!confirmed) return
+    setBusy(`purge:${item.id}`)
+    setError(null)
+    setNotice(null)
+    try {
+      await window.api.purgeContent(item.id)
+      setItems((current) => current.filter((row) => row.id !== item.id))
+      setTotal((current) => Math.max(0, current - 1))
+      setNotice(t('已彻底删除。'))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function purgeAll(): Promise<void> {
+    const confirmed = await confirmDialog({
+      title: t('清空回收站'),
+      message: `${t('回收站里的')} ${total} ${t('条内容会被永久删除，无法恢复。继续？')}`,
+      confirmLabel: t('清空回收站'),
+      danger: true,
+    })
+    if (!confirmed) return
+    setBusy('purge-all')
+    setError(null)
+    setNotice(null)
+    try {
+      const count = await window.api.purgeDeletedContent()
+      setItems([])
+      setTotal(0)
+      setNotice(`${t('已彻底删除')} ${count} ${t('条内容。')}`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(null)
+    }
+  }
+
   async function apply(item: ContentItem, action: ContentApplyAction): Promise<void> {
     if (action === 'source') {
       const label = item.kind === 'format' ? t('应用这次排版会覆盖当前章节的排版') : t('恢复这组笔记会替换本章未人工修改的 AI 笔记')
@@ -213,8 +262,26 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
     try {
       const result = await window.api.applyContent(item.id, action)
       setNotice(result.message)
+      setUndoToken(action === 'source' ? result.undoToken ?? null : null)
       if (action === 'current') notifyContentCurrent({ tool: item.tool, scope: item.scope })
       if (action === 'source' && result.chapterId && item.bookId) onAppliedSource?.(item.bookId, result.chapterId)
+      refresh()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function undoApply(): Promise<void> {
+    if (!undoToken) return
+    setBusy('undo')
+    setError(null)
+    setNotice(null)
+    try {
+      const result = await window.api.undoContentApply(undoToken)
+      setUndoToken(null)
+      setNotice(result.message)
       refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -239,6 +306,21 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
       const name = `${item.title}.md`.replace(/[\\/:*?"<>|#%{}]/g, ' ').replace(/\s+/g, ' ').trim()
       const saved = await window.api.saveMarkdown(name, contentToMarkdown(item))
       if (saved.saved) setNotice(`${t('已导出到')} ${saved.path}`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  async function openVersionDiff(item: ContentItem): Promise<void> {
+    setError(null)
+    setNotice(null)
+    try {
+      const versions = await window.api.getContentVersions(item.tool, item.scope)
+      if (versions.filter((version) => version.id !== item.id).length === 0) {
+        setNotice(t('没有其他版本可以对比。'))
+        return
+      }
+      setDiffVersions(versions)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
@@ -302,6 +384,16 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
         >
           {listCollapsed ? t('展开列表') : t('收起列表')}
         </button>
+        {status === 'deleted' && total > 0 ? (
+          <button
+            type="button"
+            className="text-button danger"
+            onClick={() => void purgeAll()}
+            disabled={busy !== null}
+          >
+            {busy === 'purge-all' ? t('清空中…') : t('清空回收站')}
+          </button>
+        ) : null}
         <span className="content-count">{loading ? t('加载中…') : `${total} ${countUnit(total, t('条'), t('条一'))}`}</span>
       </div>
 
@@ -407,11 +499,19 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
                     {busy === `apply:current:${selected.id}` ? t('设置中…') : t('设为当前')}
                   </button>
                 ) : null}
+                {undoToken ? (
+                  <button type="button" className="ghost-button small" onClick={() => void undoApply()} disabled={busy !== null}>
+                    {t('撤销上次应用')}
+                  </button>
+                ) : null}
                 <button type="button" className="ghost-button small" onClick={() => void copy(selected)}>
                   {t('复制全文')}
                 </button>
                 <button type="button" className="ghost-button small" onClick={() => void exportItem(selected)}>
                   {t('导出 .md')}
+                </button>
+                <button type="button" className="ghost-button small" onClick={() => void openVersionDiff(selected)}>
+                  {t('对比版本')}
                 </button>
                 {selected.bookId ? (
                   <button
@@ -450,7 +550,16 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
                   >
                     {t('删除')}
                   </button>
-                ) : null}
+                ) : (
+                  <button
+                    type="button"
+                    className="text-button danger"
+                    onClick={() => void purge(selected)}
+                    disabled={busy !== null}
+                  >
+                    {busy === `purge:${selected.id}` ? t('删除中…') : t('彻底删除')}
+                  </button>
+                )}
               </div>
 
               <div className="content-preview">
@@ -462,6 +571,13 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
           )}
         </section>
       </div>
+      {diffVersions && selected ? (
+        <VersionDiffDialog
+          current={selected}
+          versions={diffVersions}
+          onClose={() => setDiffVersions(null)}
+        />
+      ) : null}
     </main>
   )
 }

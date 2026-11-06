@@ -17,8 +17,11 @@ import type {
 } from '../../shared/types.js'
 import { onContentCurrent } from '../lib/content-events.js'
 import { confirmDialog } from './ConfirmDialog.js'
+import { CompareModelDialog } from './CompareModelDialog.js'
 import { PublishDialog } from './PublishDialog.js'
 import { Select } from './Select.js'
+import { TextDiffDialog } from './TextDiffDialog.js'
+import { contentToMarkdown } from '../lib/content-view.js'
 import { todayStamp } from '../lib/export.js'
 import { BOOK_GENRE_OPTIONS, bookGenreLabel } from '../lib/genres.js'
 import { Markdown } from './Markdown.js'
@@ -31,6 +34,7 @@ interface BookComposeProps {
   onShareBook(): void
   onOpenXhsBook(): void
   onSplitBook(): void
+  compareModels?: string[]
 }
 
 interface GenerationView {
@@ -102,9 +106,11 @@ export function BookCompose({
   onShareBook,
   onOpenXhsBook,
   onSplitBook,
+  compareModels = [],
 }: BookComposeProps): JSX.Element {
   useLocale()
   const visible = useMemo(() => chapters.filter((chapter) => !chapter.hidden), [chapters])
+
   const [notes, setNotes] = useState<Note[]>([])
   const [loadingNotes, setLoadingNotes] = useState(true)
   const [notesTick, setNotesTick] = useState(0)
@@ -120,8 +126,22 @@ export function BookCompose({
   const [composeProgress, setComposeProgress] = useState<BookComposeProgress | null>(null)
   const [result, setResult] = useState<BookComposeResult | null>(null)
   const [article, setArticle] = useState('')
+  const [selection, setSelection] = useState({ start: 0, end: 0, text: '' })
+  const [sectionRewrite, setSectionRewrite] = useState<{
+    start: number
+    end: number
+    before: string
+    after: string
+  } | null>(null)
+  const [rewriting, setRewriting] = useState(false)
+  const [compareOpen, setCompareOpen] = useState(false)
+  const [compareBusy, setCompareBusy] = useState(false)
+  const [compareError, setCompareError] = useState<string | null>(null)
+  const [compareDiff, setCompareDiff] = useState<{ before: string; after: string } | null>(null)
   const [history, setHistory] = useState<LabArtifact[]>([])
   const [selectedVersion, setSelectedVersion] = useState('')
+  const latestVersionId = history[0]?.id ?? ''
+  const selectedIsHistorical = Boolean(selectedVersion && latestVersionId && selectedVersion !== latestVersionId)
   const [editing, setEditing] = useState(false)
   const [dirty, setDirty] = useState(false)
   const [busyAction, setBusyAction] = useState<'copy' | 'markdown' | 'html' | 'pdf' | 'save' | null>(null)
@@ -135,6 +155,10 @@ export function BookCompose({
   useEffect(() => {
     composeOptionsRef.current = composeOptions
   }, [composeOptions])
+
+  useEffect(() => {
+    setSelection({ start: 0, end: 0, text: '' })
+  }, [editing])
 
   useEffect(() => {
     setGenre(book.genre ?? 'auto')
@@ -418,6 +442,91 @@ export function BookCompose({
       setResult(next)
       setDirty(false)
       setNotice(t('修改已保存为新版本。'))
+      await loadCompose()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusyAction(null)
+    }
+  }
+
+  async function rewriteSelection(): Promise<void> {
+    const text = selection.text.trim()
+    if (text.length < 20) {
+      setNotice(t('先选中一段文字再重写。'))
+      return
+    }
+    setRewriting(true)
+    setError(null)
+    setNotice(null)
+    try {
+      const rewritten = await window.api.rewriteComposeSection({
+        bookId: book.id,
+        fullText: article,
+        start: selection.start,
+        end: selection.end,
+      })
+      if (rewritten.demo && rewritten.text.trim() === selection.text.trim()) {
+        setNotice(t('演示模式只预览流程，不会真正改写。'))
+        return
+      }
+      setSectionRewrite({
+        start: selection.start,
+        end: selection.end,
+        before: article.slice(selection.start, selection.end),
+        after: rewritten.text,
+      })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setRewriting(false)
+    }
+  }
+
+  function applySectionRewrite(): void {
+    if (!sectionRewrite) return
+    const next = `${article.slice(0, sectionRewrite.start)}${sectionRewrite.after}${article.slice(sectionRewrite.end)}`
+    setArticle(next)
+    setDirty(true)
+    setSectionRewrite(null)
+    setSelection({ start: 0, end: 0, text: '' })
+    setNotice(t('已应用按段改写；保存后会成为新版本。'))
+  }
+
+  async function compareWithModel(model: string): Promise<void> {
+    setCompareBusy(true)
+    setCompareError(null)
+    try {
+      const result = await window.api.compareBookCompose({
+        bookId: book.id,
+        model,
+        options: composeOptions,
+      })
+      setCompareOpen(false)
+      setCompareDiff({
+        before: contentToMarkdown(result.base),
+        after: contentToMarkdown(result.compare),
+      })
+    } catch (err) {
+      setCompareError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setCompareBusy(false)
+    }
+  }
+
+  async function restoreSelectedVersion(): Promise<void> {
+    if (!result || !selectedIsHistorical) return
+    setBusyAction('save')
+    setError(null)
+    try {
+      const next = { ...result, markdown: article, outputChars: article.length }
+      await window.api.saveLabArtifact({
+        tool: 'book-compose',
+        scope: `book:${book.id}`,
+        title: next.title,
+        content: JSON.stringify(next),
+      })
+      setNotice(t('已恢复为当前版本。'))
       await loadCompose()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -874,19 +983,50 @@ export function BookCompose({
                       {busyAction === 'save' ? t('保存中…') : t('保存修改')}
                     </button>
                   ) : null}
+                  {selectedIsHistorical ? (
+                    <button
+                      type="button"
+                      className="text-button"
+                      onClick={() => void restoreSelectedVersion()}
+                      disabled={busyAction === 'save'}
+                    >
+                      {busyAction === 'save' ? t('恢复中…') : t('恢复为当前')}
+                    </button>
+                  ) : null}
+                  {editing && selection.text.trim().length >= 20 ? (
+                    <button type="button" className="text-button" onClick={() => void rewriteSelection()} disabled={rewriting}>
+                      {rewriting ? t('正在重写…') : t('重写选中')}
+                    </button>
+                  ) : null}
+                  {compareModels.length > 0 ? (
+                    <button type="button" className="text-button" onClick={() => setCompareOpen(true)}>
+                      {t('模型对比')}
+                    </button>
+                  ) : null}
                 </div>
               </div>
 
               {editing ? (
-                <textarea
-                  className="compose-editor"
-                  value={article}
-                  onChange={(event) => {
-                    setArticle(event.target.value)
-                    setDirty(true)
-                  }}
-                  spellCheck={false}
-                />
+                <>
+                  <textarea
+                    className="compose-editor"
+                    value={article}
+                    onChange={(event) => {
+                      setArticle(event.target.value)
+                      setDirty(true)
+                    }}
+                    onSelect={(event) => {
+                      const target = event.currentTarget
+                      const start = target.selectionStart ?? 0
+                      const end = target.selectionEnd ?? 0
+                      setSelection({ start, end, text: target.value.slice(start, end) })
+                    }}
+                    spellCheck={false}
+                  />
+                  <p className="field-hint">
+                    {t('选中一段文字后可以只重写这一段；确认前会先显示差异。')}
+                  </p>
+                </>
               ) : (
                 <div className="compose-preview">
                   <Markdown text={article} />
@@ -932,6 +1072,37 @@ export function BookCompose({
           )}
         </section>
       </div>
+
+      {sectionRewrite ? (
+        <TextDiffDialog
+          title={t('按段重写对比')}
+          before={sectionRewrite.before}
+          after={sectionRewrite.after}
+          applyLabel={t('应用改写')}
+          onApply={applySectionRewrite}
+          onClose={() => setSectionRewrite(null)}
+        />
+      ) : null}
+
+      {compareOpen ? (
+        <CompareModelDialog
+          suggestions={compareModels}
+          busy={compareBusy}
+          error={compareError}
+          onCompare={(model) => void compareWithModel(model)}
+          onClose={() => {
+            if (!compareBusy) setCompareOpen(false)
+          }}
+        />
+      ) : null}
+      {compareDiff ? (
+        <TextDiffDialog
+          title={t('模型对比')}
+          before={compareDiff.before}
+          after={compareDiff.after}
+          onClose={() => setCompareDiff(null)}
+        />
+      ) : null}
 
       <PublishDialog
         open={publishOpen}

@@ -16,14 +16,19 @@ import { useViews, type MainView } from './hooks/useViews.js'
 import { useShare } from './hooks/useShare.js'
 import { useToast } from './hooks/useToast.js'
 import { t, useLocale } from './lib/i18n.js'
+import { hydratePreferences } from './lib/preferences.js'
+import { hydrateReadingStats } from './lib/reading-stats.js'
 import type {
   AppInfo,
+  BookSummary,
   LabToolId,
   ReaderStyle,
   RelatedNote,
   SettingsView,
 } from '../shared/types.js'
+import { PROVIDER_PRESETS } from '../shared/types.js'
 import { ConfirmHost, confirmDialog } from './components/ConfirmDialog.js'
+import { AppLockScreen } from './components/AppLockScreen.js'
 import { ChapterList } from './components/ChapterList.js'
 import { ChatPanel } from './components/ChatPanel.js'
 import { FeynmanPanel } from './components/FeynmanPanel.js'
@@ -38,7 +43,7 @@ import { ChapterTrashDialog } from './components/ChapterTrashDialog.js'
 import { OrganizeDialog } from './components/OrganizeDialog.js'
 import { Reader } from './components/Reader.js'
 import { RenameDialog } from './components/RenameDialog.js'
-import { SearchDialog } from './components/SearchDialog.js'
+import { SearchDialog, type SearchCommandId } from './components/SearchDialog.js'
 import { ShareDialog } from './components/ShareDialog.js'
 import { SettingsDialog } from './components/SettingsDialog.js'
 import { OnboardingDialog, SAMPLE_BOOK } from './components/OnboardingDialog.js'
@@ -54,6 +59,7 @@ const ContentView = lazy(async () => ({ default: (await import('./components/Con
 const KnowledgeMap = lazy(async () => ({ default: (await import('./components/KnowledgeMap.js')).KnowledgeMap }))
 const LabView = lazy(async () => ({ default: (await import('./components/LabView.js')).LabView }))
 const NotesLibrary = lazy(async () => ({ default: (await import('./components/NotesLibrary.js')).NotesLibrary }))
+const ReadingPlanDialog = lazy(async () => ({ default: (await import('./components/ReadingPlanDialog.js')).ReadingPlanDialog }))
 const StatsView = lazy(async () => ({ default: (await import('./components/StatsView.js')).StatsView }))
 const WeeklyReviewsView = lazy(async () => ({ default: (await import('./components/WeeklyReviewsView.js')).WeeklyReviewsView }))
 const XhsCarouselDialog = lazy(async () => ({ default: (await import('./components/XhsCarouselDialog.js')).XhsCarouselDialog }))
@@ -92,10 +98,14 @@ export function App(): JSX.Element {
   const { appTheme, setAppTheme, readerStyle, setReaderStyle, updateReaderStyle } = useReaderStyle(book?.id ?? null)
   const { notes, allNotes, setNotes, setAllNotes, refreshNotes, resetNotes, patchNote } = useNoteStore()
   const [settings, setSettings] = useState<SettingsView | null>(null)
+  const [planBook, setPlanBook] = useState<BookSummary | null>(null)
+  const [planVersion, setPlanVersion] = useState(0)
   const [booksLoaded, setBooksLoaded] = useState(false)
   const [onboardingOpen, setOnboardingOpen] = useState(false)
   const [sampleBookId, setSampleBookId] = useState<string | null>(null)
+  const sampleBook = useMemo(() => books.find((item) => item.title === SAMPLE_BOOK.title) ?? null, [books])
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null)
+  const [locked, setLocked] = useState(false)
   const [toast, setToast] = useToast()
   const applyReaderStyle = useCallback(
     (style: Partial<ReaderStyle>) => setReaderStyle((current) => ({ ...current, ...style })),
@@ -145,10 +155,15 @@ export function App(): JSX.Element {
   }, [books.length, booksLoaded])
 
   const importSampleBook = useCallback(async () => {
+    const existing = books.find((item) => item.title === SAMPLE_BOOK.title)
+    if (existing) {
+      setSampleBookId(existing.id)
+      return
+    }
     const imported = await window.api.importText(SAMPLE_BOOK)
     setBooks((current) => [imported, ...current.filter((item) => item.id !== imported.id)])
     setSampleBookId(imported.id)
-  }, [setBooks])
+  }, [books, setBooks])
 
   const { tasks: backgroundTasks, setTasks: setBackgroundTasks } = useTasks({
     notify: setToast,
@@ -259,11 +274,12 @@ export function App(): JSX.Element {
   } = useViews({ bookId: book?.id ?? null, openBook, clearBook, resetGeneration, resetOrganize })
   const [manualReturn, setManualReturn] = useState<MainView>('reader')
   const openSampleBook = useCallback(async () => {
-    if (!sampleBookId) return
-    await openBook(sampleBookId)
+    const targetId = sampleBookId ?? sampleBook?.id
+    if (!targetId) return
+    await openBook(targetId)
     setMainView('reader')
     finishOnboarding()
-  }, [finishOnboarding, openBook, sampleBookId, setMainView])
+  }, [finishOnboarding, openBook, sampleBook, sampleBookId, setMainView])
   const openManual = useCallback(() => {
     setManualReturn(mainView === 'manual' ? 'reader' : mainView)
     setSettingsOpen(false)
@@ -324,6 +340,7 @@ export function App(): JSX.Element {
   }, [])
 
   useEffect(() => window.api.onSemanticReady(() => setSemanticTick((value) => value + 1)), [])
+  useEffect(() => window.api.onAppNotice((notice) => setToast(notice)), [])
 
   useEffect(() => {
     if (mainView !== 'reader' || !book) setReaderFocus(false)
@@ -331,17 +348,45 @@ export function App(): JSX.Element {
 
   const toggleReaderFocus = useCallback(() => setReaderFocus((value) => !value), [])
 
+  const loadAppData = useCallback(async () => {
+    await Promise.all([hydrateReadingStats(), hydratePreferences()])
+    const [nextBooks, nextSettings] = await Promise.all([window.api.listBooks(), window.api.getSettings()])
+    setBooks(nextBooks)
+    setSettings(nextSettings)
+    setBooksLoaded(true)
+  }, [setBooks])
+
   useEffect(() => {
-    void Promise.all([window.api.listBooks(), window.api.getSettings(), window.api.getAppInfo()])
-      .then(([nextBooks, nextSettings, info]) => {
-        setBooks(nextBooks)
-        setSettings(nextSettings)
+    void window.api
+      .getAppInfo()
+      .then((info) => {
         setAppInfo(info)
-        setBooksLoaded(true)
+        if (info.lockEnabled) {
+          setLocked(true)
+          setBooksLoaded(true)
+          return
+        }
+        void loadAppData().catch((err: unknown) => {
+          setToast({ kind: 'error', text: messageOf(err) })
+          setBooksLoaded(true)
+        })
       })
-      .catch((err: unknown) => setToast({ kind: 'error', text: messageOf(err) }))
-      .finally(() => setBooksLoaded(true))
-  }, [])
+      .catch((err: unknown) => {
+        setToast({ kind: 'error', text: messageOf(err) })
+        void loadAppData().catch(() => setBooksLoaded(true))
+      })
+  }, [loadAppData, setToast])
+
+  const unlockApp = useCallback(
+    async (passcode: string): Promise<boolean> => {
+      const ok = await window.api.verifyAppLock(passcode)
+      if (!ok) return false
+      await loadAppData()
+      setLocked(false)
+      return true
+    },
+    [loadAppData],
+  )
 
   const resetChapterView = useCallback(() => {
     resetGeneration()
@@ -477,6 +522,49 @@ export function App(): JSX.Element {
     }
   }, [book?.id, noteTags, relatedQuery, semanticTick])
 
+  function runSearchCommand(action: SearchCommandId): void {
+    switch (action) {
+      case 'library':
+        leaveReader()
+        break
+      case 'reader':
+        setMainView('reader')
+        break
+      case 'notes':
+        setMainView('notes')
+        break
+      case 'content':
+        setContentFocusId(null)
+        setMainView('content')
+        break
+      case 'compose':
+        if (book) void openCompose(book.id)
+        break
+      case 'map':
+        setMainView('map')
+        break
+      case 'lab':
+        setLabTool('library-research')
+        openLab()
+        break
+      case 'stats':
+        setMainView('stats')
+        break
+      case 'weekly':
+        setMainView('weekly')
+        break
+      case 'settings':
+        setSettingsOpen(true)
+        break
+      case 'import':
+        setImportOpen(true)
+        break
+      case 'manual':
+        openManual()
+        break
+    }
+  }
+
   return (
     <div className={`app${mainView === 'reader' && book && readerFocus ? ' is-focus' : ''}`}>
       <TopBar
@@ -576,7 +664,7 @@ export function App(): JSX.Element {
         <ManualView onBack={() => setMainView(manualReturn)} />
       ) : mainView === 'lab' ? null : mainView === 'weekly' ? (
         <Suspense fallback={<div className="view-loading-shell"><p className="view-loading">{t('正在加载周复盘…')}</p></div>}>
-          <WeeklyReviewsView books={books} onBack={() => setMainView('stats')} />
+          <WeeklyReviewsView onBack={() => setMainView('stats')} />
         </Suspense>
       ) : mainView === 'stats' ? (
         <Suspense fallback={<div className="view-loading-shell"><p className="view-loading">{t('正在加载阅读统计…')}</p></div>}>
@@ -589,23 +677,13 @@ export function App(): JSX.Element {
             }}
             onOpenWeeklyReviews={() => setMainView('weekly')}
             onSaveWeeklyReview={async (markdown) => {
-              const ownerId = book?.id ?? books[0]?.id
-              if (!ownerId) throw new Error(t('还没有导入书。'))
-              const title = `${t('每周复盘')} · ${isoWeekLabel()}`
-              const existing = (await window.api.listNotes(ownerId)).find((note) => note.title === title)
-              if (existing) {
-                await window.api.updateNote(existing.id, { title, content: markdown })
-              } else {
-                await window.api.createNote({
-                  bookId: ownerId,
-                  chapterId: null,
-                  kind: 'summary',
-                  title,
-                  content: markdown,
-                })
-              }
-              if (book?.id === ownerId) await refreshNotes(ownerId, chapter?.id ?? null)
-              setToast({ kind: 'info', text: t('已存为笔记。') })
+              const week = isoWeekLabel()
+              await window.api.saveWeeklyReview({
+                week,
+                title: `${t('每周复盘')} · ${week}`,
+                content: markdown,
+              })
+              setToast({ kind: 'info', text: t('已存为本周复盘。') })
             }}
           />
         </Suspense>
@@ -670,6 +748,11 @@ export function App(): JSX.Element {
             onShareBook={() => void shareCurrentBook()}
             onOpenXhsBook={openBookXhs}
             onSplitBook={() => setSplitOpen(true)}
+            compareModels={
+              settings && settings.provider !== 'demo'
+                ? (PROVIDER_PRESETS.find((item) => item.id === settings.provider)?.suggestedModels ?? [])
+                : []
+            }
           />
         </Suspense>
       ) : book ? (
@@ -702,7 +785,7 @@ export function App(): JSX.Element {
             onOpenFormat={() => setSideTab('format')}
             onOpenEcho={(echo) => void openRelatedNote(echo)}
             onListen={() => {
-              if (chapter) setListen({ title: chapter.title, text: chapter.text })
+              if (chapter) setListen({ title: chapter.title, text: chapter.text, scope: chapter.id })
             }}
             onRenameChapter={() => {
               if (chapter) startRenameChapter(chapter)
@@ -723,6 +806,13 @@ export function App(): JSX.Element {
             onAdjustStyle={applyReaderStyle}
             focusMode={readerFocus}
             onToggleFocus={toggleReaderFocus}
+            onSaveSummary={
+              chapter
+                ? async (title, markdown) => {
+                    await saveLabReport(title, markdown, chapter.bookId, chapter.id)
+                  }
+                : undefined
+            }
           />
           <aside className="side-panel">
             <div className="side-tabs">
@@ -786,6 +876,11 @@ export function App(): JSX.Element {
                 onShare={shareNote}
                 onDeleteMark={deleteReaderMark}
                 onRevealMark={jumpToQuote}
+                compareModels={
+                  settings && settings.provider !== 'demo'
+                    ? (PROVIDER_PRESETS.find((item) => item.id === settings.provider)?.suggestedModels ?? [])
+                    : []
+                }
               />
             ) : sideTab === 'chat' ? (
               <ChatPanel
@@ -831,6 +926,9 @@ export function App(): JSX.Element {
           onDelete={(bookId) => void deleteBook(bookId)}
           onRename={startRenameBook}
           onCompose={(bookId) => void openCompose(bookId)}
+          onPlan={setPlanBook}
+          onOpenPlan={(bookId, chapterId) => void openBookAt(bookId, chapterId)}
+          planVersion={planVersion}
           onMerge={() => setMergeOpen(true)}
           onSettings={() => setSettingsOpen(true)}
           onStats={() => setMainView('stats')}
@@ -855,7 +953,7 @@ export function App(): JSX.Element {
 
       {onboardingOpen ? (
         <OnboardingDialog
-          hasSample={Boolean(sampleBookId)}
+          hasSample={Boolean(sampleBookId ?? sampleBook)}
           demo={settings?.demo ?? true}
           onImportSample={importSampleBook}
           onOpenSample={() => void openSampleBook()}
@@ -893,11 +991,22 @@ export function App(): JSX.Element {
 
       <SearchDialog
         open={searchOpen}
+        hasBook={Boolean(book)}
         onClose={() => setSearchOpen(false)}
         onOpen={(result) => void openSearchResult(result)}
+        onCommand={runSearchCommand}
       />
 
-      {listen ? <ListenPanel title={listen.title} text={listen.text} onClose={() => setListen(null)} /> : null}
+      {listen ? (
+        <ListenPanel
+          title={listen.title}
+          text={listen.text}
+          scope={listen.scope}
+          demo={settings?.demo ?? false}
+          onSettingsChanged={setSettings}
+          onClose={() => setListen(null)}
+        />
+      ) : null}
 
       {marginQuote && chapter ? (
         <MarginNoteDialog
@@ -925,6 +1034,24 @@ export function App(): JSX.Element {
           onSave={saveRename}
           onClose={() => setRenameTarget(null)}
         />
+      ) : null}
+
+      {planBook ? (
+        <Suspense fallback={null}>
+          <ReadingPlanDialog
+            book={planBook}
+            onOpenChapter={(chapterId) => {
+              const target = planBook
+              setPlanBook(null)
+              setPlanVersion((value) => value + 1)
+              void openBookAt(target.id, chapterId)
+            }}
+            onClose={() => {
+              setPlanBook(null)
+              setPlanVersion((value) => value + 1)
+            }}
+          />
+        </Suspense>
       ) : null}
 
       {shareTarget ? (
@@ -1000,6 +1127,7 @@ export function App(): JSX.Element {
       />
 
       <ConfirmHost />
+      {locked ? <AppLockScreen onUnlock={unlockApp} /> : null}
     </div>
   )
 }

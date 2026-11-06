@@ -1,6 +1,6 @@
-import { useMemo, useState, type JSX } from 'react'
+import { useEffect, useMemo, useState, type JSX } from 'react'
 
-import type { BookSummary } from '../../shared/types.js'
+import type { AiUsageSummary, BookSummary } from '../../shared/types.js'
 import { sharePalette, type ShareTheme } from '../lib/share-card.js'
 import { t, useLocale } from '../lib/i18n.js'
 import {
@@ -223,6 +223,7 @@ export function StatsView({ books, onBack, onOpenWeeklyReview, onOpenWeeklyRevie
     }
   })
   const [notice, setNotice] = useState<string | null>(null)
+  const [aiUsage, setAiUsage] = useState<AiUsageSummary | null>(null)
   const summary = useMemo(() => getReadingSummary(), [])
   const month = useMemo(() => getReadingMonth(offset), [offset])
   const year = useMemo(() => getReadingYear(yearOffset), [yearOffset])
@@ -231,6 +232,21 @@ export function StatsView({ books, onBack, onOpenWeeklyReview, onOpenWeeklyRevie
     const map = new Map(books.map((book) => [book.id, book.title]))
     return (bookId: string) => map.get(bookId) ?? t('已移除的书')
   }, [books])
+
+  useEffect(() => {
+    let cancelled = false
+    void window.api
+      .getAiUsage(30)
+      .then((usage) => {
+        if (!cancelled) setAiUsage(usage)
+      })
+      .catch(() => {
+        if (!cancelled) setAiUsage(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   async function exportImage(mode: 'month' | 'year' | 'compare'): Promise<void> {
     setImageBusy(mode)
@@ -464,6 +480,9 @@ export function StatsView({ books, onBack, onOpenWeeklyReview, onOpenWeeklyRevie
             </button>
           ) : null}
         </div>
+        <p className="muted stats-weekly-hint">
+          {t('「去工作台」会调用模型生成复盘报告；「存为本周复盘」只保存本地阅读统计，不调用模型。')}
+        </p>
       </section>
 
       <section className="stats-section">
@@ -588,6 +607,52 @@ export function StatsView({ books, onBack, onOpenWeeklyReview, onOpenWeeklyRevie
               </div>
             ))}
           </div>
+        )}
+      </section>
+
+      <section className="stats-section">
+        <h3>{t('AI 用量')}</h3>
+        {aiUsage && aiUsage.totalCalls > 0 ? (
+          <>
+            <div className="stats-cards">
+              <div className="stats-card">
+                <span>{t('近 30 天调用')}</span>
+                <strong>{aiUsage.totalCalls.toLocaleString()}</strong>
+              </div>
+              <div className="stats-card">
+                <span>{t('失败')}</span>
+                <strong>{aiUsage.totalFailed.toLocaleString()}</strong>
+              </div>
+              <div className="stats-card">
+                <span>Tokens</span>
+                <strong>{aiUsage.totalTokens.toLocaleString()}</strong>
+              </div>
+            </div>
+            {aiUsage.models.length > 0 ? (
+              <div className="stats-usage-list">
+                <span className="stats-usage-label">{t('按模型')}</span>
+                {aiUsage.models.slice(0, 6).map((item) => (
+                  <div key={item.model} className="stats-usage-row">
+                    <span>{item.model}</span>
+                    <span>{item.calls.toLocaleString()} {t('次')} · {item.tokens.toLocaleString()} tokens</span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            {aiUsage.steps.length > 0 ? (
+              <div className="stats-usage-list">
+                <span className="stats-usage-label">{t('按任务')}</span>
+                {aiUsage.steps.slice(0, 6).map((item) => (
+                  <div key={item.step} className="stats-usage-row">
+                    <span>{item.step}</span>
+                    <span>{item.calls.toLocaleString()} {t('次')} · {item.tokens.toLocaleString()} tokens</span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </>
+        ) : (
+          <p className="muted">{t('还没有 AI 调用记录。')}</p>
         )}
       </section>
 

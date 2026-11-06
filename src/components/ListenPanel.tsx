@@ -1,113 +1,139 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 
-import type { TtsEngine, TtsStatus, TtsVoice } from '../../shared/types.js'
+import type { SettingsView, TtsStatus } from '../../shared/types.js'
 import { combineAudioSegments } from '../lib/audio-export.js'
 import { t, useLocale } from '../lib/i18n.js'
-import { parseListenScript, pickPodcastVoices, voiceLabel } from '../lib/listen-script.js'
+import { chooseTtsVoice, parseListenScript } from '../lib/listen-script.js'
+import { estimateSpeechCost } from '../lib/tts-cost.js'
 import { useDialogFocus } from '../lib/useDialogFocus.js'
-import { BeatraGuideDialog } from './BeatraGuideDialog.js'
 import { confirmDialog } from './ConfirmDialog.js'
 import { Select } from './Select.js'
 
 interface ListenPanelProps {
   title: string
   text: string
+  scope?: string
+  demo?: boolean
+  onSettingsChanged?(settings: SettingsView): void
   onClose(): void
 }
 
-const TTS_ENGINE_KEY = 'reading-notes-tts-engine'
-const EDGE_DEFAULT_A = 'zh-CN-XiaoxiaoNeural'
-const EDGE_DEFAULT_B = 'zh-CN-YunxiNeural'
+const RESUME_PREFIX = 'reading-notes-listen-'
+const RESUME_MAX_AGE = 30 * 24 * 60 * 60 * 1000
 
-function loadEngine(): TtsEngine {
+function readResumeIndex(scope: string | undefined, total: number): number {
+  if (!scope || total <= 0) return 0
   try {
-    const value = localStorage.getItem(TTS_ENGINE_KEY)
-    return value === 'edge' || value === 'beatra' || value === 'openai' ? value : 'system'
+    const raw = localStorage.getItem(`${RESUME_PREFIX}${scope}`)
+    if (!raw) return 0
+    const parsed = JSON.parse(raw) as { index?: number; total?: number; at?: number }
+    if (parsed.total !== total) return 0
+    if (!Number.isFinite(parsed.at) || Date.now() - Number(parsed.at) > RESUME_MAX_AGE) return 0
+    const index = Math.floor(Number(parsed.index))
+    return Number.isFinite(index) && index > 0 && index < total ? index : 0
   } catch {
-    return 'system'
+    return 0
   }
 }
 
-function engineHint(engine: TtsEngine, status: TtsStatus | null): string {
-  if (engine === 'edge') return t('免费在线音色，接近播客自然度；需要联网，文本会发到 Microsoft，接口非官方，可能限流。')
-  if (engine === 'beatra') {
-    return status?.beatra.configured
-      ? t('付费 AI 配音，自然度高；按字符计费，每次播放会发起一次付费合成，首次播放前会再次确认。')
-      : t('付费 AI 配音，自然度高；需要先在设置里配置 Beatra Device Token。')
+function saveResumeIndex(scope: string | undefined, index: number, total: number): void {
+  if (!scope || total <= 0) return
+  try {
+    localStorage.setItem(`${RESUME_PREFIX}${scope}`, JSON.stringify({ index, total, at: Date.now() }))
+  } catch {
+    // 本地续听位置写不进去不影响播放。
   }
-  if (engine === 'openai') {
-    return status?.openai.configured
-      ? t('OpenAI 兼容 TTS，支持 gpt-4o-mini-tts 等模型；按字符计费，文本会发到你配置的服务。')
-      : t('OpenAI 兼容 TTS；需要先在设置里填写 Base URL、模型、音色和 API Key。')
-  }
-  return t('离线、零依赖；音色取决于系统，机械感较明显。')
 }
 
-function voiceName(voices: Array<{ id: string; label: string }> | undefined, id: string): string {
-  return voices?.find((voice) => voice.id === id)?.label ?? id
+function clearResumeIndex(scope: string | undefined): void {
+  if (!scope) return
+  try {
+    localStorage.removeItem(`${RESUME_PREFIX}${scope}`)
+  } catch {
+    // 忽略。
+  }
 }
 
-export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Element {
+export function ListenPanel({
+  title,
+  text,
+  scope,
+  demo = false,
+  onSettingsChanged,
+  onClose,
+}: ListenPanelProps): JSX.Element {
   useLocale()
   const segments = useMemo(() => parseListenScript(text.slice(0, 50_000)), [text])
   const dialogue = segments.some((segment) => segment.speaker !== null)
-  const chineseScript = segments.some((segment) => /[一-鿿]/.test(segment.text))
-  const [index, setIndex] = useState(0)
+  const initialResume = useMemo(() => readResumeIndex(scope, segments.length), [scope, segments.length])
+  const [index, setIndex] = useState(initialResume)
   const [playing, setPlaying] = useState(false)
   const [paused, setPaused] = useState(false)
   const [speed, setSpeed] = useState(1)
+  const [sleepMinutes, setSleepMinutes] = useState(0)
   const [error, setError] = useState<string | null>(null)
-  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([])
-  const [engine, setEngine] = useState<TtsEngine>(loadEngine)
-  const engineTouched = useRef(false)
+  const [notice, setNotice] = useState<string | null>(
+    initialResume > 0 ? t('已从上次位置继续') : null,
+  )
   const [ttsStatus, setTtsStatus] = useState<TtsStatus | null>(null)
-  const [edgeVoiceA, setEdgeVoiceA] = useState(EDGE_DEFAULT_A)
-  const [edgeVoiceB, setEdgeVoiceB] = useState(EDGE_DEFAULT_B)
-  const [beatraVoices, setBeatraVoices] = useState<TtsVoice[]>([])
-  const [beatraVoiceA, setBeatraVoiceA] = useState('')
-  const [beatraVoiceB, setBeatraVoiceB] = useState('')
-  const [beatraLoadError, setBeatraLoadError] = useState<string | null>(null)
-  const [openaiVoiceA, setOpenaiVoiceA] = useState('alloy')
-  const [openaiVoiceB, setOpenaiVoiceB] = useState('verse')
+  const [voiceA, setVoiceA] = useState('')
+  const [voiceB, setVoiceB] = useState('')
+  const [voiceEn, setVoiceEn] = useState('')
   const [audioLoading, setAudioLoading] = useState(false)
-  const [guideOpen, setGuideOpen] = useState(false)
   const [fullAudioUrl, setFullAudioUrl] = useState<string | null>(null)
   const [fullAudioBase64, setFullAudioBase64] = useState<string | null>(null)
+  const [fullAudioMp3Base64, setFullAudioMp3Base64] = useState<string | null>(null)
   const [fullAudioDuration, setFullAudioDuration] = useState(0)
+  const [gapSeconds, setGapSeconds] = useState(0)
   const [exporting, setExporting] = useState(false)
   const [exportProgress, setExportProgress] = useState(0)
+  const [minimized, setMinimized] = useState(false)
   const exportCancelRef = useRef(false)
   const currentRef = useRef<HTMLButtonElement | null>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const audioCache = useRef(new Map<string, string>())
   const audioInFlight = useRef(new Map<string, Promise<string>>())
-  const beatraConfirmed = useRef(false)
   const userPausedRef = useRef(false)
-  const voicePlan = useMemo(
-    () => pickPodcastVoices(voices.map((voice) => ({ name: voice.name, lang: voice.lang }))),
-    [voices],
-  )
-  const voiceA = voicePlan.a ? voices.find((voice) => voice.name === voicePlan.a?.name) ?? null : null
-  const voiceB = voicePlan.b ? voices.find((voice) => voice.name === voicePlan.b?.name) ?? null : null
-  const remoteVoice = (segmentSpeaker: 'A' | 'B' | null): string => {
-    if (engine === 'edge') return segmentSpeaker === 'B' ? edgeVoiceB : edgeVoiceA
-    if (engine === 'beatra') return segmentSpeaker === 'B' ? beatraVoiceB : beatraVoiceA
-    if (engine === 'openai') return segmentSpeaker === 'B' ? openaiVoiceB : openaiVoiceA
-    return ''
+  const voiceSaveRef = useRef<Promise<unknown>>(Promise.resolve())
+
+  function changeVoice(which: 'a' | 'b', value: string): void {
+    const nextA = which === 'a' ? value : voiceA
+    const nextB = which === 'b' ? value : voiceB
+    if (which === 'a') setVoiceA(value)
+    else setVoiceB(value)
+    voiceSaveRef.current = voiceSaveRef.current
+      .then(async () => {
+        const current = await window.api.getSettings()
+        const saved = await window.api.saveSettings({
+          provider: current.provider,
+          baseUrl: current.baseUrl,
+          model: current.model,
+          qwenTtsVoiceA: nextA,
+          qwenTtsVoiceB: nextB,
+        })
+        onSettingsChanged?.(saved)
+        setNotice(t('已保存为默认音色。'))
+      })
+      .catch(() => undefined)
   }
+
+  const remoteVoice = (segmentSpeaker: 'A' | 'B' | null, segmentText: string): string =>
+    chooseTtsVoice({ speaker: segmentSpeaker, text: segmentText, voiceA, voiceB, voiceEn })
 
   async function synthesizeSegment(segmentIndex: number): Promise<string> {
     const segment = segments[segmentIndex]
     if (!segment) throw new Error(t('找不到要合成的句子。'))
-    if (engine === 'system') throw new Error(t('系统语音不需要预留音频。'))
-    const voice = remoteVoice(segment.speaker)
-    const key = `${engine}:${voice}:${speed}:${segment.text}`
+    if (!ttsStatus?.qwen.configured) {
+      throw new Error(t('千问 TTS 还没有配置，请到设置里填写 Key（或先配置阿里云百炼主 Key）。'))
+    }
+    const voice = remoteVoice(segment.speaker, segment.text)
+    const key = `${voice}:${segment.text}`
     const cached = audioCache.current.get(key)
     if (cached) return cached
     const inFlight = audioInFlight.current.get(key)
     if (inFlight) return inFlight
     const promise = (async () => {
-      const audio = await window.api.synthesizeTts({ engine, text: segment.text, voice, rate: speed })
+      const audio = await window.api.synthesizeTts({ text: segment.text, voice })
       const binary = atob(audio.base64)
       const bytes = new Uint8Array(binary.length)
       for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
@@ -125,70 +151,16 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
   }
 
   useEffect(() => {
-    if (!('speechSynthesis' in window)) return
-    const load = (): void => setVoices(window.speechSynthesis.getVoices())
-    load()
-    window.speechSynthesis.addEventListener('voiceschanged', load)
-    return () => window.speechSynthesis.removeEventListener('voiceschanged', load)
-  }, [])
-
-  useEffect(() => {
     void window.api
       .getTtsStatus()
       .then((status) => {
         setTtsStatus(status)
-        const edgeA = status.edge.voices.find((voice) => voice.gender === 'female') ?? status.edge.voices[0]
-        const edgeB = status.edge.voices.find((voice) => voice.gender === 'male') ?? status.edge.voices[1] ?? edgeA
-        if (edgeA) setEdgeVoiceA(edgeA.id)
-        if (edgeB) setEdgeVoiceB(edgeB.id)
-        if (status.beatra.configured) {
-          void window.api
-            .getBeatraVoices()
-            .then((voices) => {
-              setBeatraVoices(voices)
-              // Beatra 同时提供中英文音色；默认优先中文，避免中文稿用英文音色朗读。
-              const chinese = voices.filter((voice) => voice.language.toLowerCase().startsWith('zh'))
-              const pool = chinese.length > 0 ? chinese : voices
-              const a = pool.find((voice) => voice.gender === 'female') ?? pool[0]
-              const b = pool.find((voice) => voice.gender === 'male') ?? pool[1] ?? a
-              if (a) setBeatraVoiceA(a.id)
-              if (b) setBeatraVoiceB(b.id)
-            })
-            .catch((err: unknown) => setBeatraLoadError(err instanceof Error ? err.message : String(err)))
-        }
+        setVoiceA(status.qwen.voiceA)
+        setVoiceB(status.qwen.voiceB)
+        setVoiceEn(status.qwen.voiceEn)
       })
       .catch(() => undefined)
   }, [])
-
-  useEffect(() => {
-    if (!engineTouched.current) return
-    try {
-      localStorage.setItem(TTS_ENGINE_KEY, engine)
-    } catch {
-      // 本地偏好写入失败不影响本次播放。
-    }
-  }, [engine])
-
-  // 没手动选过引擎时，优先用已配置的 Beatra，其次 Edge；系统语音只作为最后兜底。
-  useEffect(() => {
-    if (!ttsStatus) return
-    try {
-      if (localStorage.getItem(TTS_ENGINE_KEY)) {
-        engineTouched.current = true
-        return
-      }
-    } catch {
-      // 存储不可用时仍然按状态选默认。
-    }
-    engineTouched.current = true
-    setEngine(ttsStatus.beatra.configured ? 'beatra' : ttsStatus.openai.configured ? 'openai' : 'edge')
-  }, [ttsStatus])
-
-  useEffect(() => {
-    if (!ttsStatus) return
-    setOpenaiVoiceA(ttsStatus.openai.voiceA)
-    setOpenaiVoiceB(ttsStatus.openai.voiceB)
-  }, [ttsStatus])
 
   useEffect(() => {
     exportCancelRef.current = true
@@ -197,58 +169,32 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
       return null
     })
     setFullAudioBase64(null)
+    setFullAudioMp3Base64(null)
     setFullAudioDuration(0)
-  }, [engine, speed, edgeVoiceA, edgeVoiceB, beatraVoiceA, beatraVoiceB])
+  }, [speed, voiceA, voiceB, voiceEn, gapSeconds])
+
+  useEffect(() => {
+    saveResumeIndex(scope, index, segments.length)
+  }, [scope, index, segments.length])
+
+  useEffect(() => {
+    if (!sleepMinutes) return
+    const timer = window.setTimeout(() => {
+      audioRef.current?.pause()
+      setPlaying(false)
+      setPaused(true)
+      setSleepMinutes(0)
+      setNotice(t('定时结束，已暂停播放。'))
+    }, sleepMinutes * 60_000)
+    return () => window.clearTimeout(timer)
+  }, [sleepMinutes])
 
   useEffect(() => {
     currentRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
   }, [index])
 
   useEffect(() => {
-    if (!playing || engine !== 'system') return
-    if (!('speechSynthesis' in window)) {
-      setError(t('当前环境没有可用的语音合成。'))
-      setPlaying(false)
-      return
-    }
-    const segment = segments[index]
-    if (!segment) {
-      setPlaying(false)
-      return
-    }
-    let cancelled = false
-    const utterance = new SpeechSynthesisUtterance(segment.text)
-    const isChinese = /[一-鿿]/.test(segment.text)
-    utterance.lang = isChinese ? 'zh-CN' : 'en-US'
-    const isB = segment.speaker === 'B'
-    const voice = isChinese ? (isB ? voiceB : voiceA) : voices.find((item) => item.lang.toLowerCase().startsWith('en'))
-    if (voice) utterance.voice = voice
-    utterance.rate = speed * (isB ? 1.03 : 1)
-    // 系统只有一个中文音色时，用音高区分 B，避免两个角色听起来完全一样。
-    utterance.pitch = isB ? (voicePlan.distinct ? 0.96 : 0.86) : 1
-    utterance.onend = () => {
-      if (cancelled) return
-      if (index + 1 < segments.length) setIndex(index + 1)
-      else {
-        setPlaying(false)
-        setPaused(false)
-      }
-    }
-    utterance.onerror = (event) => {
-      if (cancelled || event.error === 'interrupted' || event.error === 'canceled') return
-      setError(t('朗读中断了，可以再点一次播放。'))
-      setPlaying(false)
-    }
-    window.speechSynthesis.cancel()
-    window.speechSynthesis.speak(utterance)
-    return () => {
-      cancelled = true
-      window.speechSynthesis.cancel()
-    }
-  }, [playing, engine, index, segments, speed, voices, voiceA, voiceB, voicePlan.distinct])
-
-  useEffect(() => {
-    if (!playing || engine === 'system') return
+    if (!playing) return
     const segment = segments[index]
     if (!segment) {
       setPlaying(false)
@@ -262,14 +208,13 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
       try {
         const url = await synthesizeSegment(index)
         if (cancelled) return
-        // Edge 预取后两句；Beatra 只预取一句，避免未听先计费。
-        const ahead = engine === 'edge' ? 2 : 1
-        for (let offset = 1; offset <= ahead; offset++) {
-          if (index + offset >= segments.length) break
-          void synthesizeSegment(index + offset).catch(() => undefined)
+        // 预取下一句，减少句间停顿；只预取一句，避免未听先计费。
+        if (index + 1 < segments.length) {
+          void synthesizeSegment(index + 1).catch(() => undefined)
         }
         const player = new Audio(url)
         player.preload = 'auto'
+        player.playbackRate = speed
         audioRef.current = player
         let advanced = false
         const finishSegment = (): void => {
@@ -278,6 +223,8 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
           if (watchdog) window.clearInterval(watchdog)
           if (index + 1 < segments.length) setIndex(index + 1)
           else {
+            clearResumeIndex(scope)
+            setSleepMinutes(0)
             setPlaying(false)
             setPaused(false)
             setAudioLoading(false)
@@ -286,9 +233,9 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
         player.onended = finishSegment
         player.onerror = () => {
           if (cancelled) return
-          setError(t('音频播放失败，已切回系统语音。'))
-          engineTouched.current = false
-          setEngine('system')
+          setError(t('音频播放失败，请检查千问 TTS 配置后重试。'))
+          setPlaying(false)
+          setAudioLoading(false)
         }
         // 某些机器上媒体元素会在句尾不触发 ended；用时间进度做兜底。
         let lastTime = -1
@@ -305,7 +252,7 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
               void player.play().catch(() => undefined)
             }
             if (Date.now() - lastProgressAt > 8_000) {
-              setError(t('音频被系统暂停了，可以点播放继续，或换一个音色。'))
+              setError(t('音频被系统暂停了，可以点播放继续。'))
               setPlaying(false)
               setPaused(true)
             }
@@ -324,7 +271,7 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
             void player.play().catch(() => undefined)
             return
           }
-          setError(t('音频播放卡住了，已暂停；可以点播放继续，或换一个音色。'))
+          setError(t('音频播放卡住了，已暂停；可以点播放继续。'))
           setPlaying(false)
           setPaused(true)
         }, 500)
@@ -337,10 +284,8 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
           .replace(/^Error invoking remote method '[^']+':\s*/, '')
           .replace(/^Error:\s*/, '')
         setAudioLoading(false)
-        const label = engine === 'edge' ? t('Edge 在线音色') : t('Beatra 付费配音')
-        setError(`${label}${t('不可用')}（${message}）${t('，已切回系统语音。')}`)
-        engineTouched.current = false
-        setEngine('system')
+        setError(`${t('千问 TTS 不可用')}（${message}）`)
+        setPlaying(false)
       }
     })()
     return () => {
@@ -351,11 +296,10 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
       userPausedRef.current = false
       setAudioLoading(false)
     }
-  }, [playing, engine, index, segments, speed, edgeVoiceA, edgeVoiceB, beatraVoiceA, beatraVoiceB])
+  }, [playing, index, segments, speed, voiceA, voiceB, voiceEn, scope, ttsStatus])
 
   useEffect(
     () => () => {
-      if ('speechSynthesis' in window) window.speechSynthesis.cancel()
       audioRef.current?.pause()
       audioRef.current = null
       for (const url of audioCache.current.values()) URL.revokeObjectURL(url)
@@ -370,34 +314,23 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
 
   useEffect(() => {
     function onKey(event: KeyboardEvent): void {
-      if (event.key === 'Escape') onClose()
+      if (event.key === 'Escape') {
+        if (minimized) setMinimized(false)
+        else onClose()
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  }, [minimized, onClose])
 
   async function toggle(): Promise<void> {
     setError(null)
-    if (engine === 'beatra' && !beatraConfirmed.current) {
-      const confirmed = await confirmDialog({
-        title: t('使用 Beatra 付费配音'),
-        message:
-          t('Beatra 按字符计费。播放会按句子逐段合成，并提前预取下一句；失败不会自动重试。继续使用？'),
-        confirmLabel: t('继续使用'),
-      })
-      if (!confirmed) return
-      beatraConfirmed.current = true
-    }
     if (audioLoading) {
       // 在线合成需要几秒；再次点击不应把正在生成的播放取消。
       return
     }
-    if (engine === 'beatra' && !ttsStatus?.beatra.configured) {
-      setError(t('Beatra 还没有配置，请到设置里填写 Device Token，或先切换到其他音色。'))
-      return
-    }
-    if (engine === 'system' && !('speechSynthesis' in window)) {
-      setError(t('当前环境没有可用的语音合成。'))
+    if (!ttsStatus?.qwen.configured) {
+      setError(t('千问 TTS 还没有配置，请到设置里填写 Key（或先配置阿里云百炼主 Key）。'))
       return
     }
     if (!playing) {
@@ -405,23 +338,13 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
       setPlaying(true)
       return
     }
-    if (engine !== 'system') {
-      if (paused) {
-        userPausedRef.current = false
-        void audioRef.current?.play()
-        setPaused(false)
-      } else {
-        userPausedRef.current = true
-        audioRef.current?.pause()
-        setPaused(true)
-      }
-      return
-    }
     if (paused) {
-      window.speechSynthesis.resume()
+      userPausedRef.current = false
+      void audioRef.current?.play()
       setPaused(false)
     } else {
-      window.speechSynthesis.pause()
+      userPausedRef.current = true
+      audioRef.current?.pause()
       setPaused(true)
     }
   }
@@ -430,15 +353,13 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
     if (next < 0 || next >= segments.length) return
     if (next === index) {
       if (paused) {
-        if (engine === 'system') window.speechSynthesis.resume()
-        else void audioRef.current?.play()
+        void audioRef.current?.play()
         setPaused(false)
       } else if (!playing) {
         setPlaying(true)
       }
       return
     }
-    if ('speechSynthesis' in window) window.speechSynthesis.cancel()
     audioRef.current?.pause()
     audioRef.current = null
     userPausedRef.current = false
@@ -447,42 +368,26 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
     setPlaying(true)
   }
 
-  function selectEngine(value: string): void {
-    const next = value === 'edge' || value === 'beatra' ? value : 'system'
-    if ('speechSynthesis' in window) window.speechSynthesis.cancel()
-    audioRef.current?.pause()
-    audioRef.current = null
-    userPausedRef.current = false
-    engineTouched.current = true
-    setEngine(next)
-    setPaused(false)
-    setError(null)
-  }
-
   async function generateFullAudio(): Promise<void> {
     if (exporting) return
-    if (engine === 'system') {
-      setError(t('系统语音不支持导出整段音频，请切换到 Edge 或 Beatra。'))
-      return
-    }
-    if (engine === 'beatra' && !ttsStatus?.beatra.configured) {
-      setError(t('Beatra 还没有配置，无法生成整章音频。'))
+    if (!ttsStatus?.qwen.configured) {
+      setError(t('千问 TTS 还没有配置，无法生成整章音频。'))
       return
     }
     const chars = segments.reduce((sum, segment) => sum + segment.text.length, 0)
-    if (engine === 'beatra') {
-      const confirmed = await confirmDialog({
-        title: t('生成整章 Beatra 音频'),
-        message: `${t('会按')} ${segments.length} ${t('段')}、${t('共')} ${chars.toLocaleString()} ${t('字生成音频，Beatra 按字符计费，可能产生较高费用。继续？')}`,
-        confirmLabel: t('生成整章'),
-      })
-      if (!confirmed) return
-    }
+    const pricePerK = Math.max(0, Number(ttsStatus?.qwen.pricePerK) || 0)
+    const cost = estimateSpeechCost(chars, pricePerK)
+    const estimate = cost === null ? '' : `，${t('按当前设置估算约')} ¥${cost.toFixed(2)}`
+    const confirmed = await confirmDialog({
+      title: t('生成整章音频'),
+      message: `${t('将按')} ${segments.length} ${t('段')}、${t('共')} ${chars.toLocaleString()} ${t('字请求千问 TTS，按字符计费，可能产生费用；整章音频按原速导出')}${estimate}${t('。实际费用以百炼账单为准，继续？')}`,
+      confirmLabel: t('继续生成'),
+    })
+    if (!confirmed) return
     setExporting(true)
     setExportProgress(0)
     setError(null)
     exportCancelRef.current = false
-    if ('speechSynthesis' in window) window.speechSynthesis.cancel()
     audioRef.current?.pause()
     audioRef.current = null
     setPlaying(false)
@@ -493,10 +398,8 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
         if (exportCancelRef.current) throw new Error('cancelled')
         const segment = segments[segmentIndex]!
         const audio = await window.api.synthesizeTts({
-          engine,
           text: segment.text,
-          voice: remoteVoice(segment.speaker),
-          rate: speed,
+          voice: remoteVoice(segment.speaker, segment.text),
         })
         parts.push({ base64: audio.base64, mime: audio.mime })
         setExportProgress(segmentIndex + 1)
@@ -504,13 +407,14 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
         await new Promise((resolve) => window.setTimeout(resolve, 0))
       }
       if (exportCancelRef.current) throw new Error('cancelled')
-      const combined = await combineAudioSegments(parts)
+      const combined = await combineAudioSegments(parts, gapSeconds)
       const url = URL.createObjectURL(new Blob([combined.wav], { type: 'audio/wav' }))
       setFullAudioUrl((current) => {
         if (current) URL.revokeObjectURL(current)
         return url
       })
       setFullAudioBase64(combined.base64)
+      setFullAudioMp3Base64(combined.mp3Base64)
       setFullAudioDuration(combined.duration)
     } catch (err) {
       if (!(err instanceof Error && err.message === 'cancelled')) {
@@ -534,16 +438,78 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
     }
   }
 
+  async function saveFullAudioMp3(): Promise<void> {
+    if (!fullAudioMp3Base64) return
+    try {
+      const result = await window.api.saveAudio(fullAudioMp3Base64, `页边-${title}-整章.mp3`)
+      if (result.saved) setError(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
   function cancelFullAudio(): void {
     exportCancelRef.current = true
   }
 
-  const edgeVoices = ttsStatus?.edge.voices ?? []
-  const edgeVoiceOptions = edgeVoices.map((voice) => ({ value: voice.id, label: voice.label }))
-  const beatraVoiceOptions = [...beatraVoices]
-    .sort((a, b) => Number(!a.language.toLowerCase().startsWith('zh')) - Number(!b.language.toLowerCase().startsWith('zh')))
-    .map((voice) => ({ value: voice.id, label: `${voice.label} · ${voice.language}` }))
-  const dialogRef = useDialogFocus<HTMLDivElement>(true, onClose, 'button')
+  const dialogRef = useDialogFocus<HTMLDivElement>(!minimized, onClose, 'button')
+  const configured = Boolean(ttsStatus?.qwen.configured)
+  const model = ttsStatus?.qwen.model || 'qwen-audio-3.1-tts-flash'
+  const aName = voiceA || ttsStatus?.qwen.voiceA || 'longanhuan_v3.1'
+  const bName = voiceB || ttsStatus?.qwen.voiceB || 'xunanchuan_v3.1'
+  const voiceOptions = [...(ttsStatus?.qwen.voices ?? [])].map((voice) => ({
+    value: voice.id,
+    label: voice.label,
+  }))
+  for (const id of [voiceA, voiceB]) {
+    if (id && !voiceOptions.some((option) => option.value === id)) voiceOptions.push({ value: id, label: id })
+  }
+
+  if (minimized) {
+    const segment = segments[index]
+    return (
+      <div className="listen-mini" role="region" aria-label={t('听读播放器')}>
+        <div className="listen-mini-info">
+          <span className="listen-mini-kicker">
+            {t('听读')} · {index + 1}/{segments.length}
+            {sleepMinutes > 0 ? ` · ${t('定时')} ${sleepMinutes} ${t('分钟')}` : ''}
+          </span>
+          <strong>{title}</strong>
+          <span className={`listen-mini-sentence${error ? ' is-error' : ''}`}>
+            {error || segment?.text || t('这一章没有可朗读的文字。')}
+          </span>
+        </div>
+        <div className="listen-mini-actions">
+          <button type="button" className="ghost-button small" onClick={() => jump(index - 1)} disabled={index === 0}>
+            {t('上一句')}
+          </button>
+          <button
+            type="button"
+            className="primary-button small"
+            onClick={() => void toggle()}
+            disabled={!configured || segments.length === 0}
+            title={configured ? undefined : t('千问 TTS 还没有配置，请到设置里填写 Key（或先配置阿里云百炼主 Key）。')}
+          >
+            {audioLoading ? t('生成中…') : !playing ? t('播放') : paused ? t('继续') : t('暂停')}
+          </button>
+          <button
+            type="button"
+            className="ghost-button small"
+            onClick={() => jump(index + 1)}
+            disabled={index >= segments.length - 1}
+          >
+            {t('下一句')}
+          </button>
+          <button type="button" className="ghost-button small" onClick={() => setMinimized(false)}>
+            {t('展开')}
+          </button>
+          <button type="button" className="icon-button" onClick={onClose} aria-label={t('关闭')}>
+            ×
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="listen-backdrop" onMouseDown={onClose}>
@@ -564,7 +530,13 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
             <button type="button" className="ghost-button small" onClick={() => jump(index - 1)} disabled={index === 0}>
               {t('上一句')}
             </button>
-            <button type="button" className="primary-button small" onClick={() => void toggle()}>
+            <button
+              type="button"
+              className="primary-button small"
+              onClick={() => void toggle()}
+              disabled={!configured || segments.length === 0}
+              title={configured ? undefined : t('千问 TTS 还没有配置，请到设置里填写 Key（或先配置阿里云百炼主 Key）。')}
+            >
               {audioLoading ? t('生成中…') : !playing ? t('播放') : paused ? t('继续') : t('暂停')}
             </button>
             <button
@@ -587,6 +559,28 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
                 { value: '1.5', label: '1.5×' },
               ]}
             />
+            <span className="listen-timer">
+              <span className="listen-timer-label">{t('定时')}</span>
+              <Select
+                className="listen-speed"
+                value={String(sleepMinutes)}
+                onChange={(value) => {
+                  const next = Number(value)
+                  setSleepMinutes(Number.isFinite(next) ? next : 0)
+                  setNotice(next > 0 ? `${t('定时')} ${next} ${t('分钟')}` : null)
+                }}
+                ariaLabel={t('睡眠定时')}
+                options={[
+                  { value: '0', label: t('关闭') },
+                  { value: '15', label: `15 ${t('分钟')}` },
+                  { value: '30', label: `30 ${t('分钟')}` },
+                  { value: '60', label: `60 ${t('分钟')}` },
+                ]}
+              />
+            </span>
+            <button type="button" className="icon-button" onClick={() => setMinimized(true)} aria-label={t('最小化')}>
+              –
+            </button>
             <button type="button" className="icon-button" onClick={onClose} aria-label={t('关闭')}>
               ×
             </button>
@@ -595,103 +589,60 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
 
         <div className="listen-engine-bar">
           <label>
-            <span>{t('音色引擎')}</span>
+            <span>{t('语音模型')}</span>
+            <span className="listen-engine-name">{model}</span>
+          </label>
+          <label>
+            <span>{t('A 音色')}</span>
             <Select
-              className="listen-engine-select"
-              value={engine}
-              onChange={selectEngine}
-              ariaLabel={t('音色引擎')}
-              options={[
-                { value: 'system', label: t('系统语音（离线）') },
-                { value: 'edge', label: t('Edge 在线（免费）') },
-                { value: 'beatra', label: ttsStatus?.beatra.configured ? t('Beatra 付费（已配置）') : t('Beatra 付费（未配置）') },
-                { value: 'openai', label: ttsStatus?.openai.configured ? t('OpenAI TTS（已配置）') : t('OpenAI TTS（未配置）') },
-              ]}
+              className="listen-voice-select"
+              value={voiceA}
+              onChange={(value) => changeVoice('a', value)}
+              ariaLabel={t('千问 A 音色')}
+              options={voiceOptions}
             />
           </label>
-          {engine === 'edge' ? (
-            <>
-              <label>
-                <span>{t('A 音色')}</span>
-                <Select
-                  className="listen-voice-select"
-                  value={edgeVoiceA}
-                  onChange={setEdgeVoiceA}
-                  ariaLabel={t('Edge A 音色')}
-                  options={edgeVoiceOptions}
-                />
-              </label>
-              <label>
-                <span>{t('B 音色')}</span>
-                <Select
-                  className="listen-voice-select"
-                  value={edgeVoiceB}
-                  onChange={setEdgeVoiceB}
-                  ariaLabel={t('Edge B 音色')}
-                  options={edgeVoiceOptions}
-                />
-              </label>
-            </>
-          ) : null}
-          {engine === 'openai' ? (
-            <>
-              <label>
-                <span>{t('A 音色')}</span>
-                <input
-                  className="listen-voice-input"
-                  value={openaiVoiceA}
-                  onChange={(event) => setOpenaiVoiceA(event.target.value)}
-                  aria-label={t('OpenAI A 音色')}
-                />
-              </label>
-              <label>
-                <span>{t('B 音色')}</span>
-                <input
-                  className="listen-voice-input"
-                  value={openaiVoiceB}
-                  onChange={(event) => setOpenaiVoiceB(event.target.value)}
-                  aria-label={t('OpenAI B 音色')}
-                />
-              </label>
-            </>
-          ) : null}
-          {engine === 'beatra' && ttsStatus?.beatra.configured && beatraVoices.length > 0 ? (
-            <>
-              <label>
-                <span>{t('A 音色')}</span>
-                <Select
-                  className="listen-voice-select"
-                  value={beatraVoiceA}
-                  onChange={setBeatraVoiceA}
-                  ariaLabel={t('Beatra A 音色')}
-                  options={beatraVoiceOptions}
-                />
-              </label>
-              <label>
-                <span>{t('B 音色')}</span>
-                <Select
-                  className="listen-voice-select"
-                  value={beatraVoiceB}
-                  onChange={setBeatraVoiceB}
-                  ariaLabel={t('Beatra B 音色')}
-                  options={beatraVoiceOptions}
-                />
-              </label>
-            </>
-          ) : null}
-          <span className="listen-engine-hint">{engineHint(engine, ttsStatus)}</span>
-          <span className="listen-engine-compare">
-            {t('系统：离线、较机械 · Edge：免费在线、自然 · Beatra：付费、最高自然度')}
+          <label>
+            <span>{t('B 音色')}</span>
+            <Select
+              className="listen-voice-select"
+              value={voiceB}
+              onChange={(value) => changeVoice('b', value)}
+              ariaLabel={t('千问 B 音色')}
+              options={voiceOptions}
+            />
+          </label>
+          <span className="listen-engine-hint">
+            {configured
+              ? t('千问 TTS · 阿里云百炼 · 按字符计费，文本会发送到该服务。')
+              : demo
+                ? t('演示模式不包含语音合成；配置千问 TTS Key 后即可使用。')
+                : t('千问 TTS 还没有配置；请到右上角设置填写 Key，或先配置阿里云百炼主 Key。')}
           </span>
+          <span className="listen-engine-hint">{t('更改 A/B 音色会保存为默认音色。')}</span>
         </div>
 
         <div className="listen-full-audio">
           <div className="listen-full-audio-head">
             <div>
               <strong>{t('整章音频')}</strong>
-              <span>{t('一次生成并导出一个 WAV，适合播客或离线收听。')}</span>
+              <span>{t('一次生成并导出 WAV 或 MP3，适合播客或离线收听；播放速度只影响试听。')}</span>
             </div>
             <div className="listen-full-audio-actions">
+              <label className="listen-gap-control">
+                <span>{t('段落间隔')}</span>
+                <Select
+                  className="listen-gap"
+                  value={String(gapSeconds)}
+                  onChange={(value) => setGapSeconds(Number(value))}
+                  ariaLabel={t('段落间隔')}
+                  options={[
+                    { value: '0', label: t('无间隔') },
+                    { value: '0.5', label: `0.5 ${t('秒')}` },
+                    { value: '1', label: `1 ${t('秒')}` },
+                  ]}
+                />
+              </label>
               {exporting ? (
                 <button type="button" className="ghost-button small" onClick={cancelFullAudio}>
                   {t('取消')}
@@ -701,15 +652,20 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
                   type="button"
                   className="ghost-button small"
                   onClick={() => void generateFullAudio()}
-                  disabled={segments.length === 0 || engine === 'system'}
-                  title={engine === 'system' ? t('系统语音不支持导出整段音频') : undefined}
+                  disabled={segments.length === 0 || !configured}
+                  title={!configured ? t('请先配置千问 TTS') : undefined}
                 >
-                  {engine === 'system' ? t('系统语音不支持导出') : t('生成整章音频')}
+                  {t('生成整章音频')}
                 </button>
               )}
               {fullAudioUrl ? (
                 <button type="button" className="ghost-button small" onClick={() => void saveFullAudio()}>
                   {t('保存 WAV')}
+                </button>
+              ) : null}
+              {fullAudioMp3Base64 ? (
+                <button type="button" className="ghost-button small" onClick={() => void saveFullAudioMp3()}>
+                  {t('保存 MP3')}
                 </button>
               ) : null}
             </div>
@@ -728,16 +684,16 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
           {fullAudioDuration > 0 ? <span className="listen-full-audio-meta">{t('约')} {Math.ceil(fullAudioDuration / 60)} {t('分钟')}</span> : null}
         </div>
 
-        {engine === 'beatra' && !ttsStatus?.beatra.configured ? (
+        {ttsStatus && !configured ? (
           <div className="listen-engine-setup">
-            <strong>{t('Beatra 还没有配置')}</strong>
+            <strong>{t('千问 TTS 还没有配置')}</strong>
             <p>
-              {t('请打开右上角设置，在「Beatra AI 配音」里填写 Device Token。Beatra 按字符计费，播放前不会自动重试或重复扣费。')}
+              {t('请打开右上角设置，在「千问 TTS（阿里云百炼）」里填写 Key；如果主模型已经选了阿里云百炼，Key 留空即可复用。文本会发送到该服务，按字符计费。')}
             </p>
           </div>
         ) : null}
-        {engine === 'beatra' && beatraLoadError ? <div className="inline-error" role="alert">{beatraLoadError}</div> : null}
 
+        {notice ? <div className="inline-notice" role="status">{notice}</div> : null}
         {error ? <div className="inline-error" role="alert">{error}</div> : null}
 
         <div className="listen-body">
@@ -761,17 +717,10 @@ export function ListenPanel({ title, text, onClose }: ListenPanelProps): JSX.Ele
           )}
         </div>
         <p className="listen-foot">
-          {engine === 'beatra'
-            ? `${t('中文普通话')} · ${t('Beatra 付费')} · A ${voiceName(beatraVoices, beatraVoiceA)} · B ${voiceName(beatraVoices, beatraVoiceB)}`
-            : engine === 'edge'
-              ? `${t('中文普通话')} · ${t('Edge 在线')} · A ${voiceName(edgeVoices, edgeVoiceA)} · B ${voiceName(edgeVoices, edgeVoiceB)}`
-              : dialogue
-                ? `${t('中文普通话')} · A ${voiceLabel(voicePlan.a)} · B ${voiceLabel(voicePlan.b)}${voicePlan.distinct ? '' : t('（B 用音高区分）')}`
-                : `${chineseScript ? t('中文普通话') : t('英语')} · ${t('系统语音')}${chineseScript && voicePlan.a ? ` · ${voiceLabel(voicePlan.a)}` : ''}`}
+          {`${t('千问 TTS')} · ${model} · A ${aName} · B ${bName}`}
           {' · '}{t('点击任意一句从这里开始')} · {index + 1}/{segments.length}
         </p>
       </div>
-      <BeatraGuideDialog open={guideOpen} onClose={() => setGuideOpen(false)} />
     </div>
   )
 }

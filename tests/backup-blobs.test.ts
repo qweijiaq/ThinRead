@@ -5,8 +5,8 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 
-import { backupBlobsDir, createBackup, deleteBackup, restoreBackup } from '../electron/backup.js'
-import { closeDatabase, initDatabase } from '../electron/db.js'
+import { backupBlobsDir, createBackup, deleteBackup, exportBackup, importBackupArchive, restoreBackup } from '../electron/backup.js'
+import { closeDatabase, getReadingStatsRecord, initDatabase, mergeReadingStatsRecord, recordReadingStats } from '../electron/db.js'
 
 test('dedupes book files across backups and restores them from blobs', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'reading-notes-blobs-'))
@@ -37,6 +37,61 @@ test('dedupes book files across backups and restores them from blobs', () => {
     // 最后一份也删掉后，blob 被回收。
     deleteBackup(dir, second.id)
     assert.equal(fs.readdirSync(backupBlobsDir(dir)).length, 0)
+  } finally {
+    try {
+      closeDatabase()
+    } catch {
+      // 可能已经关闭。
+    }
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('restores reading stats from a backup', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'reading-notes-stats-backup-'))
+  try {
+    initDatabase(dir)
+    mergeReadingStatsRecord({
+      total: 90,
+      days: { '2026-01-01': 90 },
+      books: { 'book-a': 90 },
+    })
+    const backup = createBackup(dir, 'manual', '统计备份')
+    recordReadingStats('2026-01-02', 30, 'book-a')
+    assert.equal(getReadingStatsRecord().total, 120)
+
+    restoreBackup(dir, backup.id)
+    const restored = getReadingStatsRecord()
+    assert.equal(restored.total, 90)
+    assert.equal(restored.days['2026-01-01'], 90)
+    assert.equal(restored.days['2026-01-02'], undefined)
+    assert.equal(restored.books['book-a'], 90)
+  } finally {
+    try {
+      closeDatabase()
+    } catch {
+      // 可能已经关闭。
+    }
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('imports an external library zip and restores it', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'reading-notes-import-library-'))
+  const exported = path.join(dir, 'library.zip')
+  try {
+    initDatabase(dir)
+    mergeReadingStatsRecord({ total: 30, days: { '2026-01-01': 30 }, books: {} })
+    const backup = createBackup(dir, 'manual', '原始整库')
+    exportBackup(dir, backup.id, exported)
+    deleteBackup(dir, backup.id)
+    mergeReadingStatsRecord({ total: 60, days: { '2026-01-02': 60 }, books: {} })
+    assert.equal(getReadingStatsRecord().total, 90)
+
+    const imported = importBackupArchive(dir, exported)
+    assert.equal(imported.label, '导入的整库')
+    restoreBackup(dir, imported.id)
+    assert.equal(getReadingStatsRecord().total, 30)
   } finally {
     try {
       closeDatabase()

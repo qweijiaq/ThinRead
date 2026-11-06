@@ -1,5 +1,4 @@
 const STORAGE_KEY = 'reading-notes-reading-stats'
-const MAX_DAYS = 90
 const RECENT_DAYS = 14
 
 interface StoredStats {
@@ -47,21 +46,64 @@ function save(stats: StoredStats): void {
   }
 }
 
-/** 累加阅读秒数；日期按本地时区归档，可选记到具体书，最多保留 90 天。 */
+function mergeStats(left: StoredStats, right: Partial<StoredStats>): StoredStats {
+  const days: Record<string, number> = { ...left.days }
+  for (const [key, value] of Object.entries(right.days ?? {})) {
+    const seconds = Math.floor(Number(value))
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(key) || !Number.isFinite(seconds) || seconds <= 0) continue
+    days[key] = Math.max(days[key] ?? 0, seconds)
+  }
+  const books: Record<string, number> = { ...left.books }
+  for (const [key, value] of Object.entries(right.books ?? {})) {
+    const seconds = Math.floor(Number(value))
+    if (!key || !Number.isFinite(seconds) || seconds <= 0) continue
+    books[key] = Math.max(books[key] ?? 0, seconds)
+  }
+  const summed = Object.values(days).reduce((sum, value) => sum + value, 0)
+  return {
+    total: Math.max(left.total, Math.floor(Number(right.total) || 0), summed),
+    days,
+    books,
+  }
+}
+
+/** 应用启动时同步统计：数据库为空时用本机缓存做首次迁移；否则以数据库为准，保证备份恢复可回滚。 */
+export async function hydrateReadingStats(): Promise<void> {
+  if (typeof window === 'undefined' || !window.api?.getReadingStats) return
+  try {
+    const local = load()
+    const remote = await window.api.getReadingStats()
+    const hasRemote =
+      remote.total > 0 || Object.keys(remote.days).length > 0 || Object.keys(remote.books).length > 0
+    if (!hasRemote) {
+      const merged = mergeStats(local, remote)
+      save(merged)
+      await window.api.mergeReadingStats(merged)
+      return
+    }
+    save({
+      total: Math.max(0, Math.floor(Number(remote.total) || 0)),
+      days: { ...remote.days },
+      books: { ...remote.books },
+    })
+  } catch {
+    // 统计同步失败不阻塞启动；下一次阅读会继续写入本地缓存。
+  }
+}
+
+/** 累加阅读秒数；日期按本地时区归档。数据会同时写 localStorage 缓存和主进程数据库。 */
 export function addReadingSeconds(seconds: number, bookId?: string | null): void {
   if (!Number.isFinite(seconds) || seconds <= 0) return
   const stats = load()
-  const key = dateKey(new Date())
+  const date = new Date()
+  const key = dateKey(date)
   stats.total += seconds
   stats.days[key] = (stats.days[key] ?? 0) + seconds
   if (bookId) stats.books[bookId] = (stats.books[bookId] ?? 0) + seconds
-  const cutoff = new Date()
-  cutoff.setDate(cutoff.getDate() - MAX_DAYS)
-  const cutoffKey = dateKey(cutoff)
-  for (const day of Object.keys(stats.days)) {
-    if (day < cutoffKey) delete stats.days[day]
-  }
   save(stats)
+  if (typeof window !== 'undefined' && window.api?.recordReading) {
+    void window.api.recordReading(key, seconds, bookId ?? null).catch(() => undefined)
+  }
 }
 
 function shiftKey(key: string, delta: number): string {
@@ -120,7 +162,6 @@ export function getReadingSummary(): ReadingSummary {
   const todayKey = dateKey(today)
   const monthPrefix = todayKey.slice(0, 7)
   let week = 0
-  let month = 0
   const days: ReadingDay[] = []
   for (let offset = RECENT_DAYS - 1; offset >= 0; offset--) {
     const date = new Date(today)
@@ -129,8 +170,11 @@ export function getReadingSummary(): ReadingSummary {
     const seconds = stats.days[key] ?? 0
     days.push({ date: key, seconds })
     if (offset < 7) week += seconds
-    if (key.startsWith(monthPrefix)) month += seconds
   }
+  const month = Object.entries(stats.days).reduce(
+    (sum, [key, seconds]) => (key.startsWith(monthPrefix) ? sum + seconds : sum),
+    0,
+  )
   const streaks = computeStreaks(stats.days)
   const books = Object.entries(stats.books)
     .map(([bookId, seconds]) => ({ bookId, seconds }))

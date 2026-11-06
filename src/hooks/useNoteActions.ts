@@ -3,6 +3,7 @@ import { useCallback, useState } from 'react'
 import type { BookSummary, ChapterContent, Note, NoteDraft, NotePatch } from '../../shared/types.js'
 import { messageOf } from '../lib/errors.js'
 import { t } from '../lib/i18n.js'
+import { isoWeekLabel } from '../lib/week.js'
 
 import type { ToastState } from './useToast.js'
 
@@ -69,8 +70,18 @@ export function useNoteActions(options: NoteActionsOptions): NoteActions {
 
   const saveLabReport = useCallback(
     async (title: string, markdown: string, targetBookId: string, targetChapterId: string) => {
+      const weekly = /每周复盘|Weekly review/i.test(title)
+      if (weekly) {
+        await window.api.saveWeeklyReview({ week: isoWeekLabel(), title, content: markdown })
+      }
       const ownerId = targetBookId || book?.id || books[0]?.id
-      if (!ownerId) throw new Error(t('还没有导入书。'))
+      if (!ownerId) {
+        if (weekly) {
+          notify({ kind: 'info', text: t('已存为本周复盘。') })
+          return
+        }
+        throw new Error(t('还没有导入书。'))
+      }
       await window.api.createNote({
         bookId: ownerId,
         chapterId: targetChapterId || null,
@@ -81,7 +92,7 @@ export function useNoteActions(options: NoteActionsOptions): NoteActions {
       if (book?.id === ownerId && (!targetChapterId || chapter?.id === targetChapterId)) {
         await refreshNotes(ownerId, chapter?.id ?? null)
       }
-      notify({ kind: 'info', text: t('已存为笔记。') })
+      notify({ kind: 'info', text: weekly ? t('已存为本周复盘。') : t('已存为笔记。') })
     },
     [book, books, chapter?.id, notify, refreshNotes],
   )

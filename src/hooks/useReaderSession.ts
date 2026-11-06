@@ -24,8 +24,8 @@ export interface ReaderSessionState {
   setBookmarks: React.Dispatch<React.SetStateAction<BookmarkView[]>>
   positionTarget: { chapterId: string; ratio: number; key: number } | null
   setPositionTarget: React.Dispatch<React.SetStateAction<{ chapterId: string; ratio: number; key: number } | null>>
-  listen: { title: string; text: string } | null
-  setListen: React.Dispatch<React.SetStateAction<{ title: string; text: string } | null>>
+  listen: { title: string; text: string; scope?: string } | null
+  setListen: React.Dispatch<React.SetStateAction<{ title: string; text: string; scope?: string } | null>>
   marginQuote: string | null
   setMarginQuote: React.Dispatch<React.SetStateAction<string | null>>
   focusNote: { id: string; key: number } | null
@@ -57,7 +57,7 @@ export function useReaderSession(options: ReaderSessionOptions): ReaderSessionSt
   const { book, chapter, chapters, notes, setReaderMarks, openChapter, notify } = options
   const [bookmarks, setBookmarks] = useState<BookmarkView[]>([])
   const [positionTarget, setPositionTarget] = useState<{ chapterId: string; ratio: number; key: number } | null>(null)
-  const [listen, setListen] = useState<{ title: string; text: string } | null>(null)
+  const [listen, setListen] = useState<{ title: string; text: string; scope?: string } | null>(null)
   const [marginQuote, setMarginQuote] = useState<string | null>(null)
   const [focusNote, setFocusNote] = useState<{ id: string; key: number } | null>(null)
   const [pendingNoteId, setPendingNoteId] = useState<string | null>(null)
@@ -118,11 +118,18 @@ export function useReaderSession(options: ReaderSessionOptions): ReaderSessionSt
   }, [])
 
   const listenSelection = useCallback((text: string) => {
-    setListen({ title: `${t('朗读')} · ${t('选中文本')}`, text })
+    setListen({
+      title: `${t('朗读')} · ${t('选中文本')}`,
+      text,
+    })
   }, [])
 
   const listenChapter = useCallback(
-    (text: string) => setListen({ title: `${t('朗读')} · ${chapter?.title ?? ''}`, text }),
+    (text: string) =>
+      setListen({
+        title: `${t('朗读')} · ${chapter?.title ?? ''}`,
+        text,
+      }),
     [chapter?.title],
   )
 

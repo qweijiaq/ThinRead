@@ -4,8 +4,11 @@ import { t, useLocale } from '../lib/i18n.js'
 import { buildChapterMarkdown, markdownFilename, todayStamp } from '../lib/export.js'
 import { backlinksFor, buildNoteIndex } from '../lib/note-index.js'
 import { relatedNotes, snippet } from '../lib/links.js'
+import { contentToMarkdown } from '../lib/content-view.js'
 import { Checkbox } from './Checkbox.js'
+import { CompareModelDialog } from './CompareModelDialog.js'
 import { NoteCard } from './NoteCard.js'
+import { TextDiffDialog } from './TextDiffDialog.js'
 
 interface NotesPanelProps {
   chapter: ChapterContent | null
@@ -37,6 +40,7 @@ interface NotesPanelProps {
   onShare(note: Note): void
   onDeleteMark(id: string): void
   onRevealMark(quote: string): void
+  compareModels?: string[]
 }
 
 const STAGE_LABEL: Record<string, string> = {
@@ -158,6 +162,7 @@ function NotesPanelImpl({
   onShare,
   onDeleteMark,
   onRevealMark,
+  compareModels = [],
 }: NotesPanelProps): JSX.Element {
   // 单次扫描建索引；卡片渲染只做 Map 查找，不再对每条笔记做一次 allNotes.filter/includes。
   const noteIndex = useMemo(() => buildNoteIndex(allNotes), [allNotes])
@@ -186,6 +191,10 @@ function NotesPanelImpl({
   const [includeCards, setIncludeCards] = useState(false)
   const [exportState, setExportState] = useState<'idle' | 'copied' | 'saved'>('idle')
   const [exportError, setExportError] = useState<string | null>(null)
+  const [compareOpen, setCompareOpen] = useState(false)
+  const [compareBusy, setCompareBusy] = useState(false)
+  const [compareError, setCompareError] = useState<string | null>(null)
+  const [compareDiff, setCompareDiff] = useState<{ before: string; after: string } | null>(null)
 
   useEffect(() => {
     setExportState('idle')
@@ -268,6 +277,24 @@ function NotesPanelImpl({
     )
   }
 
+  async function compareWithModel(model: string): Promise<void> {
+    if (!chapter) return
+    setCompareBusy(true)
+    setCompareError(null)
+    try {
+      const result = await window.api.compareChapterNotes({ chapterId: chapter.id, model })
+      setCompareOpen(false)
+      setCompareDiff({
+        before: contentToMarkdown(result.base),
+        after: contentToMarkdown(result.compare),
+      })
+    } catch (err) {
+      setCompareError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setCompareBusy(false)
+    }
+  }
+
   async function addNote(): Promise<void> {
     if (!chapter) return
     await onCreate({
@@ -300,6 +327,15 @@ function NotesPanelImpl({
       <p className="condense-hint">
         {t('AI 会把这一章重写成可直接发博客的读薄稿：只保留断言，并列改列表，删掉铺垫；压缩幅度由内容密度决定，保留断言优先。')}
       </p>
+
+      {chapter && compareModels.length > 0 ? (
+        <div className="notes-compare-line">
+          <button type="button" className="text-button" onClick={() => setCompareOpen(true)}>
+            {t('模型对比')}
+          </button>
+          <span>{t('用另一个模型重跑本章，先不覆盖当前笔记。')}</span>
+        </div>
+      ) : null}
 
       {error ? <div className="inline-error" role="alert">{error}</div> : null}
 
@@ -510,6 +546,26 @@ function NotesPanelImpl({
             </button>
           ))}
         </section>
+      ) : null}
+
+      {compareOpen ? (
+        <CompareModelDialog
+          suggestions={compareModels}
+          busy={compareBusy}
+          error={compareError}
+          onCompare={(model) => void compareWithModel(model)}
+          onClose={() => {
+            if (!compareBusy) setCompareOpen(false)
+          }}
+        />
+      ) : null}
+      {compareDiff ? (
+        <TextDiffDialog
+          title={t('模型对比')}
+          before={compareDiff.before}
+          after={compareDiff.after}
+          onClose={() => setCompareDiff(null)}
+        />
       ) : null}
     </div>
   )

@@ -4,6 +4,7 @@ import type { KnowledgeMapData, KnowledgeMapEdge, KnowledgeMapNode } from '../sh
 const MAX_NOTES = 300
 const MAX_CONCEPTS = 60
 const MAX_LINKS_PER_CONCEPT = 3
+const UNTAGGED_NODE_ID = 'concept:__untagged__'
 
 interface ConceptAccumulator {
   key: string
@@ -24,6 +25,8 @@ export function buildKnowledgeMap(): KnowledgeMapData {
   const bookNodes = new Map<string, KnowledgeMapNode>()
   const concepts = new Map<string, ConceptAccumulator>()
   const noteTags = new Map<string, string[]>()
+  const untaggedByBook = new Map<string, number>()
+  let untaggedNotes = 0
 
   function addEdge(source: string, target: string, kind: KnowledgeMapEdge['kind'], weight: number): void {
     const key = [source, target].sort().join('|')
@@ -57,6 +60,10 @@ export function buildKnowledgeMap(): KnowledgeMapData {
 
     const tags = [...new Set(note.tags.map((tag) => tag.trim()).filter(Boolean))]
     noteTags.set(note.id, tags)
+    if (tags.length === 0) {
+      untaggedNotes += 1
+      untaggedByBook.set(note.bookId, (untaggedByBook.get(note.bookId) ?? 0) + 1)
+    }
     for (const tag of tags) {
       const key = tag.toLowerCase()
       let concept = concepts.get(key)
@@ -101,6 +108,29 @@ export function buildKnowledgeMap(): KnowledgeMapData {
     }
   }
 
+  if (untaggedNotes > 0) {
+    nodes.push({
+      id: UNTAGGED_NODE_ID,
+      type: 'concept',
+      label: '未归类',
+      bookId: '',
+      bookTitle: '',
+      chapterId: null,
+      chapterTitle: null,
+      noteId: null,
+      kind: null,
+      weight: untaggedNotes,
+      tags: [],
+      noteCount: untaggedNotes,
+      preview: null,
+    })
+    for (const [bookId, count] of untaggedByBook) {
+      const book = bookNodes.get(bookId)
+      if (!book) continue
+      addEdge(book.id, UNTAGGED_NODE_ID, 'book', Math.min(3, 1 + count * 0.1))
+    }
+  }
+
   const cooccurrence = new Map<string, { a: string; b: string; count: number }>()
   for (const note of notes) {
     const tags = (noteTags.get(note.id) ?? []).filter((tag) => pickedKeys.has(tag.toLowerCase()))
@@ -141,5 +171,6 @@ export function buildKnowledgeMap(): KnowledgeMapData {
     semanticReady: true,
     totalNotes: total,
     displayedNotes: notes.filter((note) => (noteTags.get(note.id) ?? []).length > 0).length,
+    untaggedNotes,
   }
 }

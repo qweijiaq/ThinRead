@@ -378,10 +378,10 @@ async function listen() {
   ctx.fillText('读累了，就听', 76, 248)
   ctx.fillStyle = INK_SOFT
   ctx.font = `400 24px ${SANS}`
-  ctx.fillText('系统语音、Edge 在线音色、Beatra 付费配音都能选。', 78, 304)
+  ctx.fillText('千问 TTS 朗读，A/B 分角色，可导出整章音频。', 78, 304)
   ctx.fillText('双人播客不是念稿，是 A/B 两个角色把一章聊明白。', 78, 342)
 
-  const tags = ['双人播客', 'A / B 分角色', 'Edge 在线', 'Beatra 配音']
+  const tags = ['双人播客', 'A / B 分角色', '千问 TTS', '整章音频']
   tags.forEach((tag, index) => {
     const x = 76 + index * (index === 0 ? 162 : 182)
     ctx.fillStyle = index === 3 ? SAGE : BLUE

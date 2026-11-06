@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { parseListenScript, pickPodcastVoices, voiceLabel } from '../src/lib/listen-script.js'
+import { chooseTtsVoice, parseListenScript } from '../src/lib/listen-script.js'
 
 test('parses a dual-host script without reading speaker labels or stage directions', () => {
   const segments = parseListenScript(
@@ -32,25 +32,6 @@ test('parses chapter prose as single-host sentences', () => {
     segments.map((item) => item.text),
     ['第一段正文。', '第二段正文！'],
   )
-})
-
-test('chooses two distinct Chinese voices when available', () => {
-  const plan = pickPodcastVoices([
-    { name: 'Ting-Ting', lang: 'zh-CN' },
-    { name: 'Mei-Jia', lang: 'zh-CN' },
-    { name: 'Samantha', lang: 'en-US' },
-  ])
-  assert.equal(plan.a?.name, 'Ting-Ting')
-  assert.equal(plan.b?.name, 'Mei-Jia')
-  assert.equal(plan.distinct, true)
-  assert.match(voiceLabel(plan.a), /zh-CN/)
-})
-
-test('falls back to one Chinese voice with pitch separation', () => {
-  const plan = pickPodcastVoices([{ name: 'Ting-Ting', lang: 'zh-CN' }])
-  assert.equal(plan.a?.name, 'Ting-Ting')
-  assert.equal(plan.b?.name, 'Ting-Ting')
-  assert.equal(plan.distinct, false)
 })
 
 test('ignores non-dialogue lines after the conversation starts', () => {
@@ -125,4 +106,14 @@ test('supports named hosts without reading metadata', () => {
       ['A', '先从注意力开始。'],
     ],
   )
+})
+
+test('chooses the English voice for English-only segments and A/B otherwise', () => {
+  const base = { voiceA: 'voice-a', voiceB: 'voice-b', voiceEn: 'voice-en' }
+  assert.equal(chooseTtsVoice({ ...base, speaker: 'A', text: 'This is an English sentence.' }), 'voice-en')
+  assert.equal(chooseTtsVoice({ ...base, speaker: null, text: '这是中文。' }), 'voice-a')
+  assert.equal(chooseTtsVoice({ ...base, speaker: 'B', text: '这是中文。' }), 'voice-b')
+  assert.equal(chooseTtsVoice({ ...base, speaker: 'B', text: 'Chinese 中文 mixed.' }), 'voice-b')
+  assert.equal(chooseTtsVoice({ ...base, speaker: 'A', text: 'English only.', voiceEn: '' }), 'voice-a')
+  assert.equal(chooseTtsVoice({ voiceA: 'voice-a', voiceB: '', voiceEn: '', speaker: 'B', text: '中文。' }), 'voice-a')
 })

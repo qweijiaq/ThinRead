@@ -54,6 +54,8 @@ interface SimNode extends KnowledgeMapNode, SimulationNodeDatum {
   radius: number
 }
 
+const UNTAGGED_NODE_ID = 'concept:__untagged__'
+
 interface SimLink extends SimulationLinkDatum<SimNode> {
   id: string
   kind: KnowledgeMapEdge['kind']
@@ -516,7 +518,12 @@ export function KnowledgeMap({ books, onBack, onOpenNote, onOpenBook }: Knowledg
     let cancelled = false
     setDetailLoading(true)
     setDetailError(null)
-    const filter = selectedNode.type === 'concept' ? { tag: selectedNode.label, limit: 60 } : { bookId: selectedNode.bookId, limit: 60 }
+    const filter =
+      selectedNode.type === 'concept'
+        ? selectedNode.id === UNTAGGED_NODE_ID
+          ? { untagged: true, limit: 60 }
+          : { tag: selectedNode.label, limit: 60 }
+        : { bookId: selectedNode.bookId, limit: 60 }
     void window.api
       .listLibraryNotes(filter)
       .then((notes) => {
@@ -691,6 +698,29 @@ export function KnowledgeMap({ books, onBack, onOpenNote, onOpenBook }: Knowledg
   const conceptLinks = selectedNode?.type === 'concept' ? connected.filter((node) => node.type === 'concept') : []
   const conceptBooksList = selectedNode?.type === 'concept' ? connected.filter((node) => node.type === 'book') : []
   const bookConcepts = selectedNode?.type === 'book' ? connected.filter((node) => node.type === 'concept') : []
+  const detailBookGroups = useMemo(() => {
+    const groups = new Map<string, { bookId: string; title: string; count: number; latest: string }>()
+    for (const note of detailNotes) {
+      const row = groups.get(note.bookId)
+      if (row) {
+        row.count += 1
+        if (note.updatedAt > row.latest) row.latest = note.updatedAt
+      } else {
+        groups.set(note.bookId, {
+          bookId: note.bookId,
+          title: note.bookTitle,
+          count: 1,
+          latest: note.updatedAt,
+        })
+      }
+    }
+    return [...groups.values()].sort((a, b) => b.count - a.count || a.title.localeCompare(b.title))
+  }, [detailNotes])
+  const detailRange = useMemo(() => {
+    if (detailNotes.length === 0) return null
+    const dates = detailNotes.map((note) => note.updatedAt).filter(Boolean).sort()
+    return dates.length > 0 ? { first: dates[0]!, latest: dates[dates.length - 1]! } : null
+  }, [detailNotes])
 
   return (
     <main className="map-view">
@@ -701,7 +731,10 @@ export function KnowledgeMap({ books, onBack, onOpenNote, onOpenBook }: Knowledg
             {mode === 'map' ? (
               <>
                 {conceptCount} {t('个概念')} · {bookOptions.length} {t('本书')} · {crossConceptCount} {t('个跨书概念')} · {data?.displayedNotes ?? 0} {t('条带标签笔记')}
-                {data && data.totalNotes > data.displayedNotes ? `${t('（共')} ${data.totalNotes} ${t('条）')}` : ''}
+                {data && data.untaggedNotes > 0 ? ` · ${data.untaggedNotes} ${t('条未归类')}` : ''}
+                {data && data.totalNotes > data.displayedNotes + data.untaggedNotes
+                  ? `${t('（共')} ${data.totalNotes} ${t('条）')}`
+                  : ''}
                 <span className="map-usage">· {t('点击节点查看详情 · 双击打开书 · 拖拽节点或框选')}</span>
               </>
             ) : (
@@ -959,6 +992,22 @@ export function KnowledgeMap({ books, onBack, onOpenNote, onOpenBook }: Knowledg
                     {node.label}
                   </button>
                 ))}
+              </div>
+            ) : null}
+            {selectedNode.type === 'concept' && detailBookGroups.length > 0 ? (
+              <div className="map-detail-books">
+                <span className="map-detail-books-label">{t('跨书分布')}</span>
+                {detailBookGroups.slice(0, 6).map((group) => (
+                  <button key={group.bookId} type="button" onClick={() => onOpenBook(group.bookId)}>
+                    <strong>《{group.title}》</strong>
+                    <span>{group.count} {t('条')}</span>
+                  </button>
+                ))}
+                {detailRange ? (
+                  <p className="muted">
+                    {t('最近更新')} {detailRange.latest.slice(0, 10)}
+                  </p>
+                ) : null}
               </div>
             ) : null}
             {selectedNode.type === 'book' && bookConcepts.length > 0 ? (

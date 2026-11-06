@@ -15,28 +15,25 @@ function ListenWithMock(): JSX.Element | null {
   const [ready, setReady] = useState(false)
   useEffect(() => {
     const previous = window.api
-    const previousEngine = localStorage.getItem('reading-notes-tts-engine')
-    localStorage.setItem('reading-notes-tts-engine', 'edge')
     window.api = Object.assign(createApiStub(), {
       getTtsStatus: async () => ({
-        edge: {
-          online: true,
-          voices: [
-            { id: 'zh-CN-XiaoxiaoNeural', label: '晓晓 · 女声', language: 'zh-CN', gender: 'female' },
-            { id: 'zh-CN-YunxiNeural', label: '云希 · 男声', language: 'zh-CN', gender: 'male' },
-          ],
+        qwen: {
+          configured: true,
+          baseUrl: 'https://dashscope.aliyuncs.com/api/v1',
+          model: 'qwen-audio-3.1-tts-flash',
+          voiceA: 'longanhuan_v3.1',
+          voiceB: 'longanhuan_v3.1',
+          voiceEn: '',
+          pricePerK: 0,
+          voices: [{ id: 'longanhuan_v3.1', label: '龙安欢 v3.1', language: 'zh-CN' }],
         },
-        beatra: { configured: false },
       }),
-      getBeatraVoices: async () => [],
       synthesizeTts: async () => ({ mime: 'audio/mpeg', base64: '' }),
       saveAudio: async () => ({ saved: false, path: null }),
     }) as ReadingApi
     setReady(true)
     return () => {
       window.api = previous
-      if (previousEngine === null) localStorage.removeItem('reading-notes-tts-engine')
-      else localStorage.setItem('reading-notes-tts-engine', previousEngine)
     }
   }, [])
   return ready ? <ListenPanel title="双人播客 · 样章" text={script} onClose={fn()} /> : null
@@ -49,7 +46,7 @@ const meta = {
     layout: 'fullscreen',
     docs: {
       description: {
-        component: '听读面板：Edge、Beatra、逐句播放和整章音频入口。',
+        component: '听读面板：千问 TTS、逐句播放和整章音频入口。',
       },
     },
   },
@@ -59,6 +56,6 @@ const meta = {
 export default meta
 type Story = StoryObj<typeof meta>
 
-export const Edge: Story = {
-  name: '双人播客 · Edge',
+export const Qwen: Story = {
+  name: '双人播客 · 千问 TTS',
 }
