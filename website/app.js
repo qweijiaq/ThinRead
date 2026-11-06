@@ -457,6 +457,7 @@ function setupFeedbackForm() {
     const kind = document.querySelector('#feedbackKind')
     const title = document.querySelector('#feedbackTitle')
     const body = document.querySelector('#feedbackBody')
+    const contact = document.querySelector('#feedbackContact')
     const publicCheckbox = document.querySelector('#feedbackPublic')
     const website = document.querySelector('#feedbackWebsite')
     if (!(title instanceof HTMLInputElement) || !(body instanceof HTMLTextAreaElement)) return
@@ -465,6 +466,7 @@ function setupFeedbackForm() {
       kind: kind instanceof HTMLSelectElement ? kind.value : '建议',
       title: title.value.trim(),
       body: body.value.trim(),
+      contact: contact instanceof HTMLInputElement ? contact.value.trim() : '',
       public: publicCheckbox instanceof HTMLInputElement ? publicCheckbox.checked : true,
       createdAt: new Date().toISOString(),
       remote: false,
@@ -491,6 +493,7 @@ function setupFeedbackForm() {
             kind: note.kind,
             title: note.title,
             body: note.body,
+            contact: note.contact,
             public: note.public,
             website: website instanceof HTMLInputElement ? website.value : '',
           }),
