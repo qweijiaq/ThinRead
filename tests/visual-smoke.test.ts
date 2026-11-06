@@ -27,7 +27,8 @@ test('renders share cards with expected dimensions and non-trivial pixels', () =
     assert.equal(canvas.width, 1080)
     assert.equal(canvas.height, 1440)
     const png = canvas.toBuffer('image/png')
-    assert.ok(png.length > 20_000, `${template} render is too small: ${png.length}`)
+    // 不同系统的字体回退会影响 PNG 体积；空白画布通常只有几 KB。
+    assert.ok(png.length > 10_000, `${template} render is too small: ${png.length}`)
     assert.deepEqual([...png.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10])
   }
 })

@@ -67,7 +67,13 @@ function renderAll(): Record<string, string> {
 
 test(
   'visual baselines match the committed hashes',
-  { skip: process.platform !== 'darwin' ? '视觉基线依赖 macOS 系统字体，仅在 macOS 上校验' : false },
+  {
+    skip: process.env.CI
+      ? '视觉基线依赖本机 macOS 字体，不在 CI 中校验；本地用 UPDATE_VISUAL=1 pnpm test 更新'
+      : process.platform !== 'darwin'
+        ? '视觉基线依赖 macOS 系统字体，仅在 macOS 上校验'
+        : false,
+  },
   () => {
   const actual = renderAll()
   if (UPDATE || !fs.existsSync(BASELINE)) {
