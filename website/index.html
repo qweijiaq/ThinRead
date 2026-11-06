@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>页边 ThinRead · 把一本书读成能发布的稿子</title>
+    <meta
+      name="description"
+      content="页边 ThinRead 是本地优先的 AI 读书笔记应用：把章节读薄、提炼核心卡片、整理成书，再变成分享卡和小红书图文。书和笔记留在本机。"
+    />
+    <meta name="theme-color" content="#f4f1ea" />
+    <meta property="og:title" content="页边 ThinRead · 把一本书读成能发布的稿子" />
+    <meta
+      property="og:description"
+      content="本地优先的 AI 读书笔记桌面应用。读薄、卡片、成书、分享，一条链路完成。"
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="./assets/reader.png" />
+    <link rel="icon" href="./assets/icon.png" type="image/png" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body id="top">
+    <a class="skip-link" href="#main">跳到正文</a>
+
+    <header class="site-header">
+      <a class="brand" href="#top" aria-label="页边 ThinRead 首页">
+        <span class="brand-mark">页边</span>
+        <span class="brand-en">THINREAD</span>
+      </a>
+      <nav class="site-nav" aria-label="主导航">
+        <a href="#features">功能</a>
+        <a href="#shots">界面</a>
+        <a href="#roadmap">路线图</a>
+        <a href="#timeline">迭代</a>
+        <a href="#feedback">留言</a>
+      </nav>
+      <div class="header-actions">
+        <a class="ghost-link" href="https://github.com/qweijiaq/ThinRead" target="_blank" rel="noreferrer">GitHub ↗</a>
+        <a class="button button-small" id="headerDownload" href="https://github.com/qweijiaq/ThinRead/releases/latest">
+          下载 macOS
+        </a>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="hero">
+        <div class="hero-grid" aria-hidden="true"></div>
+        <div class="hero-inner">
+          <div class="hero-copy">
+            <p class="eyebrow">LOCAL-FIRST · AI READING WORKBENCH</p>
+            <h1>把一本书，读成<br /><em>能发布的稿子。</em></h1>
+            <p class="hero-lead">
+              页边 ThinRead 把章节读薄、提炼核心卡片、整理成书，再把笔记变成分享卡和小红书图文。
+              书和笔记留在本机，引用可以回到原文核对。
+            </p>
+            <div class="hero-actions">
+              <a class="button" id="heroDownload" href="https://github.com/qweijiaq/ThinRead/releases/latest">
+                下载 macOS 版
+              </a>
+              <button class="button button-muted" type="button" disabled>
+                Windows · 敬请期待
+              </button>
+            </div>
+            <p class="hero-meta">
+              <span id="releaseLabel">v0.1.4 · macOS arm64</span>
+              <span>MIT 开源</span>
+              <span>数据留在本机</span>
+            </p>
+          </div>
+
+          <div class="hero-visual" aria-label="页边阅读器界面预览">
+            <div class="window-frame">
+              <div class="window-bar">
+                <span></span><span></span><span></span>
+                <b>页边 / ThinRead</b>
+              </div>
+              <img src="./assets/reader.png" alt="页边阅读器界面" />
+            </div>
+            <div class="float-card float-card-a">
+              <span class="float-kicker">LOCAL</span>
+              <strong>书和笔记<br />留在本机</strong>
+            </div>
+            <div class="float-card float-card-b">
+              <span class="float-kicker">QUOTE</span>
+              <strong>每个判断<br />都能回到原文</strong>
+            </div>
+            <div class="hero-index" aria-hidden="true">01</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="trust-strip" aria-label="项目信息">
+        <div><span>01</span><strong>本地优先</strong><small>SQLite · 文件系统</small></div>
+        <div><span>02</span><strong>引用可核对</strong><small>读薄、卡片、成书</small></div>
+        <div><span>03</span><strong>一条完整链路</strong><small>读 → 记 → 写 → 发</small></div>
+        <div><span>04</span><strong>MIT 开源</strong><small>Electron + React</small></div>
+      </section>
+
+      <section class="section" id="features">
+        <div class="section-head">
+          <p class="eyebrow">THE WORKFLOW</p>
+          <h2>从读，到写，到发出去。</h2>
+          <p class="section-lead">
+            不是把划线堆得更多，而是让每一章都留下能继续使用的东西：一篇稿子、几张卡片、一条跨书关联。
+          </p>
+        </div>
+
+        <div class="feature-grid">
+          <article class="feature-card">
+            <span class="feature-no">01</span>
+            <h3>读薄成稿</h3>
+            <p>按断言重写整章，保留观点和原文依据。不是页摘要，而是能继续改、继续发的底稿。</p>
+            <span class="feature-tag">READ → DRAFT</span>
+          </article>
+          <article class="feature-card">
+            <span class="feature-no">02</span>
+            <h3>核心卡片</h3>
+            <p>从读薄稿提炼 5–25 张真正影响理解的知识点，写清作用、引用和有限延伸。</p>
+            <span class="feature-tag">5–25 CARDS</span>
+          </article>
+          <article class="feature-card">
+            <span class="feature-no">03</span>
+            <h3>整本成书</h3>
+            <p>合并章节、补过渡、去 AI 味，导出 Markdown、HTML、PDF 或完整发布包。</p>
+            <span class="feature-tag">COMPOSE</span>
+          </article>
+          <article class="feature-card">
+            <span class="feature-no">04</span>
+            <h3>分享卡 / 小红书</h3>
+            <p>把笔记变成可以直接发的图片。深色编辑排版、重点句高亮，一套图讲完一章。</p>
+            <span class="feature-tag">SHARE</span>
+          </article>
+          <article class="feature-card">
+            <span class="feature-no">05</span>
+            <h3>知识地图</h3>
+            <p>书、标签和跨书概念连成一张网；没有标签的笔记也不会消失，会进入「未归类」。</p>
+            <span class="feature-tag">CONNECT</span>
+          </article>
+          <article class="feature-card">
+            <span class="feature-no">06</span>
+            <h3>听读 / 播客</h3>
+            <p>千问 TTS 逐句朗读，A/B 双人对谈，支持睡眠定时、断点续听和 MP3 导出。</p>
+            <span class="feature-tag">LISTEN</span>
+          </article>
+        </div>
+      </section>
+
+      <section class="section section-dark" id="why">
+        <div class="section-head">
+          <p class="eyebrow">WHY THINREAD</p>
+          <h2>不是又一个划线工具。</h2>
+          <p class="section-lead">
+            Readwise 帮你收集，Obsidian 帮你连接，NotebookLM 帮你理解资料集。
+            页边只关心一件事：读完这一章之后，能留下什么可复用的东西。
+          </p>
+        </div>
+        <div class="compare-table" aria-label="和同类工具的区别">
+          <div class="compare-row compare-head">
+            <span>能力</span><span>页边 ThinRead</span><span>常见工具</span>
+          </div>
+          <div class="compare-row"><span>一本书的产出</span><strong>读薄稿、卡片、成书、分享图</strong><span>高亮、摘要或零散笔记</span></div>
+          <div class="compare-row"><span>跨书能力</span><strong>语义回声 + 知识地图</strong><span>标签、双链或当前资料集</span></div>
+          <div class="compare-row"><span>数据位置</span><strong>本机 SQLite + 文件</strong><span>多数是云端服务</span></div>
+          <div class="compare-row"><span>适合的读法</span><strong>深读非虚构，并继续写作</strong><span>收集、回顾或通用知识库</span></div>
+        </div>
+        <blockquote class="manifesto">
+          <p>“不替你读书，只把读完之后的痕迹整理好。”</p>
+          <cite>页边 · 产品原则</cite>
+        </blockquote>
+      </section>
+
+      <section class="section" id="shots">
+        <div class="section-head">
+          <p class="eyebrow">INSIDE THE APP</p>
+          <h2>一间安静的阅读工作台。</h2>
+          <p class="section-lead">书架、阅读器、工作台、分享卡和小红书，共用同一套纸墨与编辑排版。</p>
+        </div>
+        <div class="shot-grid">
+          <figure class="shot shot-wide">
+            <img src="./assets/library.png" alt="书架界面" loading="lazy" />
+            <figcaption><span>01</span>书架：书、进度、计划</figcaption>
+          </figure>
+          <figure class="shot">
+            <img src="./assets/lab.png" alt="AI 工作台界面" loading="lazy" />
+            <figcaption><span>02</span>工作台：研究、深读、整理</figcaption>
+          </figure>
+          <figure class="shot">
+            <img src="./assets/share.png" alt="分享卡界面" loading="lazy" />
+            <figcaption><span>03</span>分享卡：把笔记发出去</figcaption>
+          </figure>
+          <figure class="shot">
+            <img src="./assets/xhs.png" alt="小红书图文界面" loading="lazy" />
+            <figcaption><span>04</span>小红书：一套图讲完一章</figcaption>
+          </figure>
+          <figure class="shot">
+            <img src="./assets/map.png" alt="知识地图界面" loading="lazy" />
+            <figcaption><span>05</span>知识地图：跨书连接</figcaption>
+          </figure>
+          <figure class="shot">
+            <img src="./assets/stats.png" alt="阅读统计界面" loading="lazy" />
+            <figcaption><span>06</span>统计：目标、连续天数、里程碑</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="section" id="roadmap">
+        <div class="section-head section-head-row">
+          <div>
+            <p class="eyebrow">PUBLIC ROADMAP</p>
+            <h2>下一步做什么，公开说清楚。</h2>
+            <p class="section-lead">已采纳、修复中、接入中、已拒绝，都可以在这里看到。拒绝也会写原因。</p>
+          </div>
+          <a class="text-link" href="https://github.com/qweijiaq/ThinRead/issues/new?title=%5B%E5%BB%BA%E8%AE%AE%5D%20&body=%E6%9D%A5%E6%BA%90%EF%BC%9A%E5%AE%98%E7%BD%91%E7%95%99%E8%A8%80%0A%0A%E4%BD%BF%E7%94%A8%E5%9C%BA%E6%99%AF%EF%BC%9A%0A%0A%E5%B8%8C%E6%9C%9B%E6%80%8E%E4%B9%88%E6%94%B9%EF%BC%9A" target="_blank" rel="noreferrer">提交新建议 ↗</a>
+        </div>
+        <div class="roadmap-tabs" role="tablist" aria-label="路线图筛选">
+          <button class="roadmap-tab is-active" type="button" data-status="all" role="tab" aria-selected="true">全部</button>
+          <button class="roadmap-tab" type="button" data-status="accepted" role="tab" aria-selected="false">已采纳</button>
+          <button class="roadmap-tab" type="button" data-status="fixing" role="tab" aria-selected="false">修复中</button>
+          <button class="roadmap-tab" type="button" data-status="integrating" role="tab" aria-selected="false">接入中</button>
+          <button class="roadmap-tab" type="button" data-status="rejected" role="tab" aria-selected="false">已拒绝</button>
+        </div>
+        <div class="roadmap-grid" id="roadmapGrid" aria-live="polite"></div>
+        <p class="roadmap-note">
+          路线图会随着真实使用反馈调整。提交建议时请尽量写清楚场景、现有替代和期望结果。
+        </p>
+      </section>
+
+      <section class="section section-dark" id="timeline">
+        <div class="section-head">
+          <p class="eyebrow">CHANGELOG / 迭代时间线</p>
+          <h2>从第一版到公开 beta。</h2>
+          <p class="section-lead">每一次版本都围绕同一个方向：让读完之后的产出更可信、更可复用。</p>
+        </div>
+        <ol class="timeline">
+          <li>
+            <time>2026.11.01</time>
+            <div><span class="version">v0.1.0</span><h3>第一个 macOS 内测包</h3><p>阅读器、章节回收站、笔记依据核查、搜索索引、BibTeX/RIS/APA 引用和未签名发布流程。</p></div>
+          </li>
+          <li>
+            <time>2026.11.02</time>
+            <div><span class="version">v0.1.1</span><h3>第一次引导与成本确认</h3><p>首次引导、圆角图标、内嵌手册，以及模型调用前的费用与请求数确认。</p></div>
+          </li>
+          <li>
+            <time>2026.11.03</time>
+            <div><span class="version">v0.1.2</span><h3>文章复制全文</h3><p>章节、读薄稿、成书、报告和周复盘都可以一键复制全文。</p></div>
+          </li>
+          <li>
+            <time>2026.11.04–05</time>
+            <div><span class="version">STEPS 01–19</span><h3>可信度与听读 2.0</h3><p>统计持久化、笔记审计、版本 diff、Markdown 导出、阅读小结、千问 TTS、音色库、MP3 导出和段落间隔。</p></div>
+          </li>
+          <li>
+            <time>2026.11.06</time>
+            <div><span class="version">v0.1.4</span><h3>阅读计划与开源 beta</h3><p>阅读计划、应用锁、内容回收站、分享卡/小红书重构、重点句高亮和开源协作文档。</p></div>
+          </li>
+          <li>
+            <time>2026.11.06</time>
+            <div><span class="version">WEBSITE</span><h3>官网上线</h3><p>项目介绍、下载、公开路线图、迭代时间线、点赞和 GitHub 留言。</p></div>
+          </li>
+          <li class="timeline-next">
+            <time>NEXT</time>
+            <div><span class="version">v0.2</span><h3>同步、Windows 与更完整的英文</h3><p>加密同步、数据库加密、跨平台 OCR、完整 English Beta 和任务级取消。</p></div>
+          </li>
+        </ol>
+      </section>
+
+      <section class="section" id="feedback">
+        <div class="section-head">
+          <p class="eyebrow">FEEDBACK</p>
+          <h2>喜欢，或者不喜欢，都说出来。</h2>
+          <p class="section-lead">点赞是轻量的鼓励；建议和问题会进入 GitHub Issues，按公开路线图处理。</p>
+        </div>
+
+        <div class="feedback-layout">
+          <div class="feedback-side">
+            <div class="like-card">
+              <span class="eyebrow">COMMUNITY SIGNAL</span>
+              <div class="like-row">
+                <button class="like-button" id="likeButton" type="button" aria-pressed="false">
+                  <span aria-hidden="true">♥</span>
+                  <span id="likeLabel">点赞</span>
+                </button>
+                <strong id="likeCount">—</strong>
+              </div>
+              <p>一个浏览器只记一次；计数由 Abacus 提供，不收集个人信息。</p>
+            </div>
+
+            <div class="stat-card">
+              <span class="eyebrow">GITHUB</span>
+              <div class="stat-row"><strong id="starCount">—</strong><span>Stars</span></div>
+              <div class="stat-row"><strong id="downloadCount">—</strong><span>macOS 下载</span></div>
+              <p>开源、可自托管、可自己改。</p>
+            </div>
+
+            <form class="feedback-form" id="feedbackForm">
+              <span class="eyebrow">LEAVE A NOTE</span>
+              <label for="feedbackTitle">一句话标题</label>
+              <input id="feedbackTitle" maxlength="80" placeholder="例如：希望支持按章节导出 Anki" required />
+              <label for="feedbackBody">具体场景 / 问题</label>
+              <textarea id="feedbackBody" rows="5" maxlength="2000" placeholder="你现在怎么做？希望改成什么样？" required></textarea>
+              <button class="button" type="submit">在 GitHub 发布留言</button>
+              <p class="form-hint">会打开 GitHub 新建 issue 页面，需要登录 GitHub；内容会公开。</p>
+            </form>
+          </div>
+
+          <div class="feedback-main">
+            <div class="feedback-main-head">
+              <span class="eyebrow">RECENT NOTES</span>
+              <a class="text-link" href="https://github.com/qweijiaq/ThinRead/issues" target="_blank" rel="noreferrer">查看全部 ↗</a>
+            </div>
+            <div class="issue-list" id="issueList" aria-live="polite">
+              <p class="loading">正在读取最近的留言…</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="download-section" id="download">
+        <div>
+          <p class="eyebrow">DOWNLOAD</p>
+          <h2>现在就把下一本书<br />读成自己的。</h2>
+          <p>macOS arm64 · 未签名内测包 · 数据保存在本机。Windows 版本正在评估中。</p>
+        </div>
+        <div class="download-actions">
+          <a class="button button-large" id="finalDownload" href="https://github.com/qweijiaq/ThinRead/releases/latest">下载 macOS 版</a>
+          <button class="button button-muted button-large" type="button" disabled>Windows · 敬请期待</button>
+          <a class="text-link" href="https://github.com/qweijiaq/ThinRead/releases" target="_blank" rel="noreferrer">查看全部版本 ↗</a>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="footer-brand">
+        <span class="brand-mark">页边</span>
+        <p>把一本书读成自己的。</p>
+      </div>
+      <div class="footer-links">
+        <a href="https://github.com/qweijiaq/ThinRead" target="_blank" rel="noreferrer">GitHub</a>
+        <a href="https://github.com/qweijiaq/ThinRead/blob/main/README.md" target="_blank" rel="noreferrer">README</a>
+        <a href="https://github.com/qweijiaq/ThinRead/blob/main/docs/user-manual.md" target="_blank" rel="noreferrer">用户手册</a>
+        <a href="https://github.com/qweijiaq/ThinRead/blob/main/SECURITY.md" target="_blank" rel="noreferrer">安全</a>
+      </div>
+      <p class="footer-meta">MIT License · 2026 · 本地优先，慢慢做。</p>
+    </footer>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
