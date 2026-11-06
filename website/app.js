@@ -4,9 +4,17 @@ const LIKE_BASE = 'https://abacus.jasoncameron.dev'
 const LIKE_KEY = 'thinread/website-likes'
 const LIKED_STORAGE = 'thinread-website-liked'
 const FEEDBACK_STORAGE = 'thinread-website-feedback'
-// 接入独立留言服务时，把地址填在这里；为空时留言只保存在本机浏览器。
-const FEEDBACK_ENDPOINT = ''
+// 本机留言台。部署到公网时，把它改成留言台的公网地址。
+const FEEDBACK_API = 'http://127.0.0.1:8787'
+const FEEDBACK_PROJECT = 'thinread'
 const MAX_NOTES = 30
+const FEEDBACK_STATUS_LABEL = {
+  new: '待处理',
+  accepted: '已采纳',
+  fixing: '修复中',
+  integrating: '接入中',
+  rejected: '已拒绝',
+}
 
 const roadmap = [
   {
@@ -146,6 +154,9 @@ const roadmapGrid = document.querySelector('#roadmapGrid')
 const roadmapTabs = [...document.querySelectorAll('.roadmap-tab')]
 let activeStatus = 'all'
 let observer = null
+let remoteRoadmap = null
+let remoteFeedback = null
+let feedbackServiceOnline = false
 
 function escapeHtml(value) {
   return String(value)
@@ -158,17 +169,21 @@ function escapeHtml(value) {
 
 function renderRoadmap() {
   if (!roadmapGrid) return
-  const items = activeStatus === 'all' ? roadmap : roadmap.filter((item) => item.status === activeStatus)
+  const source = feedbackServiceOnline && Array.isArray(remoteRoadmap) ? remoteRoadmap : roadmap
+  const items = activeStatus === 'all' ? source : source.filter((item) => item.status === activeStatus)
   roadmapGrid.innerHTML = items
     .map(
       (item) => `
       <article class="roadmap-card reveal">
         <div class="roadmap-card-top">
-          <span class="status status-${item.status}">${STATUS_LABEL[item.status]}</span>
-          <span class="roadmap-date">${escapeHtml(item.date)}</span>
+          <span class="status status-${escapeHtml(item.status)}">${STATUS_LABEL[item.status] || escapeHtml(item.status)}</span>
+          <span class="roadmap-card-meta">
+            ${item.source === 'user' ? '<span class="roadmap-source">来自用户建议</span>' : ''}
+            <span class="roadmap-date">${escapeHtml(item.date || '')}</span>
+          </span>
         </div>
         <h3>${escapeHtml(item.title)}</h3>
-        <p>${escapeHtml(item.summary)}</p>
+        <p>${escapeHtml(item.summary || '')}</p>
         ${item.reason ? `<span class="reason">拒绝原因：${escapeHtml(item.reason)}</span>` : ''}
       </article>
     `,
@@ -208,6 +223,45 @@ async function loadLikes() {
     if (count) count.textContent = Number(data.value || 0).toLocaleString('zh-CN')
   } catch {
     if (count) count.textContent = '—'
+  }
+}
+
+function setFeedbackStatus(message) {
+  const status = document.querySelector('#feedbackStatus')
+  if (status) status.textContent = message
+}
+
+function setRoadmapNote(online) {
+  const note = document.querySelector('#roadmapNote')
+  if (!note) return
+  note.textContent = online
+    ? '路线图由内测留言台同步；用户建议被处理后会自动出现在这里。'
+    : '路线图根据开发记录和已知限制整理；已完成项写落地时间，未完成项只标当前阶段，不写虚构排期，也不代表承诺交付。'
+}
+
+async function loadFeedbackService() {
+  try {
+    const data = await fetchJson(`${FEEDBACK_API}/api/public/projects/${FEEDBACK_PROJECT}`, {
+      cache: 'no-store',
+      headers: { Accept: 'application/json' },
+    })
+    feedbackServiceOnline = true
+    remoteRoadmap = Array.isArray(data.roadmap) ? data.roadmap : null
+    remoteFeedback = Array.isArray(data.feedback) ? data.feedback : []
+    renderRoadmap()
+    renderNotes()
+    setRoadmapNote(true)
+    setFeedbackStatus('留言会送到内测留言台；勾选「允许公开展示」后会出现在右侧。')
+    return true
+  } catch {
+    feedbackServiceOnline = false
+    remoteRoadmap = null
+    remoteFeedback = null
+    renderRoadmap()
+    renderNotes()
+    setRoadmapNote(false)
+    setFeedbackStatus('留言台暂时未连接；留言会先保存在本机浏览器。')
+    return false
   }
 }
 
@@ -295,31 +349,54 @@ function formatDate(value) {
 function renderNotes() {
   const list = document.querySelector('#feedbackList')
   if (!list) return
-  const notes = readNotes()
+  const label = document.querySelector('#feedbackListLabel')
+  const copyButton = document.querySelector('#copyFeedback')
+  const online = feedbackServiceOnline && Array.isArray(remoteFeedback)
+  const notes = online ? remoteFeedback : readNotes()
+  if (label) label.textContent = online ? '最近公开留言' : '本机留言'
+  if (copyButton) copyButton.hidden = online
+
   if (notes.length === 0) {
-    list.innerHTML = `
-      <div class="note-empty">
-        <span aria-hidden="true">+</span>
-        <h3>还没有留言</h3>
-        <p>写下第一条建议或问题。内测期间它会保存在这台设备上，不会上传。</p>
-      </div>
-    `
+    list.innerHTML = online
+      ? `
+        <div class="note-empty">
+          <span aria-hidden="true">+</span>
+          <h3>还没有公开留言</h3>
+          <p>写下建议时勾选「允许公开展示」，它会出现在这里。</p>
+        </div>
+      `
+      : `
+        <div class="note-empty">
+          <span aria-hidden="true">+</span>
+          <h3>留言台未连接</h3>
+          <p>留言会先保存在这台设备上；服务恢复后可以再发送。</p>
+          <button class="text-link" data-action="retry-feedback" type="button">重试连接</button>
+        </div>
+      `
     return
   }
+
   list.innerHTML = notes
-    .map(
-      (note) => `
+    .map((note) => {
+      const status =
+        note.status && note.status !== 'new' && FEEDBACK_STATUS_LABEL[note.status]
+          ? `<span class="note-status status-${escapeHtml(note.status)}">${FEEDBACK_STATUS_LABEL[note.status]}</span>`
+          : ''
+      return `
       <article class="note-card">
         <div class="note-card-top">
-          <span class="note-kind">${escapeHtml(note.kind || '建议')}</span>
+          <span class="note-card-badges">
+            <span class="note-kind">${escapeHtml(note.kind || '建议')}</span>
+            ${status}
+          </span>
           <time class="note-date">${escapeHtml(formatDate(note.createdAt))}</time>
         </div>
         <h3>${escapeHtml(note.title)}</h3>
         <p>${escapeHtml(note.body)}</p>
-        ${note.remote ? '<span class="note-remote">已提交到在线留言板</span>' : ''}
+        ${!online && note.remote ? '<span class="note-remote">已提交到在线留言板</span>' : ''}
       </article>
-    `,
-    )
+    `
+    })
     .join('')
 }
 
@@ -374,65 +451,104 @@ function setupCopyFeedback() {
 function setupFeedbackForm() {
   const form = document.querySelector('#feedbackForm')
   if (!(form instanceof HTMLFormElement)) return
-  const status = document.querySelector('#feedbackStatus')
   const submit = form.querySelector('button[type="submit"]')
   form.addEventListener('submit', async (event) => {
     event.preventDefault()
     const kind = document.querySelector('#feedbackKind')
     const title = document.querySelector('#feedbackTitle')
     const body = document.querySelector('#feedbackBody')
+    const publicCheckbox = document.querySelector('#feedbackPublic')
+    const website = document.querySelector('#feedbackWebsite')
     if (!(title instanceof HTMLInputElement) || !(body instanceof HTMLTextAreaElement)) return
     const note = {
       id: globalThis.crypto?.randomUUID?.() || String(Date.now()),
       kind: kind instanceof HTMLSelectElement ? kind.value : '建议',
       title: title.value.trim(),
       body: body.value.trim(),
+      public: publicCheckbox instanceof HTMLInputElement ? publicCheckbox.checked : true,
       createdAt: new Date().toISOString(),
       remote: false,
     }
     if (!note.title || !note.body) {
-      if (status) status.textContent = '标题和具体场景都要填。'
+      setFeedbackStatus('标题和具体场景都要填。')
       return
     }
 
-    if (FEEDBACK_ENDPOINT) {
-      if (submit instanceof HTMLButtonElement) {
-        submit.disabled = true
-        submit.textContent = '提交中…'
-      }
-      try {
-        const response = await fetch(FEEDBACK_ENDPOINT, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-          body: JSON.stringify({ kind: note.kind, title: note.title, body: note.body }),
-        })
-        if (!response.ok) throw new Error(`${response.status}`)
-        note.remote = true
-      } catch {
-        if (status) status.textContent = '提交失败，请稍后再试；这条留言没有保存。'
-        if (submit instanceof HTMLButtonElement) {
-          submit.disabled = false
-          submit.textContent = '保存留言'
-        }
-        return
-      }
+    if (submit instanceof HTMLButtonElement) {
+      submit.disabled = true
+      submit.textContent = '发送中…'
     }
 
-    const saved = saveNotes([note, ...readNotes()])
-    renderNotes()
-    form.reset()
-    if (status) {
-      if (note.remote) status.textContent = '已提交到在线留言板，谢谢。'
-      else if (saved) status.textContent = '已保存在本机浏览器。接入在线留言服务后会改为直接提交。'
-      else status.textContent = '浏览器禁止本地存储；这条留言只保留在本次页面里。'
+    let delivered = false
+    let remoteError = ''
+    try {
+      const response = await fetch(
+        `${FEEDBACK_API}/api/public/projects/${FEEDBACK_PROJECT}/feedback`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({
+            kind: note.kind,
+            title: note.title,
+            body: note.body,
+            public: note.public,
+            website: website instanceof HTMLInputElement ? website.value : '',
+          }),
+        },
+      )
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        remoteError = data.error || `提交失败（${response.status}）`
+      } else {
+        delivered = true
+      }
+    } catch {
+      // 服务没启动或网络不可达：回退到本机保存。
     }
+
+    if (delivered) {
+      form.reset()
+      feedbackServiceOnline = true
+      await loadFeedbackService()
+      setFeedbackStatus('已送达内测留言台，谢谢。')
+    } else if (remoteError) {
+      setFeedbackStatus(remoteError)
+    } else {
+      const saved = saveNotes([note, ...readNotes()])
+      feedbackServiceOnline = false
+      remoteFeedback = null
+      renderNotes()
+      setFeedbackStatus(
+        saved
+          ? '留言台暂时未连接；这条留言已保存在本机浏览器。'
+          : '浏览器禁止本地存储；这条留言只保留在本次页面里。',
+      )
+    }
+
     if (submit instanceof HTMLButtonElement) {
       submit.disabled = false
-      submit.textContent = '已保存'
+      submit.textContent = delivered ? '已送达' : '已记录'
       window.setTimeout(() => {
-        submit.textContent = '保存留言'
-      }, 1800)
+        submit.textContent = '发送留言'
+      }, 2000)
     }
+  })
+}
+
+function setupFeedbackListActions() {
+  const list = document.querySelector('#feedbackList')
+  if (!list) return
+  list.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-action="retry-feedback"]')
+    if (!(button instanceof HTMLButtonElement)) return
+    button.disabled = true
+    button.textContent = '连接中…'
+    void loadFeedbackService().then((online) => {
+      if (!online) {
+        button.disabled = false
+        button.textContent = '重试连接'
+      }
+    })
   })
 }
 
@@ -470,10 +586,12 @@ function boot() {
   setupDownload()
   setupLike()
   setupFeedbackForm()
+  setupFeedbackListActions()
   setupCopyFeedback()
   renderNotes()
   revealVisible()
   loadLikes()
+  void loadFeedbackService()
 }
 
 boot()

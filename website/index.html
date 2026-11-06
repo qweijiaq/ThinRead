@@ -247,7 +247,7 @@
         </div>
         <div class="roadmap-grid" id="roadmapGrid" aria-live="polite"></div>
         <p class="roadmap-note">
-          路线图根据开发记录和已知限制整理；已完成项写落地时间，未完成项只标当前阶段，不写虚构排期，也不代表承诺交付。
+          <span id="roadmapNote">路线图根据开发记录和已知限制整理；已完成项写落地时间，未完成项只标当前阶段，不写虚构排期，也不代表承诺交付。</span>
         </p>
       </section>
 
@@ -294,7 +294,8 @@
           <p class="eyebrow">FEEDBACK</p>
           <h2>喜欢，或者不喜欢，都说出来。</h2>
           <p class="section-lead">
-            点赞是轻量的鼓励。内测期间，建议和问题先保存在你的浏览器里；正式留言服务接入后会换成可直接提交的留言板。
+            点赞是轻量的鼓励；建议和问题会送到内测留言台，采纳后进入公开路线图。
+            勾选「允许公开展示」后，你的留言也会出现在这里。
           </p>
         </div>
 
@@ -332,17 +333,22 @@
               <input id="feedbackTitle" maxlength="80" placeholder="例如：希望支持按章节导出笔记" required />
               <label for="feedbackBody">具体场景 / 问题</label>
               <textarea id="feedbackBody" rows="5" maxlength="2000" placeholder="你现在怎么做？希望改成什么样？" required></textarea>
-              <button class="button" type="submit">保存留言</button>
+              <label class="checkbox-row">
+                <input id="feedbackPublic" type="checkbox" checked />
+                允许公开展示（不显示联系方式）
+              </label>
+              <input class="honeypot" id="feedbackWebsite" type="text" tabindex="-1" autocomplete="off" aria-hidden="true" />
+              <button class="button" type="submit">发送留言</button>
               <p class="form-hint" id="feedbackStatus" role="status">
-                当前为内测版：留言保存在本机浏览器，不会上传。接入正式留言服务后会自动改为在线提交。
+                正在连接内测留言台…
               </p>
             </form>
           </div>
 
           <div class="feedback-main">
             <div class="feedback-main-head">
-              <span class="eyebrow">本机留言</span>
-              <button class="text-link" id="copyFeedback" type="button">复制全部</button>
+              <span class="eyebrow" id="feedbackListLabel">最近公开留言</span>
+              <button class="text-link" id="copyFeedback" type="button" hidden>复制全部</button>
             </div>
             <div class="note-list" id="feedbackList" aria-live="polite"></div>
           </div>

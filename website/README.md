@@ -21,8 +21,20 @@ python3 -m http.server 4173
 ## 点赞与留言
 
 - 点赞：Abacus 公共计数器 `thinread/website-likes`，不需要登录；浏览器本地记录已点赞状态。
-- 留言：默认保存在浏览器 `localStorage`，不会上传。接入独立留言服务时，在 `app.js` 里设置 `FEEDBACK_ENDPOINT`，表单会自动改为在线提交，并在同一列表里显示。
-- 留言列表只保存在当前浏览器；换设备或清空站点数据后会消失。
+- 留言与路线图：连接本机留言台 [`../feedback-desk`](../feedback-desk)。启动方式：
+
+  ```bash
+  cd ../feedback-desk
+  npm start
+  ```
+
+  或在 Finder 里双击 `feedback-desk/start.command`。
+
+- 官网在 `website/app.js` 里通过 `FEEDBACK_API` 和 `FEEDBACK_PROJECT` 连接留言台，默认是 `http://127.0.0.1:8787` + `thinread`。
+- 留言台在线时，公开路线图和公开留言都从留言台读取；提交留言会直接送达后台。
+- 留言台离线时，官网自动回退到内置路线图和浏览器本机留言，不会白屏或丢内容。
+- 部署到公网时，把 `FEEDBACK_API` 改成留言台的公网地址。
+- 后台：<http://127.0.0.1:8787/admin>，管理员令牌在 `feedback-desk/data/admin-token.txt`。
 
 ## 部署
 
@@ -32,5 +44,6 @@ python3 -m http.server 4173
 
 - `index.html`：页面结构
 - `styles.css`：设计系统与响应式
-- `app.js`：路线图、下载、点赞、本机留言
+- `app.js`：路线图、下载、点赞、留言台连接
 - `assets/`：界面截图和图标
+- `../feedback-desk/`：独立留言与路线图服务，可给其他项目复用
