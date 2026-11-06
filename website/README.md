@@ -31,15 +31,18 @@ python3 -m http.server 4173
   或在 Finder 里双击 `feedback-desk/start.command`。
 
 - 官网在 `website/app.js` 里通过 `FEEDBACK_API` 和 `FEEDBACK_PROJECT` 连接留言台，默认是 `http://127.0.0.1:8787` + `thinread`。
+- 如果留言台项目启用了 submitKey，把后台生成的 key 填到 `FEEDBACK_KEY`。
 - 留言台在线时，公开路线图和公开留言都从留言台读取；提交留言会直接送达后台。
 - 官网的留言区有「最近公开 / 我的留言」两个视图：公开留言可以同感、看官方回复；我的留言用查询码看处理进度，不需要账号。
-- 路线图支持「已上线」状态和版本号；用户建议被处理后会显示「来自用户建议」。
+- 留言表单支持一张 2MB 以内的截图；路线图支持「已上线」状态和版本号；用户建议被处理后会显示「来自用户建议」。
 - 标题输入框会搜索已有路线图和公开留言，提示相似建议，减少重复提交。
 - 留言台离线时，官网自动回退到内置路线图和浏览器本机留言，不会白屏或丢内容。
+- 如果项目开启了审核，官网会提示「审核通过后才会公开」。
 - 部署到公网时，把 `FEEDBACK_API` 改成留言台的公网地址。
 - 在手机上预览时，把 `FEEDBACK_API` 改成 Mac 的局域网地址，并用 `HOST=0.0.0.0 npm start` 启动留言台。
 - 后台：<http://127.0.0.1:8787/admin>，管理员令牌在 `feedback-desk/data/admin-token.txt`。
 - 公开项目页：<http://127.0.0.1:8787/p/thinread>。
+- 完整接入文档：`feedback-desk/docs/INTEGRATION.md`；OpenAPI：`feedback-desk/public/openapi.yaml`。
 
 ## 部署
 

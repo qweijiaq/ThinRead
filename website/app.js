@@ -7,6 +7,8 @@ const FEEDBACK_STORAGE = 'thinread-website-feedback'
 // 本机留言台。部署到公网时，把它改成留言台的公网地址。
 const FEEDBACK_API = 'http://127.0.0.1:8787'
 const FEEDBACK_PROJECT = 'thinread'
+// 如果留言台项目启用了提交 key，把它填在这里。
+const FEEDBACK_KEY = ''
 const MAX_NOTES = 30
 const MY_FEEDBACK_STORAGE = 'thinread-my-feedback'
 const VOTED_STORAGE = 'thinread-voted-items'
@@ -165,6 +167,7 @@ let feedbackServiceOnline = false
 let feedbackView = 'public'
 let myFeedback = []
 let myFeedbackLoading = false
+let feedbackModeration = false
 
 function escapeHtml(value) {
   return String(value)
@@ -241,6 +244,11 @@ function setFeedbackStatus(message) {
   if (status) status.textContent = message
 }
 
+function setFeedbackHint(message) {
+  const hint = document.querySelector('#feedbackHint')
+  if (hint) hint.textContent = message
+}
+
 function setRoadmapNote(online) {
   const note = document.querySelector('#roadmapNote')
   if (!note) return
@@ -256,12 +264,17 @@ async function loadFeedbackService() {
       headers: { Accept: 'application/json' },
     })
     feedbackServiceOnline = true
+    feedbackModeration = Boolean(data.project?.moderation)
     remoteRoadmap = Array.isArray(data.roadmap) ? data.roadmap : null
     remoteFeedback = Array.isArray(data.feedback) ? data.feedback : []
     renderRoadmap()
     renderNotes()
     setRoadmapNote(true)
-    setFeedbackStatus('留言会送到内测留言台；勾选「允许公开展示」后会出现在右侧。')
+    setFeedbackHint(
+      feedbackModeration
+        ? '留言会先进入审核；审核通过后才会出现在右侧。'
+        : '留言会送到内测留言台；勾选「允许公开展示」后会出现在右侧。',
+    )
     return true
   } catch {
     feedbackServiceOnline = false
@@ -270,7 +283,7 @@ async function loadFeedbackService() {
     renderRoadmap()
     renderNotes()
     setRoadmapNote(false)
-    setFeedbackStatus('留言台暂时未连接；留言会先保存在本机浏览器。')
+    setFeedbackHint('留言台暂时未连接；留言会先保存在本机浏览器。')
     return false
   }
 }
@@ -408,6 +421,26 @@ function voteButtonHtml(type, id, votes) {
   </button>`
 }
 
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = String(reader.result || '')
+      resolve(result.includes(',') ? result.slice(result.indexOf(',') + 1) : result)
+    }
+    reader.onerror = () => reject(new Error('截图读取失败'))
+    reader.readAsDataURL(file)
+  })
+}
+
+function attachmentBlock(attachment) {
+  if (!attachment?.data) return ''
+  return `<figure class="note-attachment">
+    <img src="data:${escapeHtml(attachment.type)};base64,${attachment.data}" alt="${escapeHtml(attachment.name || '留言截图')}" loading="lazy" />
+    <figcaption>${escapeHtml(attachment.name || '留言截图')}</figcaption>
+  </figure>`
+}
+
 function formatDate(value) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return ''
@@ -479,6 +512,7 @@ function renderMyFeedback() {
           </div>
           <h3>${escapeHtml(item.title)}</h3>
           <p>${escapeHtml(item.body)}</p>
+          ${attachmentBlock(item.attachment)}
           ${
             item.reply
               ? `<div class="note-reply"><span>官方回复</span><p>${escapeHtml(item.reply)}</p></div>`
@@ -549,6 +583,7 @@ function renderNotes() {
         </div>
         <h3>${escapeHtml(note.title)}</h3>
         <p>${escapeHtml(note.body)}</p>
+        ${attachmentBlock(note.attachment)}
         ${note.reply ? `<div class="note-reply"><span>官方回复</span><p>${escapeHtml(note.reply)}</p></div>` : ''}
         ${vote ? `<div class="note-footer">${vote}</div>` : ''}
         ${!online && note.remote ? '<span class="note-remote">已提交到在线留言板</span>' : ''}
@@ -771,6 +806,7 @@ function setupFeedbackForm() {
     const title = document.querySelector('#feedbackTitle')
     const body = document.querySelector('#feedbackBody')
     const contact = document.querySelector('#feedbackContact')
+    const attachmentInput = document.querySelector('#feedbackAttachment')
     const publicCheckbox = document.querySelector('#feedbackPublic')
     const website = document.querySelector('#feedbackWebsite')
     if (!(title instanceof HTMLInputElement) || !(body instanceof HTMLTextAreaElement)) return
@@ -789,6 +825,31 @@ function setupFeedbackForm() {
       return
     }
 
+    let attachment = null
+    const file = attachmentInput instanceof HTMLInputElement ? attachmentInput.files?.[0] : null
+    if (file) {
+      if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(file.type)) {
+        setFeedbackStatus('只支持 PNG / JPEG / WebP / GIF 截图。')
+        return
+      }
+      if (file.size > 2 * 1024 * 1024) {
+        setFeedbackStatus('截图不能超过 2MB。')
+        return
+      }
+      try {
+        attachment = {
+          name: file.name,
+          type: file.type,
+          size: file.size,
+          data: await fileToBase64(file),
+        }
+      } catch {
+        setFeedbackStatus('截图读取失败，请换一张再试。')
+        return
+      }
+    }
+
+    setFeedbackStatus('')
     if (submit instanceof HTMLButtonElement) {
       submit.disabled = true
       submit.textContent = '发送中…'
@@ -810,6 +871,8 @@ function setupFeedbackForm() {
             contact: note.contact,
             public: note.public,
             website: website instanceof HTMLInputElement ? website.value : '',
+            key: FEEDBACK_KEY,
+            attachment,
           }),
         },
       )
@@ -840,7 +903,11 @@ function setupFeedbackForm() {
       if (similar) similar.hidden = true
       await loadFeedbackService()
       await loadMyFeedback()
-      setFeedbackStatus('已送达内测留言台，谢谢。可以在「我的留言」查看进度。')
+      setFeedbackStatus(
+        feedbackModeration
+          ? '已送达，审核通过后会公开显示。可以在「我的留言」查看进度。'
+          : '已送达内测留言台，谢谢。可以在「我的留言」查看进度。',
+      )
     } else if (remoteError) {
       setFeedbackStatus(remoteError)
     } else {

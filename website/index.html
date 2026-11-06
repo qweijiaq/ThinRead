@@ -17,7 +17,7 @@
     <meta property="og:type" content="website" />
     <meta property="og:image" content="./assets/reader.png" />
     <link rel="icon" href="./assets/icon.png" type="image/png" />
-    <link rel="stylesheet" href="./styles.css?v=2" />
+    <link rel="stylesheet" href="./styles.css?v=4" />
   </head>
   <body id="top">
     <a class="skip-link" href="#main">跳到正文</a>
@@ -337,15 +337,16 @@
               <textarea id="feedbackBody" rows="5" maxlength="2000" placeholder="你现在怎么做？希望改成什么样？" required></textarea>
               <label for="feedbackContact">联系方式（可选）</label>
               <input id="feedbackContact" maxlength="120" placeholder="邮箱 / 微信，仅后台可见" />
+              <label for="feedbackAttachment">截图（可选，最大 2MB）</label>
+              <input id="feedbackAttachment" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
               <label class="checkbox-row">
                 <input id="feedbackPublic" type="checkbox" checked />
                 允许公开展示（不显示联系方式）
               </label>
               <input class="honeypot" id="feedbackWebsite" type="text" tabindex="-1" autocomplete="off" aria-hidden="true" />
               <button class="button" type="submit">发送留言</button>
-              <p class="form-hint" id="feedbackStatus" role="status">
-                正在连接内测留言台…
-              </p>
+              <p class="form-hint" id="feedbackHint">正在连接内测留言台…</p>
+              <p class="form-status" id="feedbackStatus" role="status"></p>
             </form>
           </div>
 
@@ -406,6 +407,6 @@
       <p class="footer-meta">© 2026 页边 ThinRead · 内测中 · 本地优先，慢慢做。</p>
     </footer>
 
-    <script src="./app.js?v=2"></script>
+    <script src="./app.js?v=4"></script>
   </body>
 </html>
