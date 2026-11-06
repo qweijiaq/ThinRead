@@ -17,7 +17,7 @@
     <meta property="og:type" content="website" />
     <meta property="og:image" content="./assets/reader.png" />
     <link rel="icon" href="./assets/icon.png" type="image/png" />
-    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./styles.css?v=2" />
   </head>
   <body id="top">
     <a class="skip-link" href="#main">跳到正文</a>
@@ -243,6 +243,7 @@
           <button class="roadmap-tab" type="button" data-status="accepted" role="tab" aria-selected="false">已采纳</button>
           <button class="roadmap-tab" type="button" data-status="fixing" role="tab" aria-selected="false">修复中</button>
           <button class="roadmap-tab" type="button" data-status="integrating" role="tab" aria-selected="false">接入中</button>
+          <button class="roadmap-tab" type="button" data-status="shipped" role="tab" aria-selected="false">已上线</button>
           <button class="roadmap-tab" type="button" data-status="rejected" role="tab" aria-selected="false">已拒绝</button>
         </div>
         <div class="roadmap-grid" id="roadmapGrid" aria-live="polite"></div>
@@ -331,6 +332,7 @@
               </select>
               <label for="feedbackTitle">一句话标题</label>
               <input id="feedbackTitle" maxlength="80" placeholder="例如：希望支持按章节导出笔记" required />
+              <p class="similar-suggestions" id="similarSuggestions" hidden></p>
               <label for="feedbackBody">具体场景 / 问题</label>
               <textarea id="feedbackBody" rows="5" maxlength="2000" placeholder="你现在怎么做？希望改成什么样？" required></textarea>
               <label for="feedbackContact">联系方式（可选）</label>
@@ -349,8 +351,14 @@
 
           <div class="feedback-main">
             <div class="feedback-main-head">
-              <span class="eyebrow" id="feedbackListLabel">最近公开留言</span>
-              <button class="text-link" id="copyFeedback" type="button" hidden>复制全部</button>
+              <div class="feedback-view-tabs" id="feedbackViewTabs" role="group" aria-label="留言视图">
+                <button class="feedback-view-tab is-active" type="button" data-view="public">最近公开</button>
+                <button class="feedback-view-tab" type="button" data-view="mine">我的留言</button>
+              </div>
+              <div class="feedback-head-actions">
+                <button class="text-link" id="refreshMyFeedback" type="button" hidden>刷新</button>
+                <button class="text-link" id="copyFeedback" type="button" hidden>复制全部</button>
+              </div>
             </div>
             <div class="note-list" id="feedbackList" aria-live="polite"></div>
           </div>
@@ -398,6 +406,6 @@
       <p class="footer-meta">© 2026 页边 ThinRead · 内测中 · 本地优先，慢慢做。</p>
     </footer>
 
-    <script src="./app.js"></script>
+    <script src="./app.js?v=2"></script>
   </body>
 </html>

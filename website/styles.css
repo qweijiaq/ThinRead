@@ -394,6 +394,32 @@ h1, h2 { font-family: var(--serif); font-weight: 600; letter-spacing: -0.03em; }
   letter-spacing: 0.05em;
   color: var(--blue);
 }
+.roadmap-version {
+  padding: 3px 7px;
+  border: 1px solid color-mix(in srgb, var(--green) 30%, transparent);
+  border-radius: 999px;
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.05em;
+  color: var(--green);
+}
+.roadmap-card-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); }
+.vote-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 9px;
+}
+.vote-button:hover { border-color: var(--accent); color: var(--accent); }
+.vote-button.is-voted { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.vote-button span { font-size: 9px; }
 .status {
   display: inline-flex;
   align-items: center;
@@ -407,6 +433,7 @@ h1, h2 { font-family: var(--serif); font-weight: 600; letter-spacing: -0.03em; }
 .status-accepted { color: var(--green); }
 .status-fixing { color: var(--amber); }
 .status-integrating { color: var(--blue); }
+.status-shipped { color: var(--green); }
 .status-rejected { color: var(--red); }
 .roadmap-date { font-family: var(--mono); font-size: 9px; color: var(--muted); }
 .roadmap-card h3 { margin: 0 0 8px; font-family: var(--serif); font-size: 20px; font-weight: 600; }
@@ -473,9 +500,32 @@ h1, h2 { font-family: var(--serif); font-weight: 600; letter-spacing: -0.03em; }
 .checkbox-row input { width: 14px; height: 14px; accent-color: var(--accent); }
 .honeypot { position: absolute !important; left: -9999px !important; width: 1px !important; height: 1px !important; opacity: 0 !important; pointer-events: none !important; }
 .form-hint { margin: 2px 0 0; font-size: 9.5px; line-height: 1.65; color: var(--muted); }
+.similar-suggestions {
+  margin: 0;
+  padding: 8px 10px;
+  border-left: 2px solid var(--marker);
+  background: color-mix(in srgb, var(--marker) 12%, transparent);
+  font-size: 10px;
+  line-height: 1.7;
+  color: var(--ink-2);
+}
 .feedback-main-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
 .feedback-main-head .eyebrow { margin: 0; }
-.feedback-main-head .text-link { flex: none; }
+.feedback-view-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.feedback-view-tab {
+  padding: 5px 9px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+}
+.feedback-view-tab:hover { border-color: var(--line); color: var(--ink); }
+.feedback-view-tab.is-active { border-color: var(--ink); background: var(--ink); color: var(--paper-2); }
+.feedback-head-actions { display: flex; align-items: center; gap: 14px; }
+.feedback-head-actions .text-link { flex: none; }
 .note-list { display: grid; gap: 10px; }
 .note-card { padding: 16px 17px; border: 1px solid var(--line); background: var(--paper-2); }
 .note-card-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
@@ -504,8 +554,14 @@ h1, h2 { font-family: var(--serif); font-weight: 600; letter-spacing: -0.03em; }
 .note-status.status-accepted { color: var(--green); border-color: color-mix(in srgb, var(--green) 35%, transparent); }
 .note-status.status-fixing { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 35%, transparent); }
 .note-status.status-integrating { color: var(--blue); border-color: color-mix(in srgb, var(--blue) 35%, transparent); }
+.note-status.status-shipped { color: var(--green); border-color: color-mix(in srgb, var(--green) 35%, transparent); }
 .note-status.status-rejected { color: var(--red); border-color: color-mix(in srgb, var(--red) 35%, transparent); }
 .note-date { font-family: var(--mono); font-size: 9px; color: var(--muted); }
+.note-reply { margin-top: 12px; padding: 10px 12px; border-left: 2px solid var(--green); background: color-mix(in srgb, var(--green) 5%, transparent); }
+.note-reply span { display: block; margin-bottom: 4px; font-family: var(--mono); font-size: 8px; letter-spacing: 0.1em; color: var(--green); }
+.note-reply p { margin: 0; color: var(--ink-2); font-size: 11px; line-height: 1.75; white-space: pre-wrap; }
+.note-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+.note-roadmap { margin-top: 12px; padding: 9px 11px; border: 1px dashed var(--line-strong); font-size: 10.5px; line-height: 1.7; color: var(--ink-2); }
 .note-card h3 { margin: 0 0 7px; font-size: 13px; font-weight: 600; }
 .note-card p { margin: 0; color: var(--ink-2); font-size: 11.8px; line-height: 1.75; white-space: pre-wrap; }
 .note-remote { display: inline-block; margin-top: 10px; font-family: var(--mono); font-size: 9px; color: var(--green); }
@@ -613,6 +669,7 @@ h1, h2 { font-family: var(--serif); font-weight: 600; letter-spacing: -0.03em; }
   line-height: 0.9;
   color: var(--line-strong);
 }
+.note-empty-spinner { font-size: 48px !important; }
 .note-empty h3 {
   margin: 6px 0 0;
   font-family: var(--serif);
