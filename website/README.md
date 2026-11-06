@@ -34,6 +34,7 @@ python3 -m http.server 4173
 - 留言台在线时，公开路线图和公开留言都从留言台读取；提交留言会直接送达后台。
 - 留言台离线时，官网自动回退到内置路线图和浏览器本机留言，不会白屏或丢内容。
 - 部署到公网时，把 `FEEDBACK_API` 改成留言台的公网地址。
+- 在手机上预览时，把 `FEEDBACK_API` 改成 Mac 的局域网地址，并用 `HOST=0.0.0.0 npm start` 启动留言台。
 - 后台：<http://127.0.0.1:8787/admin>，管理员令牌在 `feedback-desk/data/admin-token.txt`。
 
 ## 部署
