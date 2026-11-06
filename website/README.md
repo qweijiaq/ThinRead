@@ -1,6 +1,6 @@
 # 官网
 
-页边 ThinRead 的静态官网：项目介绍、功能、下载、路线图、迭代时间线、点赞和 GitHub 留言。
+页边 ThinRead 的内测官网：项目介绍、功能、下载、路线图、迭代时间线、点赞和留言。
 
 ## 本地预览
 
@@ -11,23 +11,26 @@ python3 -m http.server 4173
 
 打开 <http://localhost:4173>。
 
-## 部署到 GitHub Pages
+## 内容口径
 
-仓库已包含 `.github/workflows/pages.yml`。首次部署前需要在 GitHub 仓库设置里：
-
-1. Settings → Pages → Build and deployment → Source 选择 **GitHub Actions**；
-2. 推送到 `main`，或在 Actions 里手动运行 **Deploy website**；
-3. 部署完成后访问 `https://qweijiaq.github.io/ThinRead/`。
+- 官网截图来自真实书库：《认知觉醒：开启自我改变的原动力》用于书架、阅读器、分享卡和小红书，《恶意》用于人物关系图。
+- 路线图根据 `docs/feature-audit.md` 的开发记录和已知限制整理；已完成项写落地日期，未完成项不写虚构排期。
+- 下载按钮直连内测 DMG，不跳转仓库页面。当前只提供 macOS arm64，Windows 仍在评估。
+- 内测期只保留产品信息和下载入口，不加入许可证、代码托管或社区入口。
 
 ## 点赞与留言
 
 - 点赞：Abacus 公共计数器 `thinread/website-likes`，不需要登录；浏览器本地记录已点赞状态。
-- 留言：表单会打开 GitHub 新建 issue 页面，发布后通过 GitHub API 显示在「最近留言」里；需要 GitHub 账号。
-- GitHub API 未登录时有速率限制，读取失败会显示直接跳转 GitHub 的链接。
+- 留言：默认保存在浏览器 `localStorage`，不会上传。接入独立留言服务时，在 `app.js` 里设置 `FEEDBACK_ENDPOINT`，表单会自动改为在线提交，并在同一列表里显示。
+- 留言列表只保存在当前浏览器；换设备或清空站点数据后会消失。
+
+## 部署
+
+`website/` 是纯静态站点，可以直接部署到任意静态托管。部署时保留 `assets/` 目录和 `.nojekyll`。
 
 ## 文件
 
 - `index.html`：页面结构
 - `styles.css`：设计系统与响应式
-- `app.js`：路线图、版本下载、点赞、留言、GitHub 数据
+- `app.js`：路线图、下载、点赞、本机留言
 - `assets/`：界面截图和图标

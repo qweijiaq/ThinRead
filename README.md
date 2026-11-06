@@ -11,7 +11,7 @@
 
 > English: ThinRead is a local-first AI reading assistant and book-notes desktop app for knowledge management. It turns each chapter into a publishable draft and a small set of core cards, then connects them across books. EPUB/PDF/MOBI/web/WeChat Reading import, chapter Q&A, Markdown/PDF export. Electron + React, MIT.
 
-🌐 [官网](https://qweijiaq.github.io/ThinRead/) · 📘 [用户手册](docs/user-manual.md) · [PDF 版](docs/user-manual.pdf) · [HTML 版](docs/user-manual.html)
+🌐 内测官网：[`website/`](website/) · 📘 [用户手册](docs/user-manual.md) · [PDF 版](docs/user-manual.pdf) · [HTML 版](docs/user-manual.html)
 
 📋 [发布前故障演练记录](docs/release-drill.md)
 
