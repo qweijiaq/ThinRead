@@ -10,10 +10,22 @@
     throw new Error(`等待超时：${message}`)
   }
   await waitFor(() => document.querySelector('.book-card'), '书架书籍')
-  await waitFor(() => document.querySelector('.book-card img'), 'PDF 封面')
+  // PDF 封面依赖 macOS PDFKit/Swift，CI 环境可能没有；没有封面时书架会显示文字封面。
   document.querySelector('.book-card').click()
   await waitFor(() => document.querySelector('.reader article'), '打开 PDF 阅读器')
-  const pdfButton = [...document.querySelectorAll('button')].find((button) => button.textContent.trim() === '原版 PDF')
+  let pdfButton = [...document.querySelectorAll('button')].find((button) => button.textContent.trim() === '原版 PDF')
+  if (!pdfButton) {
+    const moreButton = [...document.querySelectorAll('.chapter-head-actions button')].find(
+      (button) => button.textContent.trim() === '更多',
+    )
+    if (moreButton) {
+      moreButton.click()
+      pdfButton = await waitFor(
+        () => [...document.querySelectorAll('.reader-more-menu button')].find((button) => button.textContent.trim() === '原版 PDF'),
+        '更多菜单里的原版 PDF',
+      )
+    }
+  }
   if (!pdfButton) throw new Error('找不到原版 PDF 按钮')
   pdfButton.click()
   const viewer = await waitFor(() => document.querySelector('.pdf-viewer'), '打开原版查看器')
