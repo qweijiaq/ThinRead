@@ -553,8 +553,128 @@ h1, h2 { font-family: var(--serif); font-weight: 600; letter-spacing: -0.03em; }
 .feedback-form input:focus, .feedback-form textarea:focus, .feedback-form select:focus { border-color: var(--accent); }
 .feedback-form textarea { resize: vertical; line-height: 1.7; }
 .feedback-form .button { margin-top: 8px; }
-.checkbox-row { display: flex; align-items: center; gap: 8px; margin-top: 4px; font-size: 11px; line-height: 1.6; color: var(--ink-2); }
-.checkbox-row input { width: 14px; height: 14px; accent-color: var(--accent); }
+
+.custom-select { position: relative; }
+.custom-select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 38px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 12.5px;
+  text-align: left;
+}
+.custom-select-trigger:hover { border-color: var(--line-strong); }
+.custom-select-trigger[aria-expanded="true"] { border-color: var(--accent); }
+.custom-select-arrow {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-right: 1px solid var(--muted);
+  border-bottom: 1px solid var(--muted);
+  transform: rotate(45deg) translateY(-2px);
+  transition: transform 0.15s ease;
+}
+.custom-select.is-open .custom-select-arrow { transform: rotate(-135deg) translateY(-2px); }
+.custom-select-menu {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--paper-2);
+  box-shadow: 0 14px 34px rgba(25, 22, 16, 0.14);
+}
+.custom-select-menu [role="option"] {
+  padding: 8px 9px;
+  border-radius: 4px;
+  color: var(--ink-2);
+  font-size: 12px;
+  cursor: pointer;
+  outline: none;
+}
+.custom-select-menu [role="option"]:hover,
+.custom-select-menu [role="option"]:focus { background: var(--paper-3); color: var(--ink); }
+.custom-select-menu [role="option"][aria-selected="true"] { background: var(--ink); color: var(--paper-2); }
+
+.file-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 8px 10px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 4px;
+  background: var(--paper);
+  cursor: pointer;
+}
+.file-input input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.file-button {
+  flex: none;
+  padding: 4px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  background: var(--paper-2);
+  color: var(--ink-2);
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+}
+.file-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 10px; }
+.file-input input:focus-visible + .file-button { outline: 2px solid var(--marker); outline-offset: 2px; }
+
+.checkbox-row { position: relative; display: flex; align-items: flex-start; gap: 8px; margin-top: 4px; font-size: 11px; line-height: 1.6; color: var(--ink-2); }
+.checkbox-row input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.checkbox-box {
+  position: relative;
+  width: 14px;
+  height: 14px;
+  flex: none;
+  margin-top: 2px;
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  background: var(--paper);
+}
+.checkbox-row input:checked + .checkbox-box { border-color: var(--ink); background: var(--ink); }
+.checkbox-row input:checked + .checkbox-box::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 4px;
+  height: 7px;
+  border-right: 1.5px solid var(--paper-2);
+  border-bottom: 1.5px solid var(--paper-2);
+  transform: rotate(45deg);
+}
+.checkbox-row input:focus-visible + .checkbox-box { outline: 2px solid var(--marker); outline-offset: 2px; }
 .honeypot { position: absolute !important; left: -9999px !important; width: 1px !important; height: 1px !important; opacity: 0 !important; pointer-events: none !important; }
 .form-hint { margin: 2px 0 0; font-size: 9.5px; line-height: 1.65; color: var(--muted); }
 .form-status { min-height: 16px; margin: 4px 0 0; font-size: 10px; line-height: 1.65; color: var(--accent); }

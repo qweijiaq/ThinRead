@@ -17,7 +17,7 @@
     <meta property="og:type" content="website" />
     <meta property="og:image" content="./assets/reader.png" />
     <link rel="icon" href="./assets/icon.png" type="image/png" />
-    <link rel="stylesheet" href="./styles.css?v=5" />
+    <link rel="stylesheet" href="./styles.css?v=6" />
   </head>
   <body id="top">
     <a class="skip-link" href="#main">跳到正文</a>
@@ -573,12 +573,26 @@
 
             <form class="feedback-form" id="feedbackForm">
               <span class="eyebrow">LEAVE A NOTE</span>
-              <label for="feedbackKind">类型</label>
-              <select id="feedbackKind">
-                <option value="建议">建议</option>
-                <option value="问题">问题</option>
-                <option value="其他">其他</option>
-              </select>
+              <label for="feedbackKindTrigger">类型</label>
+              <div class="custom-select" id="feedbackKindSelect">
+                <button
+                  class="custom-select-trigger"
+                  id="feedbackKindTrigger"
+                  type="button"
+                  aria-haspopup="listbox"
+                  aria-expanded="false"
+                  aria-controls="feedbackKindMenu"
+                >
+                  <span class="custom-select-value">建议</span>
+                  <span class="custom-select-arrow" aria-hidden="true"></span>
+                </button>
+                <ul class="custom-select-menu" id="feedbackKindMenu" role="listbox" aria-label="留言类型" tabindex="-1" hidden>
+                  <li role="option" data-value="建议" aria-selected="true" tabindex="-1">建议</li>
+                  <li role="option" data-value="问题" aria-selected="false" tabindex="-1">问题</li>
+                  <li role="option" data-value="其他" aria-selected="false" tabindex="-1">其他</li>
+                </ul>
+                <input type="hidden" id="feedbackKind" name="feedbackKind" value="建议" />
+              </div>
               <label for="feedbackTitle">一句话标题</label>
               <input id="feedbackTitle" maxlength="80" placeholder="例如：希望支持按章节导出笔记" required />
               <p class="similar-suggestions" id="similarSuggestions" hidden></p>
@@ -587,10 +601,15 @@
               <label for="feedbackContact">联系方式（可选）</label>
               <input id="feedbackContact" maxlength="120" placeholder="邮箱 / 微信，仅后台可见" />
               <label for="feedbackAttachment">截图（可选，最大 2MB）</label>
-              <input id="feedbackAttachment" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
+              <label class="file-input">
+                <input id="feedbackAttachment" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
+                <span class="file-button">选择图片</span>
+                <span class="file-name" id="feedbackAttachmentName">未选择文件</span>
+              </label>
               <label class="checkbox-row">
                 <input id="feedbackPublic" type="checkbox" checked />
-                允许公开展示（不显示联系方式）
+                <span class="checkbox-box" aria-hidden="true"></span>
+                <span>允许公开展示（不显示联系方式）</span>
               </label>
               <input class="honeypot" id="feedbackWebsite" type="text" tabindex="-1" autocomplete="off" aria-hidden="true" />
               <button class="button" type="submit">发送留言</button>
@@ -657,6 +676,6 @@
       <p class="footer-meta">© 2026 页边 ThinRead · 内测中 · 本地优先，慢慢做。</p>
     </footer>
 
-    <script src="./app.js?v=4"></script>
+    <script src="./app.js?v=7"></script>
   </body>
 </html>

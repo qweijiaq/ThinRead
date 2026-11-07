@@ -620,7 +620,17 @@ async function loadMyFeedback() {
       }
     }),
   )
-  myFeedback = results
+  const valid = results.filter((entry) => entry.reason !== 'missing')
+  if (valid.length !== results.length) {
+    writeMyTickets(
+      valid.map((entry) => ({
+        ticket: entry.ticket,
+        title: entry.title,
+        createdAt: entry.createdAt,
+      })),
+    )
+  }
+  myFeedback = valid
   myFeedbackLoading = false
   if (feedbackView === 'mine') renderNotes()
   updateFeedbackHead()
@@ -796,6 +806,110 @@ function setupCopyFeedback() {
   })
 }
 
+function setupCustomSelect(root) {
+  if (!(root instanceof HTMLElement)) return
+  const trigger = root.querySelector('.custom-select-trigger')
+  const menu = root.querySelector('.custom-select-menu')
+  const hidden = root.querySelector('input[type="hidden"]')
+  const valueElement = root.querySelector('.custom-select-value')
+  const options = [...menu.querySelectorAll('[role="option"]')]
+  if (!trigger || !menu || !hidden || !valueElement || options.length === 0) return
+  const defaultValue = hidden.value || options[0].dataset.value
+
+  const setOpen = (open) => {
+    menu.hidden = !open
+    trigger.setAttribute('aria-expanded', String(open))
+    root.classList.toggle('is-open', open)
+    if (open) {
+      const current =
+        options.find((option) => option.getAttribute('aria-selected') === 'true') || options[0]
+      current.focus()
+    }
+  }
+
+  const selectOption = (option, focusTrigger = true) => {
+    if (!option) return
+    options.forEach((item) => {
+      item.setAttribute('aria-selected', String(item === option))
+    })
+    hidden.value = option.dataset.value || option.textContent.trim()
+    valueElement.textContent = hidden.value
+    hidden.dispatchEvent(new Event('change', { bubbles: true }))
+    setOpen(false)
+    if (focusTrigger) trigger.focus()
+  }
+
+  const move = (direction) => {
+    const index = options.indexOf(document.activeElement)
+    const next = (index + direction + options.length) % options.length
+    options[next].focus()
+  }
+
+  trigger.addEventListener('click', () => setOpen(menu.hidden))
+  trigger.addEventListener('keydown', (event) => {
+    if (['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(event.key)) {
+      event.preventDefault()
+      setOpen(true)
+    }
+  })
+  menu.addEventListener('click', (event) => {
+    const option = event.target.closest('[role="option"]')
+    if (option) selectOption(option)
+  })
+  menu.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      setOpen(false)
+      trigger.focus()
+      return
+    }
+    if (event.key === 'Tab') {
+      setOpen(false)
+      return
+    }
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault()
+      move(event.key === 'ArrowDown' ? 1 : -1)
+      return
+    }
+    if (event.key === 'Home' || event.key === 'End') {
+      event.preventDefault()
+      options[event.key === 'Home' ? 0 : options.length - 1].focus()
+      return
+    }
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      selectOption(document.activeElement.closest('[role="option"]'))
+    }
+  })
+  document.addEventListener('click', (event) => {
+    if (!root.contains(event.target)) setOpen(false)
+  })
+  root.closest('form')?.addEventListener('reset', () => {
+    window.setTimeout(() => {
+      const fallback =
+        options.find((option) => option.dataset.value === defaultValue) || options[0]
+      selectOption(fallback, false)
+    }, 0)
+  })
+
+  selectOption(options.find((option) => option.dataset.value === hidden.value) || options[0], false)
+}
+
+function setupFileInputName() {
+  const input = document.querySelector('#feedbackAttachment')
+  const name = document.querySelector('#feedbackAttachmentName')
+  if (!(input instanceof HTMLInputElement) || !name) return
+  const update = () => {
+    name.textContent = input.files?.[0]?.name || '未选择文件'
+  }
+  input.addEventListener('change', update)
+  input.form?.addEventListener('reset', () => {
+    window.setTimeout(update, 0)
+  })
+  update()
+}
+
 function setupFeedbackForm() {
   const form = document.querySelector('#feedbackForm')
   if (!(form instanceof HTMLFormElement)) return
@@ -812,7 +926,7 @@ function setupFeedbackForm() {
     if (!(title instanceof HTMLInputElement) || !(body instanceof HTMLTextAreaElement)) return
     const note = {
       id: globalThis.crypto?.randomUUID?.() || String(Date.now()),
-      kind: kind instanceof HTMLSelectElement ? kind.value : '建议',
+      kind: kind instanceof HTMLInputElement ? kind.value : '建议',
       title: title.value.trim(),
       body: body.value.trim(),
       contact: contact instanceof HTMLInputElement ? contact.value.trim() : '',
@@ -985,6 +1099,8 @@ function boot() {
   setupDownload()
   setupLike()
   setupFeedbackForm()
+  setupCustomSelect(document.querySelector('#feedbackKindSelect'))
+  setupFileInputName()
   setupFeedbackListActions()
   setupCopyFeedback()
   setupFeedbackView()
