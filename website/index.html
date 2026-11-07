@@ -8,7 +8,18 @@
       name="description"
       content="页边 ThinRead 是本地优先的 AI 读书笔记应用：导入 EPUB / PDF / MOBI / 网页 / 微信读书，把章节读薄、提炼核心卡片、整理成书，再变成分享卡、小红书图文和播客。书和笔记留在本机。"
     />
-    <meta name="theme-color" content="#f4f1e8" />
+    <meta name="theme-color" content="#ffffff" />
+    <script>
+      (() => {
+        try {
+          const saved = localStorage.getItem('thinread-theme')
+          const dark = saved ? saved === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches
+          document.documentElement.dataset.theme = dark ? 'dark' : 'light'
+        } catch {
+          document.documentElement.dataset.theme = 'light'
+        }
+      })()
+    </script>
     <meta property="og:title" content="页边 ThinRead · 把一本书读成能发布的稿子" />
     <meta
       property="og:description"
@@ -17,7 +28,7 @@
     <meta property="og:type" content="website" />
     <meta property="og:image" content="./assets/reader.png" />
     <link rel="icon" href="./assets/icon.png" type="image/png" />
-    <link rel="stylesheet" href="./styles.css?v=6" />
+    <link rel="stylesheet" href="./styles.css?v=9" />
   </head>
   <body id="top">
     <a class="skip-link" href="#main">跳到正文</a>
@@ -36,6 +47,15 @@
         <a href="#feedback">留言</a>
       </nav>
       <div class="header-actions">
+        <button class="theme-toggle" id="themeToggle" type="button" aria-label="切换深色模式" aria-pressed="false">
+          <svg class="theme-icon theme-icon-moon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M20.5 14.2A8.5 8.5 0 0 1 9.8 3.5 8.5 8.5 0 1 0 20.5 14.2Z" />
+          </svg>
+          <svg class="theme-icon theme-icon-sun" viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="4.2" />
+            <path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M18.7 5.3l-1.6 1.6M6.9 17.1l-1.6 1.6" />
+          </svg>
+        </button>
         <a
           class="button button-small"
           id="headerDownload"
@@ -50,7 +70,6 @@
 
     <main id="main">
       <section class="hero">
-        <div class="hero-grid" aria-hidden="true"></div>
         <div class="hero-inner">
           <div class="hero-copy">
             <p class="eyebrow">LOCAL-FIRST · AI READING WORKBENCH</p>
@@ -96,7 +115,6 @@
               <span class="float-kicker">QUOTE</span>
               <strong>每个判断<br />都能回到原文</strong>
             </div>
-            <div class="hero-index" aria-hidden="true">01</div>
           </div>
         </div>
       </section>
@@ -676,6 +694,6 @@
       <p class="footer-meta">© 2026 页边 ThinRead · 内测中 · 本地优先，慢慢做。</p>
     </footer>
 
-    <script src="./app.js?v=7"></script>
+    <script src="./app.js?v=9"></script>
   </body>
 </html>

@@ -17,6 +17,7 @@ python3 -m http.server 4173
 - 路线图根据 `docs/feature-audit.md` 的开发记录和已知限制整理；已完成项写落地日期，未完成项不写虚构排期。
 - 下载按钮直连内测 DMG，不跳转仓库页面。当前只提供 macOS arm64，Windows 仍在评估。
 - 内测期只保留产品信息和下载入口，不加入许可证、代码托管或社区入口。
+- 官网默认跟随系统深浅色，右上角月亮/太阳按钮可手动切换；颜色变量在 `styles.css` 的 `:root` 和 `:root[data-theme="dark"]` 里。
 
 ## 点赞与留言
 

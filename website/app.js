@@ -217,6 +217,43 @@ roadmapTabs.forEach((tab) => {
 })
 renderRoadmap()
 
+function setupTheme() {
+  const root = document.documentElement
+  const toggle = document.querySelector('#themeToggle')
+  const meta = document.querySelector('meta[name="theme-color"]')
+  const apply = (theme) => {
+    root.dataset.theme = theme
+    if (toggle) {
+      toggle.setAttribute('aria-label', theme === 'dark' ? '切换到浅色模式' : '切换到深色模式')
+      toggle.setAttribute('aria-pressed', String(theme === 'dark'))
+    }
+    if (meta instanceof HTMLMetaElement) {
+      meta.content = theme === 'dark' ? '#09090b' : '#ffffff'
+    }
+  }
+  apply(root.dataset.theme === 'dark' ? 'dark' : 'light')
+  if (toggle instanceof HTMLButtonElement) {
+    toggle.addEventListener('click', () => {
+      const next = root.dataset.theme === 'dark' ? 'light' : 'dark'
+      apply(next)
+      try {
+        localStorage.setItem('thinread-theme', next)
+      } catch {
+        // 忽略。
+      }
+    })
+  }
+  try {
+    const media = window.matchMedia('(prefers-color-scheme: dark)')
+    media.addEventListener('change', (event) => {
+      if (localStorage.getItem('thinread-theme')) return
+      apply(event.matches ? 'dark' : 'light')
+    })
+  } catch {
+    // 忽略。
+  }
+}
+
 function setupDownload() {
   document.querySelectorAll('[data-download]').forEach((link) => {
     if (link instanceof HTMLAnchorElement && DOWNLOAD_URL) link.href = DOWNLOAD_URL
@@ -1096,6 +1133,7 @@ window.addEventListener('storage', (event) => {
 })
 
 function boot() {
+  setupTheme()
   setupDownload()
   setupLike()
   setupFeedbackForm()
