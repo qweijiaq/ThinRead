@@ -6,7 +6,7 @@
     <title>页边 ThinRead · 把一本书读成能发布的稿子</title>
     <meta
       name="description"
-      content="页边 ThinRead 是本地优先的 AI 读书笔记应用：把章节读薄、提炼核心卡片、整理成书，再变成分享卡和小红书图文。书和笔记留在本机。"
+      content="页边 ThinRead 是本地优先的 AI 读书笔记应用：导入 EPUB / PDF / MOBI / 网页 / 微信读书，把章节读薄、提炼核心卡片、整理成书，再变成分享卡、小红书图文和播客。书和笔记留在本机。"
     />
     <meta name="theme-color" content="#f4f1e8" />
     <meta property="og:title" content="页边 ThinRead · 把一本书读成能发布的稿子" />
@@ -17,7 +17,7 @@
     <meta property="og:type" content="website" />
     <meta property="og:image" content="./assets/reader.png" />
     <link rel="icon" href="./assets/icon.png" type="image/png" />
-    <link rel="stylesheet" href="./styles.css?v=4" />
+    <link rel="stylesheet" href="./styles.css?v=5" />
   </head>
   <body id="top">
     <a class="skip-link" href="#main">跳到正文</a>
@@ -29,6 +29,7 @@
       </a>
       <nav class="site-nav" aria-label="主导航">
         <a href="#features">功能</a>
+        <a href="#capabilities">全景</a>
         <a href="#shots">界面</a>
         <a href="#roadmap">路线图</a>
         <a href="#timeline">迭代</a>
@@ -55,8 +56,8 @@
             <p class="eyebrow">LOCAL-FIRST · AI READING WORKBENCH</p>
             <h1>把一本书，读成<br /><em>能发布的稿子。</em></h1>
             <p class="hero-lead">
-              页边 ThinRead 把章节读薄、提炼核心卡片、整理成书，再把笔记变成分享卡和小红书图文。
-              知识地图和人物关系图把书里的结构留下来，引用可以回到原文核对。
+              导入 EPUB / PDF / MOBI / 网页或微信读书笔记，把章节读薄、提炼核心卡片、整理成书，
+              再把笔记变成分享卡和小红书图文。知识地图和人物关系图把书里的结构留下来，引用可以回到原文核对。
             </p>
             <div class="hero-actions">
               <a
@@ -165,6 +166,30 @@
             <p>全库研究、作者圆桌、跨书综述、论证地图、事实核查、双人播客等 19 个工具，共用同一份书与笔记。</p>
             <span class="feature-tag">19 TOOLS</span>
           </article>
+          <article class="feature-card">
+            <span class="feature-no">09</span>
+            <h3>导入与 OCR</h3>
+            <p>EPUB、PDF、MOBI、AZW3、DOCX、HTML、Markdown、TXT；网页、Readwise、Kindle、微信读书；macOS 扫描版 OCR。</p>
+            <span class="feature-tag">8 FORMATS</span>
+          </article>
+          <article class="feature-card">
+            <span class="feature-no">10</span>
+            <h3>问答 / 费曼 / 回声</h3>
+            <p>基于当前章节回答、苏格拉底式追问、费曼自测；页边回声把其他书里的相近笔记放到旁边对读。</p>
+            <span class="feature-tag">ASK / RECALL</span>
+          </article>
+          <article class="feature-card">
+            <span class="feature-no">11</span>
+            <h3>笔记审计与版本</h3>
+            <p>引用核对、无引用、人工修改、章节覆盖度；行级 diff、按段重写、多模型对比，最后导出带 frontmatter 的 Markdown。</p>
+            <span class="feature-tag">AUDIT / DIFF</span>
+          </article>
+          <article class="feature-card">
+            <span class="feature-no">12</span>
+            <h3>阅读计划与统计</h3>
+            <p>按每天分钟数把章节排到各天，书架显示今日计划；连续阅读、目标、月度/年度/同比、AI 用量都在统计页。</p>
+            <span class="feature-tag">PLAN / STATS</span>
+          </article>
         </div>
       </section>
 
@@ -183,6 +208,8 @@
           </div>
           <div class="compare-row"><span>一本书的产出</span><strong>读薄稿、卡片、成书、分享图</strong><span>高亮、摘要或零散笔记</span></div>
           <div class="compare-row"><span>跨书能力</span><strong>语义回声 + 知识地图 + 人物关系图</strong><span>标签、双链或当前资料集</span></div>
+          <div class="compare-row"><span>导入与 OCR</span><strong>8 种文件格式 + 网页 / Readwise / 微信读书 + macOS OCR</strong><span>通常只支持 EPUB / PDF</span></div>
+          <div class="compare-row"><span>笔记可信度</span><strong>引用核对 + 审计 + 版本 diff</strong><span>很少核对引用和覆盖度</span></div>
           <div class="compare-row"><span>数据位置</span><strong>本机 SQLite + 文件</strong><span>多数是云端服务</span></div>
           <div class="compare-row"><span>适合的读法</span><strong>深读非虚构，并继续写作</strong><span>收集、回顾或通用知识库</span></div>
         </div>
@@ -190,6 +217,228 @@
           <p>“不替你读书，只把读完之后的痕迹整理好。”</p>
           <cite>页边 · 产品原则</cite>
         </blockquote>
+      </section>
+
+      <section class="section" id="loop">
+        <div class="section-head">
+          <p class="eyebrow">THE FULL LOOP</p>
+          <h2>从导入一本书，<br />到发出去一条笔记。</h2>
+          <p class="section-lead">
+            不是一组孤立的小工具，而是一条能走完的链路。每一步都留下可以核对、可以继续使用的东西。
+          </p>
+        </div>
+
+        <ol class="loop-grid">
+          <li class="loop-step">
+            <span class="loop-no">01</span>
+            <h3>导入</h3>
+            <p>先把书和划线收进来，格式尽量不设限。</p>
+            <ul class="loop-list">
+              <li>EPUB / PDF / MOBI / AZW3 / DOCX / HTML / Markdown / TXT</li>
+              <li>网页正文抓取、Readwise、Kindle、微信读书</li>
+              <li>macOS 扫描版 PDF OCR，单次最多 300 页</li>
+              <li>自动隐藏目录、版权页和广告页</li>
+            </ul>
+          </li>
+          <li class="loop-step">
+            <span class="loop-no">02</span>
+            <h3>读</h3>
+            <p>把阅读器调成适合长文的样子，再把注意力留在正文。</p>
+            <ul class="loop-list">
+              <li>字体、字号、行距、段距、首行缩进、版心</li>
+              <li>高亮、划线、删除线、书签、专注模式</li>
+              <li>PDF 原版查看、页码记忆、自动续读</li>
+              <li>阅读计划、连续天数、月度/年度统计</li>
+            </ul>
+          </li>
+          <li class="loop-step">
+            <span class="loop-no">03</span>
+            <h3>记</h3>
+            <p>不是再堆一层摘要，而是把这一章变成能继续改的底稿。</p>
+            <ul class="loop-list">
+              <li>按断言重写整章，保留观点和原文依据</li>
+              <li>5–25 张核心卡片：作用、引用、有限延伸</li>
+              <li>依据核查、笔记审计、章节覆盖度</li>
+              <li>版本 diff、按段重写、多模型对比</li>
+            </ul>
+          </li>
+          <li class="loop-step">
+            <span class="loop-no">04</span>
+            <h3>连</h3>
+            <p>让这本书和读过的其他书发生关系，而不是停在孤立的笔记里。</p>
+            <ul class="loop-list">
+              <li>页边回声：跨书语义相近的笔记左右对读</li>
+              <li>知识地图：书、标签、概念共现、未归类</li>
+              <li>人物关系图：身份、阵营、章节来源、剧情梗概</li>
+              <li>导出 Markdown / Mermaid / PNG</li>
+            </ul>
+          </li>
+          <li class="loop-step">
+            <span class="loop-no">05</span>
+            <h3>写与发</h3>
+            <p>从章节底稿到整本成书，再到可以直接发出去的一张图。</p>
+            <ul class="loop-list">
+              <li>整本成书：合并章节、补过渡、去 AI 味</li>
+              <li>精炼/完整、语气、Markdown/HTML/PDF/发布包</li>
+              <li>BibTeX / RIS / APA 引用格式</li>
+              <li>分享卡、小红书、双人播客 MP3</li>
+            </ul>
+          </li>
+        </ol>
+
+        <div class="spec-strip" aria-label="产品规格">
+          <div><strong>8</strong><span>种导入格式</span></div>
+          <div><strong>19</strong><span>个 AI 工作台工具</span></div>
+          <div><strong>9</strong><span>个模型服务预设</span></div>
+          <div><strong>5–25</strong><span>张核心卡片</span></div>
+          <div><strong>6</strong><span>种分享卡版式</span></div>
+          <div><strong>3</strong><span>套分享主题</span></div>
+        </div>
+      </section>
+
+      <section class="section" id="capabilities">
+        <div class="section-head">
+          <p class="eyebrow">CAPABILITY INDEX</p>
+          <h2>每个阶段，具体能做什么。</h2>
+          <p class="section-lead">
+            把功能按使用阶段摊开。不是所有功能都要每天用，但需要的时候应该在。
+          </p>
+        </div>
+
+        <div class="capability-grid">
+          <article class="capability-card">
+            <span class="capability-no">01</span>
+            <h3>导入与阅读</h3>
+            <p>从文件、网页和划线记录进来，先把书读顺。</p>
+            <ul>
+              <li>EPUB / PDF / MOBI / AZW3 / DOCX / HTML / Markdown / TXT</li>
+              <li>网页正文抓取、图片下载</li>
+              <li>Readwise CSV / 同步、Kindle 划线、微信读书笔记</li>
+              <li>macOS 扫描版 PDF OCR，单次最多 300 页</li>
+              <li>PDF 原版查看、页码记忆、缩放翻页</li>
+              <li>字体、字号、行距、段距、首行缩进、版心</li>
+              <li>高亮、划线、删除线、书签、专注模式、自动续读</li>
+            </ul>
+          </article>
+
+          <article class="capability-card">
+            <span class="capability-no">02</span>
+            <h3>读薄与卡片</h3>
+            <p>把一章读成能继续改的稿子，再拆成少量真正有用的卡片。</p>
+            <ul>
+              <li>按断言重写整章，保留观点和原文依据</li>
+              <li>5–25 张核心卡片，写清作用、引用、有限延伸</li>
+              <li>依据逐字匹配、待核对/无依据筛选</li>
+              <li>卡片就地编辑、扩展、删除；人工修改不被覆盖</li>
+              <li>读薄报告：原文/压缩字数、档位、耗时、token</li>
+              <li>模型对比：另一个模型重跑，保存快照并 diff</li>
+            </ul>
+          </article>
+
+          <article class="capability-card">
+            <span class="capability-no">03</span>
+            <h3>笔记与导出</h3>
+            <p>笔记不仅留在应用里，也要能带回自己的知识库。</p>
+            <ul>
+              <li>读薄稿、摘要、论点、知识点、问题、想法、划线</li>
+              <li><code>[[标题]]</code> 互链、反向链接、同书/跨书相关</li>
+              <li>笔记库按书/类型/标签/关键词筛选</li>
+              <li>笔记审计：AI/人工、已核对/待核对/无引用、覆盖度</li>
+              <li>版本 diff：读薄稿/成稿/报告行级对比</li>
+              <li>导出 Markdown + YAML frontmatter + index.md</li>
+              <li>多选长图、单条分享、回收站恢复</li>
+            </ul>
+          </article>
+
+          <article class="capability-card">
+            <span class="capability-no">04</span>
+            <h3>知识连接</h3>
+            <p>书不是孤岛。概念、人物和跨书笔记都可以连起来。</p>
+            <ul>
+              <li>页边回声：本地语义模型找相近笔记</li>
+              <li>知识地图：书、标签、概念共现、跨书标记</li>
+              <li>未归类节点：没有标签的笔记不会消失</li>
+              <li>人物关系图：两阶段抽取人物、阵营、事件关系</li>
+              <li>关系详情：身份、阵营、章节来源、关系方向、剧情梗概</li>
+              <li>导出 Markdown / Mermaid / PNG</li>
+            </ul>
+          </article>
+
+          <article class="capability-card">
+            <span class="capability-no">05</span>
+            <h3>成书与发布</h3>
+            <p>把章节底稿合成为一本可以读、可以发的书。</p>
+            <ul>
+              <li>整本成书：合并章节、补过渡、去 AI 味</li>
+              <li>精炼/完整、克制准确/读者视角/有判断</li>
+              <li>一键补齐未完成章节、整本重新生成</li>
+              <li>成稿历史最多 40 个版本，可恢复</li>
+              <li>导出 Markdown / HTML / 排版 PDF / 发布包</li>
+              <li>BibTeX / RIS / APA 引用格式</li>
+              <li>拆分书籍、按章重新生成</li>
+            </ul>
+          </article>
+
+          <article class="capability-card">
+            <span class="capability-no">06</span>
+            <h3>分享卡 / 小红书</h3>
+            <p>把一条笔记变成一张可以直接发出去的图。</p>
+            <ul>
+              <li>6 种分享卡：金句、知识卡、读薄卡、整本书、长图、里程碑</li>
+              <li>纸 / 墨 / 苔绿三套主题</li>
+              <li>深色编辑排版、网格纸、重点句高亮</li>
+              <li>可选署名/品牌，保存在本机</li>
+              <li>小红书按章/按书，3:4 多页图文</li>
+              <li>覆盖检查：正文 → 卡片漏点；补漏只进本次导出</li>
+              <li>复制图片、保存 PNG、复制文字</li>
+            </ul>
+          </article>
+
+          <article class="capability-card">
+            <span class="capability-no">07</span>
+            <h3>听读 / 播客</h3>
+            <p>把书听一遍，或者把一章做成双人播客。</p>
+            <ul>
+              <li>千问 TTS 逐句朗读，句子高亮</li>
+              <li>A/B 双人对谈、英文音色</li>
+              <li>睡眠定时 15/30/60 分钟</li>
+              <li>断点续听，30 天内从上次句子继续</li>
+              <li>迷你播放器，切到书架/笔记/工作台继续播</li>
+              <li>整章 WAV / MP3，0/0.5/1 秒段落间隔</li>
+              <li>音色库、费用预估、下一句预取</li>
+            </ul>
+          </article>
+
+          <article class="capability-card">
+            <span class="capability-no">08</span>
+            <h3>AI 工作台</h3>
+            <p>19 个研究、深读、练习和整理工具，共用同一份书与笔记。</p>
+            <ul>
+              <li>全库研究、作者圆桌、魔鬼代言人</li>
+              <li>多角色读书会、跨书综述、阅读路径</li>
+              <li>每周复盘、年度阅读报告、论证地图</li>
+              <li>全章边注、AI 边注、观点演变、知识缺口</li>
+              <li>事实核查、扫描页/图表理解</li>
+              <li>双人播客、自适应出题</li>
+              <li>概念合并、卡片去重；结果进内容库</li>
+            </ul>
+          </article>
+
+          <article class="capability-card">
+            <span class="capability-no">09</span>
+            <h3>本地数据与隐私</h3>
+            <p>书和笔记先属于你，再谈 AI 和分享。</p>
+            <ul>
+              <li>书、笔记、生成内容在本机 SQLite + 文件</li>
+              <li>可选应用锁；数据库加密仍在评估</li>
+              <li>每日自动备份，保留 8 份</li>
+              <li>整库导出/导入 zip，换机可迁移</li>
+              <li>诊断包只含版本/系统/脱敏设置/日志</li>
+              <li>API Key / Readwise Token 存系统钥匙串</li>
+              <li>没有账号、没有云端正文、没有订阅</li>
+            </ul>
+          </article>
+        </div>
       </section>
 
       <section class="section" id="shots">
@@ -398,6 +647,7 @@
       </div>
       <div class="footer-links">
         <a href="#features">功能</a>
+        <a href="#capabilities">全景</a>
         <a href="#shots">界面</a>
         <a href="#roadmap">路线图</a>
         <a href="#timeline">迭代</a>
