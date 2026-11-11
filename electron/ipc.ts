@@ -2767,12 +2767,16 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     return chooseSyncFolder(result.filePaths[0]!)
   })
 
-  ipcMain.handle('sync:push', () => pushSyncSnapshot(dataDir))
+  ipcMain.handle('sync:push', (_event, passphrase?: unknown) => {
+    if (passphrase !== undefined && typeof passphrase !== 'string') throw new Error('加密口令无效。')
+    return pushSyncSnapshot(dataDir, typeof passphrase === 'string' ? passphrase.slice(0, 200) : '')
+  })
 
-  ipcMain.handle('sync:pull', async (_event, name: unknown) => {
+  ipcMain.handle('sync:pull', async (_event, name: unknown, passphrase?: unknown) => {
     if (typeof name !== 'string' || !name.trim()) throw new Error('同步快照名称无效。')
+    if (passphrase !== undefined && typeof passphrase !== 'string') throw new Error('加密口令无效。')
     cancelAllAiJobs()
-    pullSyncSnapshot(dataDir, name)
+    pullSyncSnapshot(dataDir, name, typeof passphrase === 'string' ? passphrase.slice(0, 200) : '')
     const window = getWindow()
     setTimeout(() => window?.webContents.reload(), 250)
     return { ok: true }

@@ -1736,5 +1736,9 @@
   "环境设计比反复下决心更有效：把诱人的选项移出视线，减少一次选择需要消耗的注意力。": "Designing the environment beats repeated resolve: move tempting options out of sight and reduce the attention each choice costs.",
   "\\n## 关系\\n": "\\n## Relationships\\n",
   "\\n## 关系图\\n": "\\n## Relationship map\\n",
-  "\\n## 节点\\n": "\\n## Nodes\\n"
+  "\\n## 节点\\n": "\\n## Nodes\\n",
+  "加密口令（可选）": "Passphrase (optional)",
+  "同步加密口令": "Sync passphrase",
+  "留空推送普通 zip；填了口令会加密成 .thinsync，拉取时需要同一口令。": "Leave blank to push a plain zip; with a passphrase the snapshot is encrypted as .thinsync and the same passphrase is required to restore it.",
+  "已加密": "Encrypted"
 }

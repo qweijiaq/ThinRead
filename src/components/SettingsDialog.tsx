@@ -128,6 +128,7 @@ export function SettingsDialog({
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null)
   const [syncBusy, setSyncBusy] = useState<string | null>(null)
   const [syncNotice, setSyncNotice] = useState<string | null>(null)
+  const [syncPassphrase, setSyncPassphrase] = useState('')
 
   useEffect(() => {
     if (!open) return
@@ -1188,11 +1189,20 @@ export function SettingsDialog({
             <button type="button" className="text-button muted" onClick={() => void refreshSync()} disabled={syncBusy !== null}>
               {t('刷新')}
             </button>
+            <input
+              type="password"
+              value={syncPassphrase}
+              onChange={(event) => setSyncPassphrase(event.target.value)}
+              placeholder={t('加密口令（可选）')}
+              aria-label={t('同步加密口令')}
+              autoComplete="new-password"
+            />
           </div>
           <p className="field-hint">
             {syncStatus?.folder
               ? `${t('同步目录')}：${syncStatus.folder}`
               : t('选择一个 iCloud Drive、Dropbox 或 NAS 文件夹；推送会生成一份整库快照，其他设备可以拉取恢复。')}
+            {t('留空推送普通 zip；填了口令会加密成 .thinsync，拉取时需要同一口令。')}
           </p>
           {syncNotice ? <div className="inline-notice" role="status" aria-live="polite">{syncNotice}</div> : null}
           {syncStatus && syncStatus.snapshots.length > 0 ? (
@@ -1201,7 +1211,7 @@ export function SettingsDialog({
                 <div key={item.name} className="backup-row">
                   <div className="backup-row-main">
                     <strong>{formatBackupTime(item.createdAt)}</strong>
-                    <span>{formatBytes(item.size)}</span>
+                    <span>{formatBytes(item.size)}{item.encrypted ? ` · ${t('已加密')}` : ''}</span>
                   </div>
                   <div className="backup-row-actions">
                     <button

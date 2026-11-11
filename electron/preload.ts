@@ -311,8 +311,9 @@ const api: ReadingApi = {
   deletePdfAnnotation: (id: string) => ipcRenderer.invoke('pdf:annotation-delete', id) as Promise<void>,
   getSyncStatus: () => ipcRenderer.invoke('sync:status') as Promise<SyncStatus>,
   chooseSyncFolder: () => ipcRenderer.invoke('sync:choose-folder') as Promise<SyncStatus>,
-  pushSyncSnapshot: () => ipcRenderer.invoke('sync:push') as Promise<SyncSnapshot>,
-  pullSyncSnapshot: (name: string) => ipcRenderer.invoke('sync:pull', name) as Promise<{ ok: boolean }>,
+  pushSyncSnapshot: (passphrase?: string) => ipcRenderer.invoke('sync:push', passphrase) as Promise<SyncSnapshot>,
+  pullSyncSnapshot: (name: string, passphrase?: string) =>
+    ipcRenderer.invoke('sync:pull', name, passphrase) as Promise<{ ok: boolean }>,
   openDataDir: () => ipcRenderer.invoke('app:open-data') as Promise<void>,
   createBackup: () => ipcRenderer.invoke('backup:create') as Promise<BackupInfo>,
   listBackups: () => ipcRenderer.invoke('backup:list') as Promise<BackupInfo[]>,

@@ -1033,6 +1033,7 @@ export interface SyncSnapshot {
   path: string
   createdAt: string
   size: number
+  encrypted: boolean
 }
 
 export interface SyncStatus {
@@ -1763,8 +1764,8 @@ export interface ReadingApi {
   getNoteQuality(): Promise<NoteQualitySummary>
   getSyncStatus(): Promise<SyncStatus>
   chooseSyncFolder(): Promise<SyncStatus>
-  pushSyncSnapshot(): Promise<SyncSnapshot>
-  pullSyncSnapshot(name: string): Promise<{ ok: boolean }>
+  pushSyncSnapshot(passphrase?: string): Promise<SyncSnapshot>
+  pullSyncSnapshot(name: string, passphrase?: string): Promise<{ ok: boolean }>
   openDataDir(): Promise<void>
   createBackup(): Promise<BackupInfo>
   listBackups(): Promise<BackupInfo[]>
