@@ -442,7 +442,7 @@ export function initDatabase(dataDir: string): void {
   optimizeDatabase()
 }
 
-export const SCHEMA_VERSION = 7
+export const SCHEMA_VERSION = 9
 
 interface SchemaMigration {
   version: number
@@ -543,6 +543,40 @@ const MIGRATIONS: SchemaMigration[] = [
           deleted_at TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_book_trash_deleted ON book_trash(deleted_at);
+      `)
+    },
+  },
+  {
+    version: 8,
+    // 书架状态：待读 / 在读 / 读完 / 归档。
+    run(conn) {
+      const columns = new Set(
+        (conn.prepare('PRAGMA table_info(books)').all() as unknown as Array<{ name: string }>).map((row) => row.name),
+      )
+      if (!columns.has('shelf_status')) {
+        conn.exec("ALTER TABLE books ADD COLUMN shelf_status TEXT NOT NULL DEFAULT 'reading'")
+      }
+    },
+  },
+  {
+    version: 9,
+    // PDF 原版页面标注。
+    run(conn) {
+      conn.exec(`
+        CREATE TABLE IF NOT EXISTS pdf_annotations (
+          id TEXT PRIMARY KEY,
+          book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+          page INTEGER NOT NULL,
+          x REAL NOT NULL,
+          y REAL NOT NULL,
+          width REAL NOT NULL,
+          height REAL NOT NULL,
+          note TEXT NOT NULL DEFAULT '',
+          color TEXT NOT NULL DEFAULT 'yellow',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_pdf_annotations_book_page ON pdf_annotations(book_id, page, created_at);
       `)
     },
   },
