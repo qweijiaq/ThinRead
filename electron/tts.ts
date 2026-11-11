@@ -124,71 +124,182 @@ function speechEndpoint(baseUrl: string): string {
 
 const SYSTEM_PREFIX = 'system:'
 let systemVoicesCache: TtsVoice[] | null = null
+let linuxTtsBinary: string | null | undefined
 
-export function systemTtsAvailable(): boolean {
-  return process.platform === 'darwin'
+function linuxBinary(): string | null {
+  if (linuxTtsBinary !== undefined) return linuxTtsBinary
+  for (const candidate of ['espeak-ng', 'espeak']) {
+    const probe = spawnSync('which', [candidate], { encoding: 'utf8', timeout: 2_000 })
+    if (probe.status === 0 && (probe.stdout || '').trim()) {
+      linuxTtsBinary = candidate
+      return candidate
+    }
+  }
+  linuxTtsBinary = null
+  return null
 }
 
-/** 读取 macOS `say -v ?` 的音色列表；只保留中英文，避免几百个音色把下拉框撑爆。 */
+export function systemTtsAvailable(): boolean {
+  if (process.platform === 'darwin') return true
+  if (process.platform === 'win32') return true
+  return Boolean(linuxBinary())
+}
+
+/** 列出系统音色；macOS 用 say，Windows 用 SAPI，Linux 用 espeak。 */
 export function listSystemVoices(): TtsVoice[] {
   if (!systemTtsAvailable()) return []
   if (systemVoicesCache) return systemVoicesCache
   try {
-    const result = spawnSync('say', ['-v', '?'], { encoding: 'utf8', timeout: 5_000 })
-    const rows = (result.stdout || '')
-      .split('\n')
-      .map((line) => /^(.+?)\s{2,}([a-z]{2}_[A-Z]{2})\s+#/.exec(line))
-      .filter((match): match is RegExpExecArray => Boolean(match))
-    const voices: TtsVoice[] = []
-    const seen = new Set<string>()
-    for (const match of rows) {
-      const name = match[1].trim()
-      const locale = match[2]
-      if (!/^(zh|en)/i.test(locale) || seen.has(name)) continue
-      seen.add(name)
-      voices.push({
-        id: `${SYSTEM_PREFIX}${name}`,
-        label: `${name} · ${locale}`,
-        language: locale,
-        gender: 'unknown',
-      })
+    if (process.platform === 'darwin') {
+      systemVoicesCache = listMacVoices()
+    } else if (process.platform === 'win32') {
+      systemVoicesCache = listWindowsVoices()
+    } else {
+      systemVoicesCache = listLinuxVoices()
     }
-    systemVoicesCache = voices
-    return voices
+    return systemVoicesCache
   } catch {
     return []
   }
 }
 
-function systemVoiceName(voice: string): string {
-  const name = voice.startsWith(SYSTEM_PREFIX) ? voice.slice(SYSTEM_PREFIX.length) : voice
-  return name.trim() || 'Ting-Ting'
+function listMacVoices(): TtsVoice[] {
+  const result = spawnSync('say', ['-v', '?'], { encoding: 'utf8', timeout: 5_000 })
+  const rows = (result.stdout || '')
+    .split('\n')
+    .map((line) => /^(.+?)\s{2,}([a-z]{2}_[A-Z]{2})\s+#/.exec(line))
+    .filter((match): match is RegExpExecArray => Boolean(match))
+  const voices: TtsVoice[] = []
+  const seen = new Set<string>()
+  for (const match of rows) {
+    const name = match[1].trim()
+    const locale = match[2]
+    if (!/^(zh|en)/i.test(locale) || seen.has(name)) continue
+    seen.add(name)
+    voices.push({ id: `${SYSTEM_PREFIX}${name}`, label: `${name} · ${locale}`, language: locale, gender: 'unknown' })
+  }
+  return voices
 }
 
-/** 用 macOS 内置语音合成；不需要任何 Key，作为千问 TTS 的零配置兜底。 */
+function powershell(script: string): { status: number | null; stdout: string; stderr: string } {
+  const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
+    encoding: 'utf8',
+    timeout: 20_000,
+  })
+  return { status: result.status, stdout: result.stdout || '', stderr: (result.stderr || '').toString() }
+}
+
+function listWindowsVoices(): TtsVoice[] {
+  const result = powershell(
+    "Add-Type -AssemblyName System.Speech; $s=New-Object System.Speech.Synthesis.SpeechSynthesizer; $s.GetInstalledVoices() | ForEach-Object { $_.VoiceInfo.Name + '|' + $_.VoiceInfo.Culture.Name }; $s.Dispose()",
+  )
+  if (result.status !== 0) return []
+  return result.stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [name, locale = 'en-US'] = line.split('|')
+      return {
+        id: `${SYSTEM_PREFIX}${name}`,
+        label: `${name} · ${locale}`,
+        language: locale,
+        gender: 'unknown' as const,
+      }
+    })
+}
+
+function listLinuxVoices(): TtsVoice[] {
+  const binary = linuxBinary()
+  if (!binary) return []
+  const result = spawnSync(binary, ['--voices'], { encoding: 'utf8', timeout: 5_000 })
+  const rows = (result.stdout || '').split(/\r?\n/)
+  const voices: TtsVoice[] = []
+  for (const line of rows) {
+    // espeak-ng 输出列：Pty Language Age/Gender VoiceName File Other Languages
+    const cols = line.trim().split(/\s+/)
+    if (cols.length < 5 || !/^(zh|en)/i.test(cols[1] || '')) continue
+    const name = cols[4]
+    if (!name || name === 'VoiceName') continue
+    voices.push({
+      id: `${SYSTEM_PREFIX}${name}`,
+      label: `${name} · ${cols[1]}`,
+      language: cols[1],
+      gender: 'unknown',
+    })
+  }
+  return voices
+}
+
+function systemVoiceName(voice: string): string {
+  const name = voice.startsWith(SYSTEM_PREFIX) ? voice.slice(SYSTEM_PREFIX.length) : voice
+  return name.trim() || 'default'
+}
+
+function synthesizeMac(request: TtsSynthesisRequest, file: string): void {
+  const result = spawnSync(
+    'say',
+    ['-v', systemVoiceName(request.voice), '-o', file, '--data-format=LEI16@22050', request.text],
+    { timeout: 60_000 },
+  )
+  if (result.status !== 0) {
+    const detail = (result.stderr || '').toString().slice(0, 200)
+    throw new Error(`内置语音合成失败${detail ? `：${detail}` : ''}`)
+  }
+}
+
+function synthesizeWindows(request: TtsSynthesisRequest, file: string, textFile: string): void {
+  fs.writeFileSync(textFile, request.text, 'utf8')
+  const voice = systemVoiceName(request.voice)
+  const script = [
+    'Add-Type -AssemblyName System.Speech;',
+    '$s=New-Object System.Speech.Synthesis.SpeechSynthesizer;',
+    `$s.SelectVoice('${voice.replace(/'/g, "''")}');`,
+    `$s.SetOutputToWaveFile('${file.replace(/'/g, "''")}');`,
+    `$s.Speak([System.IO.File]::ReadAllText('${textFile.replace(/'/g, "''")}',[System.Text.Encoding]::UTF8));`,
+    '$s.Dispose();',
+  ].join(' ')
+  const result = powershell(script)
+  if (result.status !== 0) {
+    const detail = result.stderr.slice(0, 200)
+    throw new Error(`内置语音合成失败${detail ? `：${detail}` : ''}`)
+  }
+}
+
+function synthesizeLinux(request: TtsSynthesisRequest, file: string): void {
+  const binary = linuxBinary()
+  if (!binary) throw new Error('没有找到 espeak-ng 或 espeak。')
+  const result = spawnSync(binary, ['-v', systemVoiceName(request.voice), '-w', file, request.text], {
+    timeout: 60_000,
+  })
+  if (result.status !== 0) {
+    const detail = (result.stderr || '').toString().slice(0, 200)
+    throw new Error(`内置语音合成失败${detail ? `：${detail}` : ''}`)
+  }
+}
+
+/** 用系统内置语音合成；不需要任何 Key，作为千问 TTS 的零配置兜底。 */
 export function synthesizeSystemTts(request: TtsSynthesisRequest): TtsAudio {
   if (!systemTtsAvailable()) throw new Error('当前系统不支持内置语音合成。')
   const text = request.text.replace(/\s+/g, ' ').trim()
   if (!text) throw new Error('没有可合成的文字。')
-  const file = path.join(os.tmpdir(), `thinread-tts-${createHash('sha1').update(text).digest('hex').slice(0, 12)}.wav`)
+  const base = path.join(os.tmpdir(), `thinread-tts-${createHash('sha1').update(text).digest('hex').slice(0, 12)}`)
+  const file = `${base}.wav`
+  const textFile = `${base}.txt`
   try {
-    const result = spawnSync(
-      'say',
-      ['-v', systemVoiceName(request.voice), '-o', file, '--data-format=LEI16@22050', text],
-      { timeout: 60_000 },
-    )
-    if (result.status !== 0) {
-      const detail = (result.stderr || '').toString().slice(0, 200)
-      throw new Error(`内置语音合成失败${detail ? `：${detail}` : ''}`)
-    }
+    if (process.platform === 'darwin') synthesizeMac({ ...request, text }, file)
+    else if (process.platform === 'win32') synthesizeWindows({ ...request, text }, file, textFile)
+    else synthesizeLinux({ ...request, text }, file)
     const audio = fs.readFileSync(file)
     if (audio.length === 0) throw new Error('内置语音没有返回音频。')
     return { mime: 'audio/wav', base64: audio.toString('base64') }
   } finally {
-    try {
-      fs.unlinkSync(file)
-    } catch {
-      // 临时文件清理失败不影响播放。
+    for (const temp of [file, textFile]) {
+      try {
+        fs.unlinkSync(temp)
+      } catch {
+        // 临时文件清理失败不影响播放。
+      }
     }
   }
 }

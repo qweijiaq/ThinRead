@@ -297,6 +297,8 @@ Base URL 和 Key 仍使用上面的全局服务商，覆盖只改模型 ID。
 
 OCR 只支持 macOS。页数越多耗时越长。
 
+打开阅读器里的「原版 PDF」后，可以点工具栏「标注」进入标注模式：在页面上拖出一块区域即可高亮，支持黄/绿/蓝三色和备注；标注按书和页码保存在本机，关掉重开仍在。
+
 ### 5.3 文本、网页与 HTML
 
 - **粘贴文本**：适合文章、专栏、笔记；
@@ -665,7 +667,8 @@ Readwise 也可以直接同步：
 - 恢复前会自动再做一份安全备份；如果备份来自另一台机器、部分 Key 无法解密，设置页会提示重新填写。
 - 书文件按内容哈希去重，多份备份共享一份；
 - 恢复时校验每个书文件的 SHA-256，不只检查大小；
-- 合并、拆分、重新解析、删除书籍前会自动备份。
+- 合并、拆分、重新解析、删除书籍前会自动备份；
+- 「同步文件夹」选一个 iCloud Drive / Dropbox / NAS 目录，推送整库快照，其他设备可以拉取恢复；恢复前会先备份当前状态。
 
 ### 14.3 恢复与损坏库
 
@@ -767,7 +770,7 @@ xattr -dr com.apple.quarantine /Applications/ThinRead.app
 
 ### 15.13 Windows / Linux 能用吗
 
-当前只验证 macOS，未发布 Windows/Linux 安装包。源码是 Electron，但需要自行适配和测试。
+macOS 是主要验证平台。仓库里提供了 `pnpm dist:win` 和 `pnpm dist:linux`，可以构建 Windows NSIS 和 Linux AppImage；但扫描版 PDF 的 OCR 和 PDF 图表预览仍依赖 macOS Vision，其他平台会明确提示不支持。听读会自动回退到系统语音：macOS 用 `say`，Windows 用 SAPI，Linux 用 `espeak-ng` / `espeak`。
 
 ## 16. 快捷键与术语
 

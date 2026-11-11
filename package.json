@@ -31,7 +31,10 @@
     "check:extensions": "node scripts/check-capabilities.mjs",
     "check:docs": "node scripts/check-docs.mjs",
     "install:docling": "bash scripts/install-docling.sh",
-    "check:boundaries": "node scripts/check-boundaries.mjs"
+    "check:boundaries": "node scripts/check-boundaries.mjs",
+    "dist:win": "pnpm build && electron-builder --win",
+    "dist:linux": "pnpm build && electron-builder --linux",
+    "dist:all": "pnpm build && electron-builder --mac --win --linux"
   },
   "dependencies": {
     "@breezystack/lamejs": "^1.2.7",

@@ -201,8 +201,11 @@ pnpm start
 Packaging:
 
 ```bash
-pnpm run pack      # unsigned macOS app directory
+pnpm run pack      # unsigned app directory for the current platform
 pnpm dist:mac      # macOS dmg + zip (unsigned, unnotarized)
+pnpm dist:win      # Windows NSIS installer
+pnpm dist:linux    # Linux AppImage
+pnpm dist:all      # build all three platforms (run on each OS or in a CI matrix)
 ```
 
 Artifacts land in `release/`. Pushing a `v*` tag triggers `.github/workflows/release.yml`, which builds macOS artifacts only.
@@ -241,6 +244,7 @@ You can assign separate models to condensing, composition, and the workbench, an
 - **Code block tools**: review conventions and error characters, one-click fix for definite errors, comment out prose that leaked into a code block using the language's own comment marker, and have the model explain code inline.
 - **Image understanding**: a vision model inserts 2–6 sentences into the body. It tries the current model first and, only on an explicit image-capability error, auto-selects another configured vision model — cheapest first.
 - **Layout preferences**: font, size, leading, paragraph spacing, first-line indent, and measure are stored per book as structured config applied through CSS variables. The model never emits arbitrary CSS.
+- **PDF annotations**: in the original-layout PDF viewer, drag a region to highlight it, with yellow / green / blue colors and a note. Annotations are stored per book and page and survive reopening.
 - **Annotate while reading**: selecting text surfaces highlight, underline, strikethrough, clear, ask AI, AI margin note, share, read aloud, and copy.
 
 ### Condensing, cards, and Q&A
@@ -278,6 +282,7 @@ You can assign separate models to condensing, composition, and the workbench, an
 - **Zero-config listening**: without a Qwen TTS key, ThinRead falls back to built-in macOS voices synthesized entirely on-device at no cost; with a key it still uses Qwen, with the same voices and cost estimates.
 - **Reading data**: time tracking, daily goals, streaks, 7/30/100-day milestone badges, monthly and yearly stats, weekly reviews, CSV export, plus note quality and citation pass rate.
 - **Backup and restore**: manual and automatic backups, whole-library export/import, app lock, and a diagnostics bundle.
+- **Folder sync**: pick an iCloud Drive / Dropbox / NAS folder, push a full-library snapshot, and restore it on another device. No self-hosted server; the current state is backed up before restoring.
 
 ---
 
@@ -393,7 +398,7 @@ pnpm capture:storybook -- --check
 
 ## Known limitations
 
-- macOS only for now; Windows and Linux builds are not published.
+- macOS is the primary verified platform. Windows and Linux build scripts exist, but OCR and PDF figure previews still depend on macOS Vision and fail with a clear message elsewhere.
 - Builds are unsigned and unnotarized; the first launch needs a manual allow in System Settings.
 - PDF reading defaults to reflowed text. Scanned books must go through the dedicated OCR import path.
 - Composition only reads existing condensed drafts; it does not re-check the source word by word. A human pass is still expected.
