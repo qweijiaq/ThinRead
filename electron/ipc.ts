@@ -88,8 +88,6 @@ import {
   replaceBookChapters,
   resetChapterFormat,
   renameBook,
-  getNoteQuality,
-  setBookShelfStatus,
   renameChapter,
   renamePart,
   saveBookStyle,
@@ -109,12 +107,6 @@ import {
   upsertBackgroundTask,
   updateBackgroundTask,
 } from './db.js'
-import {
-  deletePdfAnnotation,
-  listPdfAnnotations,
-  savePdfAnnotation,
-  updatePdfAnnotation,
-} from './db-pdf.js'
 import { searchLibrary } from './search.js'
 import {
   dismissAiJob,
@@ -153,9 +145,8 @@ import { traceAsync, tracedGenerateText } from './ai/trace.js'
 import { classifyImportedChapters, importBookFile, importHighlightEntries, importHighlightsFile, importScannedPdf, importTextBook, importUrlBook, reparseBookFile } from './import.js'
 import { renderHtmlToPdf } from './pdf.js'
 import { buildKnowledgeMap } from './knowledge-map.js'
-import { readAiUsage } from './ai/usage.js'
 import { configureSemantic, semanticRelatedNotes, semanticSearchNotes, warmSemanticIndex } from './semantic.js'
-import { getActiveSettings, getAiPricing, getProviderApiKey, getReadwiseToken, getSettingsView, getUiPreferences, getAppLockEnabled, isDemoMode, saveSettings, saveUiPreferences, setAppLockPasscode, verifyAppLockPasscode } from './settings.js'
+import { getActiveSettings, getProviderApiKey, getReadwiseToken, getSettingsView, getUiPreferences, getAppLockEnabled, isDemoMode, saveSettings, saveUiPreferences, setAppLockPasscode, verifyAppLockPasscode } from './settings.js'
 import { fetchReadwiseEntries } from './readwise.js'
 import { parseWechatReadingNotes } from './parsers/wechat-reading.js'
 import { getDoclingStatus } from './parsers/docling.js'
@@ -165,7 +156,6 @@ import { resolveVisionModel } from './ai/vision-model.js'
 import { isVisionError } from './ai/note-images.js'
 import { explainCode, fixCode, insertCodeUnderstanding, replaceCodeBlock, reviewCode } from './ai/code-assist.js'
 import { getTtsStatus, synthesizeTts } from './tts.js'
-import { chooseSyncFolder, getSyncStatus, mergeSyncSnapshot, pullSyncSnapshot, pushSyncSnapshot } from './sync.js'
 import { exportNotesMarkdown } from './note-export.js'
 import { searchIndexAsync, searchIndexIds } from './search-index.js'
 import type {
@@ -219,7 +209,6 @@ import type {
   RendererErrorReport,
 } from '../shared/types.js'
 import type { TutorContext } from './ai/tutor.js'
-import type { z } from 'zod'
 import {
   bookComposeArgs,
   bookFormatArgs,
@@ -243,22 +232,10 @@ import {
   saveTextFileArgs,
   splitBookArgs,
   textImportArgs,
-  idArgs,
-  bookShelfStatusArgs,
-  pdfAnnotationsArgs,
-  pdfAnnotationSaveArgs,
-  pdfAnnotationUpdateArgs,
 } from '../shared/ipc-schemas.js'
 
-/** 校验一组 IPC 参数；失败时写日志并抛出可读错误，不把原始 zod 错误抛给渲染层。 */
-function parseIpc<T>(channel: string, schema: z.ZodType<T>, args: unknown[]): T {
-  const parsed = schema.safeParse(args)
-  if (parsed.success) return parsed.data
-  const issue = parsed.error.issues[0]
-  const detail = issue ? `${issue.path.join('.') || 'args'}: ${issue.message}` : '参数无效'
-  logErrorEvent('ipc:invalid-args', `${channel} ${detail}`)
-  throw new Error(`参数无效：${detail}`)
-}
+import { registerExtrasIpc } from './ipc/extras.js'
+import { parseIpc } from './ipc/parse.js'
 
 type ReadwiseProbe = { status: number } | { error: string }
 
@@ -840,11 +817,6 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
   ipcMain.handle('books:rename', (_event, bookId: string, title: string, author?: string) =>
     renameBook(bookId, title, typeof author === 'string' ? author : undefined),
   )
-
-  ipcMain.handle('books:set-shelf-status', (_event, bookId: unknown, status: unknown) => {
-    const [id, next] = parseIpc('books:set-shelf-status', bookShelfStatusArgs, [bookId, status])
-    return setBookShelfStatus(id, next)
-  })
 
   ipcMain.handle('books:genre', (_event, bookId: string, genre: BookGenre) => setBookGenre(bookId, genre))
 
@@ -2752,64 +2724,6 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     })
   })
 
-  ipcMain.handle('ai:usage', (_event, days?: number) => readAiUsage(dataDir, days, getAiPricing()))
-
-  ipcMain.handle('stats:note-quality', () => getNoteQuality())
-
-  ipcMain.handle('sync:status', () => getSyncStatus())
-
-  ipcMain.handle('sync:choose-folder', async () => {
-    const win = getWindow()
-    const options: OpenDialogOptions = {
-      title: '选择同步文件夹',
-      properties: ['openDirectory', 'createDirectory'],
-    }
-    const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options)
-    if (result.canceled || !result.filePaths[0]) return getSyncStatus()
-    return chooseSyncFolder(result.filePaths[0]!)
-  })
-
-  ipcMain.handle('sync:push', (_event, passphrase?: unknown) => {
-    if (passphrase !== undefined && typeof passphrase !== 'string') throw new Error('加密口令无效。')
-    return pushSyncSnapshot(dataDir, typeof passphrase === 'string' ? passphrase.slice(0, 200) : '')
-  })
-
-  ipcMain.handle('sync:merge', (_event, name: unknown, passphrase?: unknown) => {
-    if (typeof name !== 'string' || !name.trim()) throw new Error('同步快照名称无效。')
-    if (passphrase !== undefined && typeof passphrase !== 'string') throw new Error('加密口令无效。')
-    return mergeSyncSnapshot(name, typeof passphrase === 'string' ? passphrase.slice(0, 200) : '')
-  })
-
-  ipcMain.handle('sync:pull', async (_event, name: unknown, passphrase?: unknown) => {
-    if (typeof name !== 'string' || !name.trim()) throw new Error('同步快照名称无效。')
-    if (passphrase !== undefined && typeof passphrase !== 'string') throw new Error('加密口令无效。')
-    cancelAllAiJobs()
-    pullSyncSnapshot(dataDir, name, typeof passphrase === 'string' ? passphrase.slice(0, 200) : '')
-    const window = getWindow()
-    setTimeout(() => window?.webContents.reload(), 250)
-    return { ok: true }
-  })
-
-  ipcMain.handle('pdf:annotations', (_event, bookId: unknown, page: unknown) => {
-    const [id, pageNumber] = parseIpc('pdf:annotations', pdfAnnotationsArgs, [bookId, page])
-    return listPdfAnnotations(id, pageNumber)
-  })
-
-  ipcMain.handle('pdf:annotation-save', (_event, input: unknown) => {
-    const [payload] = parseIpc('pdf:annotation-save', pdfAnnotationSaveArgs, [input])
-    return savePdfAnnotation(payload)
-  })
-
-  ipcMain.handle('pdf:annotation-update', (_event, id: unknown, patch: unknown) => {
-    const [annotationId, payload] = parseIpc('pdf:annotation-update', pdfAnnotationUpdateArgs, [id, patch])
-    return updatePdfAnnotation(annotationId, payload)
-  })
-
-  ipcMain.handle('pdf:annotation-delete', (_event, id: unknown) => {
-    const [annotationId] = parseIpc('pdf:annotation-delete', idArgs, [id])
-    deletePdfAnnotation(annotationId)
-  })
-
   ipcMain.handle('app:info', () => ({
     version: app.getVersion(),
     dataDir,
@@ -3299,4 +3213,6 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     return { saved: true, path: filePath }
   })
 
+
+  registerExtrasIpc({ getWindow, dataDir, cancelAllAiJobs })
 }
