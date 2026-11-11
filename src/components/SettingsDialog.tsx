@@ -1226,6 +1226,13 @@ export function SettingsDialog({
               : t('选择一个 iCloud Drive、Dropbox 或 NAS 文件夹；推送会生成一份整库快照，其他设备可以拉取恢复。')}
             {t('留空推送普通 zip；填了口令会加密成 .thinsync，拉取时需要同一口令。')}
           </p>
+          <p className="field-hint">
+            {syncStatus?.lastPushAt
+              ? `${t('上次推送')}：${formatBackupTime(syncStatus.lastPushAt)}`
+              : t('还没有推送过快照。')}
+            {syncStatus?.lastPullAt ? ` · ${t('上次恢复')}：${formatBackupTime(syncStatus.lastPullAt)}` : ''}
+            {syncStatus?.lastMergeAt ? ` · ${t('上次合并')}：${formatBackupTime(syncStatus.lastMergeAt)}` : ''}
+          </p>
           {syncNotice ? <div className="inline-notice" role="status" aria-live="polite">{syncNotice}</div> : null}
           {syncStatus && syncStatus.snapshots.length > 0 ? (
             <div className="backup-list">

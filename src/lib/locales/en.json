@@ -1768,5 +1768,9 @@
   "续": "cont.",
   "THE LAST PAGE / 回顾": "THE LAST PAGE / RECAP",
   "页面不存在。": "Page not found.",
-  "结尾": "Ending"
+  "结尾": "Ending",
+  "上次推送": "Last push",
+  "上次恢复": "Last restore",
+  "上次合并": "Last merge",
+  "还没有推送过快照。": "No snapshot has been pushed yet."
 }

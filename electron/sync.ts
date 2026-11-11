@@ -7,7 +7,7 @@ import { unzipSync } from 'fflate'
 import type { SyncSnapshot, SyncStatus } from '../shared/types.js'
 import { createBackup, exportBackup, importBackupArchive, restoreBackup } from './backup.js'
 import { mergeSnapshotDatabase, type MergeSnapshotResult } from './db-merge.js'
-import { getSettingsView, setSyncFolder } from './settings.js'
+import { getSettingsView, setSyncFolder, setSyncMeta } from './settings.js'
 import { decryptSnapshot, encryptSnapshot, isEncryptedSnapshot } from './sync-crypto.js'
 
 const PREFIX = 'thinread-sync-'
@@ -49,8 +49,14 @@ export function listSyncSnapshots(folder: string): SyncSnapshot[] {
 }
 
 export function getSyncStatus(): SyncStatus {
-  const folder = getSettingsView().syncFolder
-  return { folder, snapshots: listSyncSnapshots(folder) }
+  const view = getSettingsView()
+  return {
+    folder: view.syncFolder,
+    lastPushAt: view.syncLastPushAt,
+    lastPullAt: view.syncLastPullAt,
+    lastMergeAt: view.syncLastMergeAt,
+    snapshots: listSyncSnapshots(view.syncFolder),
+  }
 }
 
 export function chooseSyncFolder(folder: string): SyncStatus {
@@ -88,6 +94,7 @@ export function pushSyncSnapshot(dataDir: string, passphrase = ''): SyncSnapshot
       // 旧快照清理失败不影响本次推送。
     }
   }
+  setSyncMeta({ lastPushAt: new Date().toISOString() })
   return {
     name,
     path: destination,
@@ -118,6 +125,7 @@ export function pullSyncSnapshot(dataDir: string, name: string, passphrase = '')
   try {
     const info = importBackupArchive(dataDir, archive)
     restoreBackup(dataDir, info.id, { safetyBackup: true })
+    setSyncMeta({ lastPullAt: new Date().toISOString() })
   } finally {
     if (temp) fs.rmSync(temp, { force: true })
   }
@@ -152,7 +160,9 @@ export function mergeSyncSnapshot(name: string, passphrase = ''): MergeSnapshotR
     if (!db) throw new Error('这个快照里没有数据库。')
     tempDb = path.join(os.tmpdir(), `${PREFIX}merge-${Date.now()}.db`)
     fs.writeFileSync(tempDb, db)
-    return mergeSnapshotDatabase(tempDb)
+    const result = mergeSnapshotDatabase(tempDb)
+    setSyncMeta({ lastMergeAt: new Date().toISOString() })
+    return result
   } finally {
     if (tempArchive) fs.rmSync(tempArchive, { force: true })
     if (tempDb) fs.rmSync(tempDb, { force: true })

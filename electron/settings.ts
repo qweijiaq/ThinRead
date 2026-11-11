@@ -27,6 +27,7 @@ interface StoredSettings {
   aiPricing?: AiModelPricing
   aiBudget?: { monthlyCny: number; enabled: boolean }
   syncFolder?: string
+  syncMeta?: { lastPushAt?: string; lastPullAt?: string; lastMergeAt?: string }
   readwise?: StoredKey
   ui?: {
     autoNext?: boolean
@@ -71,6 +72,7 @@ const DEFAULT_SETTINGS: StoredSettings = {
   labModel: '',
   aiBudget: { monthlyCny: 0, enabled: false },
   syncFolder: '',
+  syncMeta: {},
   keys: {},
 }
 
@@ -117,6 +119,14 @@ function normalizeAiBudget(value: unknown): { monthlyCny: number; enabled: boole
   }
 }
 
+function normalizeSyncMeta(value: unknown): { lastPushAt?: string; lastPullAt?: string; lastMergeAt?: string } {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const row = value as Record<string, unknown>
+  const pick = (key: string): string | undefined =>
+    typeof row[key] === 'string' && String(row[key]).trim() ? String(row[key]) : undefined
+  return { lastPushAt: pick('lastPushAt'), lastPullAt: pick('lastPullAt'), lastMergeAt: pick('lastMergeAt') }
+}
+
 function readFile(): StoredSettings {
   try {
     const raw = JSON.parse(fs.readFileSync(filePath, 'utf8')) as Partial<StoredSettings>
@@ -134,6 +144,7 @@ function readFile(): StoredSettings {
       aiPricing: normalizeAiPricing(raw.aiPricing),
       aiBudget: normalizeAiBudget(raw.aiBudget),
       syncFolder: typeof raw.syncFolder === 'string' ? raw.syncFolder : '',
+      syncMeta: normalizeSyncMeta(raw.syncMeta),
       readwise: raw.readwise,
       ui: raw.ui,
       lock: raw.lock,
@@ -228,6 +239,12 @@ export function getAiPricing(): AiModelPricing {
 
 export function getAiBudget(): { monthlyCny: number; enabled: boolean } {
   return normalizeAiBudget(settings().aiBudget)
+}
+
+export function setSyncMeta(patch: Partial<{ lastPushAt: string; lastPullAt: string; lastMergeAt: string }>): void {
+  const current = settings()
+  current.syncMeta = { ...normalizeSyncMeta(current.syncMeta), ...patch }
+  persist()
 }
 
 export function setSyncFolder(folder: string): void {
@@ -366,6 +383,9 @@ export function getSettingsView(): SettingsView {
     aiBudgetEnabled: getAiBudget().enabled,
     aiBudgetMonthlyCny: getAiBudget().monthlyCny,
     syncFolder: current.syncFolder ?? '',
+    syncLastPushAt: current.syncMeta?.lastPushAt ?? '',
+    syncLastPullAt: current.syncMeta?.lastPullAt ?? '',
+    syncLastMergeAt: current.syncMeta?.lastMergeAt ?? '',
     readwiseConfigured: readStoredKey(current.readwise) !== null,
     keysNeedReentry: anyKeyNeedsReentry(),
     appLockEnabled: getAppLockEnabled(),

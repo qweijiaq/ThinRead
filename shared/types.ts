@@ -990,6 +990,9 @@ export interface SettingsView {
   aiBudgetEnabled: boolean
   aiBudgetMonthlyCny: number
   syncFolder: string
+  syncLastPushAt: string
+  syncLastPullAt: string
+  syncLastMergeAt: string
   readwiseConfigured: boolean
   keysNeedReentry: boolean
   appLockEnabled: boolean
@@ -1038,6 +1041,9 @@ export interface SyncSnapshot {
 
 export interface SyncStatus {
   folder: string
+  lastPushAt: string
+  lastPullAt: string
+  lastMergeAt: string
   snapshots: SyncSnapshot[]
 }
 
