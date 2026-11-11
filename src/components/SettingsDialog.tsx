@@ -362,9 +362,13 @@ export function SettingsDialog({
   }
 
   async function pullSync(name: string): Promise<void> {
+    const snapshot = syncStatus?.snapshots.find((item) => item.name === name)
+    const older = Boolean(snapshot && syncStatus?.lastPullAt && snapshot.createdAt < syncStatus.lastPullAt)
     const confirmed = await confirmDialog({
       title: t('从同步快照恢复'),
-      message: t('恢复会替换当前的书籍、笔记和设置，并先自动备份当前状态。继续？'),
+      message: older
+        ? t('这个快照比你上次恢复的更旧，恢复会覆盖本地较新的内容。应用会先自动备份当前状态，继续？')
+        : t('恢复会替换当前的书籍、笔记和设置，并先自动备份当前状态。继续？'),
       confirmLabel: t('恢复并重载'),
       danger: true,
     })

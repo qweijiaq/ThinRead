@@ -1772,5 +1772,6 @@
   "上次推送": "Last push",
   "上次恢复": "Last restore",
   "上次合并": "Last merge",
-  "还没有推送过快照。": "No snapshot has been pushed yet."
+  "还没有推送过快照。": "No snapshot has been pushed yet.",
+  "这个快照比你上次恢复的更旧，恢复会覆盖本地较新的内容。应用会先自动备份当前状态，继续？": "This snapshot is older than your last restore and will overwrite newer local content. The current state is backed up first. Continue?"
 }
