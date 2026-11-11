@@ -89,10 +89,6 @@ import {
   resetChapterFormat,
   renameBook,
   getNoteQuality,
-  listPdfAnnotations,
-  savePdfAnnotation,
-  updatePdfAnnotation,
-  deletePdfAnnotation,
   setBookShelfStatus,
   renameChapter,
   renamePart,
@@ -113,6 +109,12 @@ import {
   upsertBackgroundTask,
   updateBackgroundTask,
 } from './db.js'
+import {
+  deletePdfAnnotation,
+  listPdfAnnotations,
+  savePdfAnnotation,
+  updatePdfAnnotation,
+} from './db-pdf.js'
 import { searchLibrary } from './search.js'
 import {
   dismissAiJob,

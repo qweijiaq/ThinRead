@@ -5,15 +5,8 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import test from 'node:test'
 
-import {
-  closeDatabase,
-  createNote,
-  getChapters,
-  initDatabase,
-  insertBook,
-  listNotes,
-  mergeSnapshotDatabase,
-} from '../electron/db.js'
+import { closeDatabase, createNote, getChapters, initDatabase, insertBook, listNotes } from '../electron/db.js'
+import { mergeSnapshotDatabase } from '../electron/db-merge.js'
 
 test('merges newer notes and new notes from a snapshot without replacing the library', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'reading-notes-merge-'))

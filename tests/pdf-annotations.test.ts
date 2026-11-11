@@ -4,15 +4,13 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 
+import { closeDatabase, initDatabase, insertBook } from '../electron/db.js'
 import {
-  closeDatabase,
   deletePdfAnnotation,
-  initDatabase,
-  insertBook,
   listPdfAnnotations,
   savePdfAnnotation,
   updatePdfAnnotation,
-} from '../electron/db.js'
+} from '../electron/db-pdf.js'
 
 test('saves, updates, and deletes PDF annotations per page', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'reading-notes-pdf-ann-'))

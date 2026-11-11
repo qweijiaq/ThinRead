@@ -6,7 +6,7 @@ import { unzipSync } from 'fflate'
 
 import type { SyncSnapshot, SyncStatus } from '../shared/types.js'
 import { createBackup, exportBackup, importBackupArchive, restoreBackup } from './backup.js'
-import { mergeSnapshotDatabase, type MergeSnapshotResult } from './db.js'
+import { mergeSnapshotDatabase, type MergeSnapshotResult } from './db-merge.js'
 import { getSettingsView, setSyncFolder } from './settings.js'
 import { decryptSnapshot, encryptSnapshot, isEncryptedSnapshot } from './sync-crypto.js'
 
