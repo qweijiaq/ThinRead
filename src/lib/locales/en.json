@@ -112,7 +112,7 @@
   "深链": "Deep link",
   "排版": "Format",
   "第": "Page",
-  "页": "pages",
+  "页": "",
   "选中文本操作": "Text selection actions",
   "高亮": "Highlight",
   "划线": "Underline",
@@ -1625,5 +1625,13 @@
   "引用核对通过率": "Citation pass rate",
   "核对通过率只统计带原文依据的笔记：": "The pass rate counts only notes that carry a source quote:",
   " 条能在原文里逐字找到。": " notes were found verbatim in the source.",
-  "还没有笔记。": "No notes yet."
+  "还没有笔记。": "No notes yet.",
+  "标注": "Annotate",
+  "PDF 标注": "PDF annotation",
+  "标注颜色": "Annotation color",
+  "黄色": "Yellow",
+  "绿色": "Green",
+  "蓝色": "Blue",
+  "给这块标注写一句备注…": "Add a note for this highlight…",
+  "删除标注": "Delete annotation"
 }

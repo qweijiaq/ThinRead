@@ -34,6 +34,8 @@ import type {
   GenerationStage,
   TokenUsage,
   OcrJob,
+  PdfAnnotation,
+  PdfAnnotationColor,
   ReaderMark,
   ReaderMarkStyle,
   ReaderStyle,
@@ -348,6 +350,21 @@ export function initDatabase(dataDir: string): void {
     );
     CREATE INDEX IF NOT EXISTS idx_bookmarks_book ON bookmarks(book_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_bookmarks_chapter ON bookmarks(chapter_id, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS pdf_annotations (
+      id TEXT PRIMARY KEY,
+      book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+      page INTEGER NOT NULL,
+      x REAL NOT NULL,
+      y REAL NOT NULL,
+      width REAL NOT NULL,
+      height REAL NOT NULL,
+      note TEXT NOT NULL DEFAULT '',
+      color TEXT NOT NULL DEFAULT 'yellow',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_pdf_annotations_book_page ON pdf_annotations(book_id, page, created_at);
 
     CREATE TABLE IF NOT EXISTS note_trash (
       id TEXT PRIMARY KEY,
@@ -4055,4 +4072,111 @@ export function deriveTitle(kind: NoteKind, content: string): string {
   if (kind === 'summary') return '本章摘要'
   if (kind === 'question') return head ? `问题 · ${head}` : '阅读问题'
   return head || '未命名笔记'
+}
+
+
+function mapPdfAnnotation(row: {
+  id: string
+  book_id: string
+  page: number
+  x: number
+  y: number
+  width: number
+  height: number
+  note: string
+  color: string
+  created_at: string
+  updated_at: string
+}): PdfAnnotation {
+  return {
+    id: row.id,
+    bookId: row.book_id,
+    page: Number(row.page),
+    x: Number(row.x),
+    y: Number(row.y),
+    width: Number(row.width),
+    height: Number(row.height),
+    note: row.note ?? '',
+    color: (row.color as PdfAnnotationColor) || 'yellow',
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
+function clamp01(value: number): number {
+  return Math.min(1, Math.max(0, Number(value) || 0))
+}
+
+export function listPdfAnnotations(bookId: string, page: number): PdfAnnotation[] {
+  const rows = database()
+    .prepare('SELECT * FROM pdf_annotations WHERE book_id = ? AND page = ? ORDER BY created_at')
+    .all(bookId, Math.max(1, Math.floor(page))) as unknown as Array<Parameters<typeof mapPdfAnnotation>[0]>
+  return rows.map(mapPdfAnnotation)
+}
+
+export function savePdfAnnotation(input: {
+  bookId: string
+  page: number
+  x: number
+  y: number
+  width: number
+  height: number
+  note?: string
+  color?: PdfAnnotationColor
+}): PdfAnnotation {
+  const x = clamp01(input.x)
+  const y = clamp01(input.y)
+  const width = clamp01(input.width)
+  const height = clamp01(input.height)
+  if (width < 0.002 || height < 0.002) throw new Error('标注区域太小。')
+  const now = new Date().toISOString()
+  const id = crypto.randomUUID()
+  database()
+    .prepare(
+      `INSERT INTO pdf_annotations (id, book_id, page, x, y, width, height, note, color, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      id,
+      input.bookId,
+      Math.max(1, Math.floor(input.page)),
+      x,
+      y,
+      width,
+      height,
+      (input.note ?? '').slice(0, 10_000),
+      input.color ?? 'yellow',
+      now,
+      now,
+    )
+  const row = database().prepare('SELECT * FROM pdf_annotations WHERE id = ?').get(id) as unknown as Parameters<
+    typeof mapPdfAnnotation
+  >[0]
+  return mapPdfAnnotation(row)
+}
+
+export function updatePdfAnnotation(
+  id: string,
+  patch: { note?: string; color?: PdfAnnotationColor },
+): PdfAnnotation {
+  const current = database().prepare('SELECT * FROM pdf_annotations WHERE id = ?').get(id) as unknown as
+    | Parameters<typeof mapPdfAnnotation>[0]
+    | undefined
+  if (!current) throw new Error('找不到这条标注。')
+  database()
+    .prepare('UPDATE pdf_annotations SET note = ?, color = ?, updated_at = ? WHERE id = ?')
+    .run(
+      patch.note !== undefined ? patch.note.slice(0, 10_000) : current.note,
+      patch.color ?? current.color,
+      new Date().toISOString(),
+      id,
+    )
+  const row = database().prepare('SELECT * FROM pdf_annotations WHERE id = ?').get(id) as unknown as Parameters<
+    typeof mapPdfAnnotation
+  >[0]
+  return mapPdfAnnotation(row)
+}
+
+export function deletePdfAnnotation(id: string): void {
+  database().prepare('DELETE FROM pdf_annotations WHERE id = ?').run(id)
 }

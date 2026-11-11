@@ -89,6 +89,10 @@ import {
   resetChapterFormat,
   renameBook,
   getNoteQuality,
+  listPdfAnnotations,
+  savePdfAnnotation,
+  updatePdfAnnotation,
+  deletePdfAnnotation,
   setBookShelfStatus,
   renameChapter,
   renamePart,
@@ -236,7 +240,11 @@ import {
   saveTextFileArgs,
   splitBookArgs,
   textImportArgs,
+  idArgs,
   bookShelfStatusArgs,
+  pdfAnnotationsArgs,
+  pdfAnnotationSaveArgs,
+  pdfAnnotationUpdateArgs,
 } from '../shared/ipc-schemas.js'
 
 /** 校验一组 IPC 参数；失败时写日志并抛出可读错误，不把原始 zod 错误抛给渲染层。 */
@@ -2744,6 +2752,26 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
   ipcMain.handle('ai:usage', (_event, days?: number) => readAiUsage(dataDir, days, getAiPricing()))
 
   ipcMain.handle('stats:note-quality', () => getNoteQuality())
+
+  ipcMain.handle('pdf:annotations', (_event, bookId: unknown, page: unknown) => {
+    const [id, pageNumber] = parseIpc('pdf:annotations', pdfAnnotationsArgs, [bookId, page])
+    return listPdfAnnotations(id, pageNumber)
+  })
+
+  ipcMain.handle('pdf:annotation-save', (_event, input: unknown) => {
+    const [payload] = parseIpc('pdf:annotation-save', pdfAnnotationSaveArgs, [input])
+    return savePdfAnnotation(payload)
+  })
+
+  ipcMain.handle('pdf:annotation-update', (_event, id: unknown, patch: unknown) => {
+    const [annotationId, payload] = parseIpc('pdf:annotation-update', pdfAnnotationUpdateArgs, [id, patch])
+    return updatePdfAnnotation(annotationId, payload)
+  })
+
+  ipcMain.handle('pdf:annotation-delete', (_event, id: unknown) => {
+    const [annotationId] = parseIpc('pdf:annotation-delete', idArgs, [id])
+    deletePdfAnnotation(annotationId)
+  })
 
   ipcMain.handle('app:info', () => ({
     version: app.getVersion(),

@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState, type JSX } from 'react'
+import { useEffect, useRef, useState, type JSX, type MouseEvent as ReactMouseEvent } from 'react'
 import type { PDFDocumentProxy, RenderTask } from 'pdfjs-dist'
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 
+import type { PdfAnnotation, PdfAnnotationColor } from '../../shared/types.js'
+import { t } from '../lib/i18n.js'
 import { useDialogFocus } from '../lib/useDialogFocus.js'
 
 interface PdfOriginalViewProps {
@@ -19,12 +21,27 @@ function clampPage(value: number, total: number): number {
   return Math.min(Math.max(1, Math.round(value) || 1), Math.max(1, total))
 }
 
+function clamp01(value: number): number {
+  return Math.min(1, Math.max(0, value))
+}
+
+interface DraftRect {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+const COLOR_ORDER: PdfAnnotationColor[] = ['yellow', 'green', 'blue']
+
 /** 用 PDF.js 显示原始版式；文字重排和 AI 功能仍走原来的章节视图。 */
 export function PdfOriginalView({ bookId, chapterId, title, initialPage, onClose }: PdfOriginalViewProps): JSX.Element {
   const dialogRef = useDialogFocus<HTMLDivElement>(true, onClose, 'button')
   const wrapRef = useRef<HTMLDivElement | null>(null)
+  const stageRef = useRef<HTMLDivElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const docRef = useRef<PDFDocumentProxy | null>(null)
+  const dragRef = useRef<{ startX: number; startY: number } | null>(null)
   const [doc, setDoc] = useState<PDFDocumentProxy | null>(null)
   const [page, setPage] = useState(Math.max(1, initialPage))
   const [zoom, setZoom] = useState(1)
@@ -32,6 +49,13 @@ export function PdfOriginalView({ bookId, chapterId, title, initialPage, onClose
   const [loading, setLoading] = useState(true)
   const [rendering, setRendering] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [annotating, setAnnotating] = useState(false)
+  const [annotations, setAnnotations] = useState<PdfAnnotation[]>([])
+  const [draft, setDraft] = useState<DraftRect | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [noteDraft, setNoteDraft] = useState('')
+  const [color, setColor] = useState<PdfAnnotationColor>('yellow')
+  const [savingNote, setSavingNote] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -74,6 +98,23 @@ export function PdfOriginalView({ bookId, chapterId, title, initialPage, onClose
     if (!doc || !chapterId) return
     void window.api.saveReadingPage(chapterId, bookId, page).catch(() => undefined)
   }, [bookId, chapterId, doc, page])
+
+  useEffect(() => {
+    let cancelled = false
+    setSelectedId(null)
+    setDraft(null)
+    void window.api
+      .listPdfAnnotations(bookId, page)
+      .then((rows) => {
+        if (!cancelled) setAnnotations(rows)
+      })
+      .catch(() => {
+        if (!cancelled) setAnnotations([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [bookId, page])
 
   useEffect(() => {
     const element = wrapRef.current
@@ -125,6 +166,93 @@ export function PdfOriginalView({ bookId, chapterId, title, initialPage, onClose
   }, [doc, page, zoom, width])
 
   const total = doc?.numPages ?? 0
+  const selected = annotations.find((item) => item.id === selectedId) ?? null
+
+  function pointOf(event: ReactMouseEvent): { x: number; y: number } | null {
+    const stage = stageRef.current
+    if (!stage) return null
+    const rect = stage.getBoundingClientRect()
+    if (rect.width === 0 || rect.height === 0) return null
+    return {
+      x: clamp01((event.clientX - rect.left) / rect.width),
+      y: clamp01((event.clientY - rect.top) / rect.height),
+    }
+  }
+
+  function onPointerDown(event: ReactMouseEvent): void {
+    if (!annotating || event.button !== 0) return
+    const point = pointOf(event)
+    if (!point) return
+    dragRef.current = { startX: point.x, startY: point.y }
+    setDraft({ x: point.x, y: point.y, width: 0, height: 0 })
+    event.preventDefault()
+  }
+
+  function onPointerMove(event: ReactMouseEvent): void {
+    const start = dragRef.current
+    if (!start) return
+    const point = pointOf(event)
+    if (!point) return
+    setDraft({
+      x: Math.min(start.startX, point.x),
+      y: Math.min(start.startY, point.y),
+      width: Math.abs(point.x - start.startX),
+      height: Math.abs(point.y - start.startY),
+    })
+  }
+
+  function onPointerUp(): void {
+    const start = dragRef.current
+    const rect = draft
+    dragRef.current = null
+    if (!start || !rect) {
+      setDraft(null)
+      return
+    }
+    if (rect.width < 0.005 || rect.height < 0.005) {
+      setDraft(null)
+      return
+    }
+    void window.api
+      .savePdfAnnotation({ bookId, page, ...rect, color })
+      .then((saved) => {
+        setAnnotations((current) => [...current, saved])
+        setSelectedId(saved.id)
+        setNoteDraft(saved.note)
+        setDraft(null)
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : String(err)))
+  }
+
+  function selectAnnotation(item: PdfAnnotation): void {
+    setSelectedId(item.id)
+    setNoteDraft(item.note)
+    setColor(item.color)
+  }
+
+  function saveNote(): void {
+    if (!selected) return
+    setSavingNote(true)
+    void window.api
+      .updatePdfAnnotation(selected.id, { note: noteDraft, color })
+      .then((updated) => {
+        setAnnotations((current) => current.map((item) => (item.id === updated.id ? updated : item)))
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : String(err)))
+      .finally(() => setSavingNote(false))
+  }
+
+  function removeAnnotation(): void {
+    if (!selected) return
+    void window.api
+      .deletePdfAnnotation(selected.id)
+      .then(() => {
+        setAnnotations((current) => current.filter((item) => item.id !== selected.id))
+        setSelectedId(null)
+        setNoteDraft('')
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : String(err)))
+  }
 
   return (
     <div className="pdf-viewer-backdrop" onMouseDown={onClose}>
@@ -148,6 +276,11 @@ export function PdfOriginalView({ bookId, chapterId, title, initialPage, onClose
           } else if (event.key === '-') {
             event.preventDefault()
             setZoom((current) => Math.max(MIN_ZOOM, current - 0.1))
+          } else if (event.key === 'Escape') {
+            if (selectedId) {
+              event.preventDefault()
+              setSelectedId(null)
+            }
           }
         }}
       >
@@ -185,6 +318,19 @@ export function PdfOriginalView({ bookId, chapterId, title, initialPage, onClose
             <button type="button" className="ghost-button small" onClick={() => setZoom(1)}>
               适应宽度
             </button>
+            <span className="pdf-toolbar-divider" />
+            <button
+              type="button"
+              className={`ghost-button small${annotating ? ' is-active' : ''}`}
+              aria-pressed={annotating}
+              onClick={() => {
+                setAnnotating((current) => !current)
+                setSelectedId(null)
+                setDraft(null)
+              }}
+            >
+              {t('标注')}{annotations.length > 0 ? ` · ${annotations.length}` : ''}
+            </button>
             <button type="button" className="ghost-button small" onClick={onClose}>
               关闭
             </button>
@@ -193,9 +339,90 @@ export function PdfOriginalView({ bookId, chapterId, title, initialPage, onClose
         <div className="pdf-canvas-wrap" ref={wrapRef}>
           {loading ? <p className="pdf-status">正在打开 PDF…</p> : null}
           {error ? <p className="inline-error" role="alert">{error}</p> : null}
-          <canvas ref={canvasRef} className="pdf-canvas" aria-label={`PDF 第 ${page} 页`} />
+          <div className="pdf-page-stage" ref={stageRef}>
+            <canvas ref={canvasRef} className="pdf-canvas" aria-label={`PDF 第 ${page} 页`} />
+            <div
+              className={`pdf-annotation-layer${annotating ? ' is-annotating' : ''}`}
+              onMouseDown={onPointerDown}
+              onMouseMove={onPointerMove}
+              onMouseUp={onPointerUp}
+              onMouseLeave={() => {
+                if (dragRef.current) onPointerUp()
+              }}
+            >
+              {annotations.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={`pdf-annotation is-${item.color}${selectedId === item.id ? ' is-selected' : ''}`}
+                  style={{
+                    left: `${item.x * 100}%`,
+                    top: `${item.y * 100}%`,
+                    width: `${item.width * 100}%`,
+                    height: `${item.height * 100}%`,
+                  }}
+                  aria-label={item.note ? `${t('标注')}：${item.note}` : t('PDF 标注')}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    selectAnnotation(item)
+                  }}
+                />
+              ))}
+              {draft ? (
+                <div
+                  className={`pdf-annotation is-${color} is-draft`}
+                  style={{
+                    left: `${draft.x * 100}%`,
+                    top: `${draft.y * 100}%`,
+                    width: `${draft.width * 100}%`,
+                    height: `${draft.height * 100}%`,
+                  }}
+                />
+              ) : null}
+            </div>
+          </div>
           {rendering && !loading ? <span className="pdf-rendering">正在渲染…</span> : null}
         </div>
+
+        {selected ? (
+          <div className="pdf-annotation-editor" role="group" aria-label={t('PDF 标注')}>
+            <div className="pdf-annotation-editor-head">
+              <strong>
+                {t('第')} {selected.page} {t('页')} · {t('标注')}
+              </strong>
+              <div className="pdf-annotation-colors" role="group" aria-label={t('标注颜色')}>
+                {COLOR_ORDER.map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    className={`pdf-annotation-color is-${value}${color === value ? ' is-active' : ''}`}
+                    aria-label={value === 'yellow' ? t('黄色') : value === 'green' ? t('绿色') : t('蓝色')}
+                    aria-pressed={color === value}
+                    onClick={() => setColor(value)}
+                  />
+                ))}
+              </div>
+            </div>
+            <textarea
+              value={noteDraft}
+              onChange={(event) => setNoteDraft(event.target.value)}
+              placeholder={t('给这块标注写一句备注…')}
+              rows={3}
+            />
+            <div className="pdf-annotation-editor-actions">
+              <button type="button" className="ghost-button small danger" onClick={removeAnnotation}>
+                {t('删除标注')}
+              </button>
+              <span />
+              <button type="button" className="ghost-button small" onClick={() => setSelectedId(null)}>
+                {t('取消')}
+              </button>
+              <button type="button" className="primary-button small" onClick={saveNote} disabled={savingNote}>
+                {savingNote ? t('保存中…') : t('保存')}
+              </button>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   )

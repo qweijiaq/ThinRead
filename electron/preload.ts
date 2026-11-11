@@ -8,6 +8,8 @@ import type {
   AiJobSnapshot,
   AiUsageSummary,
   NoteQualitySummary,
+  PdfAnnotation,
+  PdfAnnotationColor,
   AppNotice,
   AppInfo,
   BackupInfo,
@@ -290,6 +292,21 @@ const api: ReadingApi = {
   getAppInfo: () => ipcRenderer.invoke('app:info') as Promise<AppInfo>,
   getAiUsage: (days?: number) => ipcRenderer.invoke('ai:usage', days) as Promise<AiUsageSummary>,
   getNoteQuality: () => ipcRenderer.invoke('stats:note-quality') as Promise<NoteQualitySummary>,
+  listPdfAnnotations: (bookId: string, page: number) =>
+    ipcRenderer.invoke('pdf:annotations', bookId, page) as Promise<PdfAnnotation[]>,
+  savePdfAnnotation: (input: {
+    bookId: string
+    page: number
+    x: number
+    y: number
+    width: number
+    height: number
+    note?: string
+    color?: PdfAnnotationColor
+  }) => ipcRenderer.invoke('pdf:annotation-save', input) as Promise<PdfAnnotation>,
+  updatePdfAnnotation: (id: string, patch: { note?: string; color?: PdfAnnotationColor }) =>
+    ipcRenderer.invoke('pdf:annotation-update', id, patch) as Promise<PdfAnnotation>,
+  deletePdfAnnotation: (id: string) => ipcRenderer.invoke('pdf:annotation-delete', id) as Promise<void>,
   openDataDir: () => ipcRenderer.invoke('app:open-data') as Promise<void>,
   createBackup: () => ipcRenderer.invoke('backup:create') as Promise<BackupInfo>,
   listBackups: () => ipcRenderer.invoke('backup:list') as Promise<BackupInfo[]>,

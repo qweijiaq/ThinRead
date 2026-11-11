@@ -27,7 +27,34 @@ const MAX_IMPORT_TEXT = 10_000_000
 const MAX_ARTIFACT_CONTENT = 5_000_000
 const MAX_SAVE_CONTENT = 20_000_000
 
+export const idArgs = z.tuple([idSchema])
+
 export const bookIdArgs = z.tuple([idSchema])
+
+export const pdfAnnotationsArgs = z.tuple([idSchema, z.number().int().min(1).max(200_000)])
+
+const pdfAnnotationColor = z.enum(['yellow', 'green', 'blue'])
+
+export const pdfAnnotationSaveArgs = z.tuple([
+  z.object({
+    bookId: idSchema,
+    page: z.number().int().min(1).max(200_000),
+    x: z.number().min(0).max(1),
+    y: z.number().min(0).max(1),
+    width: z.number().min(0).max(1),
+    height: z.number().min(0).max(1),
+    note: z.string().max(10_000).optional(),
+    color: pdfAnnotationColor.optional(),
+  }),
+])
+
+export const pdfAnnotationUpdateArgs = z.tuple([
+  idSchema,
+  z.object({
+    note: z.string().max(10_000).optional(),
+    color: pdfAnnotationColor.optional(),
+  }),
+])
 
 export const bookShelfStatusArgs = z.tuple([
   idSchema,

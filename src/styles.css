@@ -12564,3 +12564,111 @@ html.theme-plain .primary-button.is-danger:hover {
   opacity: 0.7;
   font-size: 11px;
 }
+
+
+/* ─── PDF 原版标注 ─────────────────────────────────────────── */
+.pdf-page-stage {
+  position: relative;
+  display: inline-block;
+  line-height: 0;
+}
+
+.pdf-annotation-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.pdf-annotation-layer.is-annotating {
+  pointer-events: auto;
+  cursor: crosshair;
+}
+
+.pdf-annotation {
+  position: absolute;
+  padding: 0;
+  border: 1px solid rgba(180, 130, 20, 0.55);
+  border-radius: 2px;
+  background: rgba(255, 214, 64, 0.28);
+  pointer-events: auto;
+  cursor: pointer;
+  transition: box-shadow 0.12s ease;
+}
+
+.pdf-annotation.is-green {
+  border-color: rgba(40, 130, 80, 0.55);
+  background: rgba(96, 200, 140, 0.26);
+}
+
+.pdf-annotation.is-blue {
+  border-color: rgba(50, 100, 180, 0.55);
+  background: rgba(110, 160, 240, 0.24);
+}
+
+.pdf-annotation.is-draft {
+  pointer-events: none;
+  border-style: dashed;
+}
+
+.pdf-annotation.is-selected {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.pdf-annotation-editor {
+  display: grid;
+  gap: 10px;
+  padding: 12px 16px 14px;
+  border-top: 1px solid var(--line);
+  background: var(--sheet, #fffdf8);
+}
+
+.pdf-annotation-editor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.pdf-annotation-editor textarea {
+  width: 100%;
+  resize: vertical;
+  font: inherit;
+  line-height: 1.6;
+}
+
+.pdf-annotation-colors {
+  display: flex;
+  gap: 6px;
+}
+
+.pdf-annotation-color {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  background: #ffd640;
+  cursor: pointer;
+  padding: 0;
+}
+
+.pdf-annotation-color.is-green {
+  background: #60c88c;
+}
+
+.pdf-annotation-color.is-blue {
+  background: #6ea0f0;
+}
+
+.pdf-annotation-color.is-active {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.pdf-annotation-editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pdf-annotation-editor-actions span {
+  flex: 1;
+}

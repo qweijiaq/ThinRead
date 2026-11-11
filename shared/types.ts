@@ -1197,6 +1197,23 @@ export interface UiPreferences {
   configured: boolean
 }
 
+export type PdfAnnotationColor = 'yellow' | 'green' | 'blue'
+
+/** PDF 原版页面上的一块区域标注；坐标按页面宽高归一化到 0–1。 */
+export interface PdfAnnotation {
+  id: string
+  bookId: string
+  page: number
+  x: number
+  y: number
+  width: number
+  height: number
+  note: string
+  color: PdfAnnotationColor
+  createdAt: string
+  updatedAt: string
+}
+
 export interface ReadingBookmark {
   id: string
   bookId: string
@@ -1717,6 +1734,19 @@ export interface ReadingApi {
   testConnection(): Promise<TestResult>
   getAppInfo(): Promise<AppInfo>
   getAiUsage(days?: number): Promise<AiUsageSummary>
+  listPdfAnnotations(bookId: string, page: number): Promise<PdfAnnotation[]>
+  savePdfAnnotation(input: {
+    bookId: string
+    page: number
+    x: number
+    y: number
+    width: number
+    height: number
+    note?: string
+    color?: PdfAnnotationColor
+  }): Promise<PdfAnnotation>
+  updatePdfAnnotation(id: string, patch: { note?: string; color?: PdfAnnotationColor }): Promise<PdfAnnotation>
+  deletePdfAnnotation(id: string): Promise<void>
   getNoteQuality(): Promise<NoteQualitySummary>
   openDataDir(): Promise<void>
   createBackup(): Promise<BackupInfo>
