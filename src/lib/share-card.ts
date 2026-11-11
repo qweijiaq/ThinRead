@@ -1,3 +1,4 @@
+import { t } from '../lib/i18n.js'
 import { getReadingSummary } from './reading-stats.js'
 
 import {
@@ -71,12 +72,12 @@ const SANS = SHARE_SANS
 const MONO = SHARE_MONO
 
 const TEMPLATE_KICKER: Record<ShareTemplate, string> = {
-  quote: 'QUOTE / 原文摘录',
-  knowledge: 'CONCEPT / 知识点',
-  condensed: 'DIGEST / 读薄',
-  book: 'BOOK / 整本书',
-  deck: 'EXCERPTS / 摘录集',
-  badge: 'MILESTONE / 里程碑',
+  quote: t('QUOTE / 原文摘录'),
+  knowledge: t('CONCEPT / 知识点'),
+  condensed: t('DIGEST / 读薄'),
+  book: t('BOOK / 整本书'),
+  deck: t('EXCERPTS / 摘录集'),
+  badge: t('MILESTONE / 里程碑'),
 }
 
 const MARGIN = 88
@@ -238,7 +239,7 @@ function drawFooter(
   if (tags.length > 0) {
     drawTracked(ctx, tags.join('  ·  '), left, height - 78, `500 12px ${MONO}`, palette.accent, 1.4)
   }
-  const brand = input.brand?.trim() || '页边 THINREAD'
+  const brand = input.brand?.trim() || t('页边 THINREAD')
   drawTrackedRight(ctx, brand.slice(0, 40), right, height - 78, `500 12px ${MONO}`, palette.muted, 1.4)
 }
 
@@ -525,9 +526,9 @@ function drawBook(
   y += 76
 
   const statY = y
-  drawStat(ctx, palette, left, statY, String(book?.chapterCount ?? '—'), '章节')
-  drawStat(ctx, palette, left + 190, statY, String(book?.noteCount ?? '—'), '笔记')
-  drawStat(ctx, palette, left + 380, statY, String(book?.cards.length ?? 0), '知识点')
+  drawStat(ctx, palette, left, statY, String(book?.chapterCount ?? '—'), t('章节'))
+  drawStat(ctx, palette, left + 190, statY, String(book?.noteCount ?? '—'), t('笔记'))
+  drawStat(ctx, palette, left + 380, statY, String(book?.cards.length ?? 0), t('知识点'))
   y = statY + 92
   drawHairline(ctx, palette, left, right, y)
   y += 34
@@ -607,7 +608,7 @@ function renderDeck(canvas: HTMLCanvasElement, input: ShareCardInput): void {
   canvas.width = width
   canvas.height = height
   const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error('无法创建画布。')
+  if (!ctx) throw new Error(t('无法创建画布。'))
   ctx.textBaseline = 'top'
   paintSharePage(ctx, width, height, palette, 32)
 
@@ -616,7 +617,7 @@ function renderDeck(canvas: HTMLCanvasElement, input: ShareCardInput): void {
   const contentWidth = right - left
   drawMasthead(ctx, palette, left, right, HEADER_TOP, TEMPLATE_KICKER.deck)
 
-  const headTitle = fitBlock(ctx, input.title || '读书摘录', {
+  const headTitle = fitBlock(ctx, input.title || t('读书摘录'), {
     width: contentWidth,
     maxHeight: 68,
     maxSize: 44,
@@ -680,11 +681,11 @@ function renderDeck(canvas: HTMLCanvasElement, input: ShareCardInput): void {
     y += sectionHeight
   })
 
-  const brand = input.brand?.trim() || '页边 THINREAD'
+  const brand = input.brand?.trim() || t('页边 THINREAD')
   drawHairline(ctx, palette, left, right, height - 140)
   ctx.fillStyle = palette.soft
   ctx.font = `400 13px ${MONO}`
-  ctx.fillText('由页边 ThinRead 整理 · 书和笔记都留在本机', left, height - 108)
+  ctx.fillText(t('由页边 ThinRead 整理 · 书和笔记都留在本机'), left, height - 108)
   drawTrackedRight(ctx, brand.slice(0, 40), right, height - 78, `500 11px ${MONO}`, palette.muted, 1.4)
 }
 
@@ -699,13 +700,13 @@ function drawBadges(
   const right = width - MARGIN
   const compact = height < 1200
 
-  drawTracked(ctx, 'CONTINUOUS READING / 连续阅读', left, 184, `500 12px ${MONO}`, palette.accent, 2.2)
+  drawTracked(ctx, t('CONTINUOUS READING / 连续阅读'), left, 184, `500 12px ${MONO}`, palette.accent, 2.2)
 
   ctx.fillStyle = palette.accent
   ctx.font = `700 ${compact ? 94 : 112}px ${SERIF}`
   ctx.fillText(String(summary.currentStreak), left, 226)
   const numberWidth = ctx.measureText(String(summary.currentStreak)).width
-  drawTracked(ctx, '天', left + numberWidth + 16, 344, `500 18px ${MONO}`, palette.muted, 2)
+  drawTracked(ctx, t('天'), left + numberWidth + 16, 344, `500 18px ${MONO}`, palette.muted, 2)
 
   drawTracked(ctx, `最长连续 ${summary.longestStreak} 天`, left, 420, `400 14px ${MONO}`, palette.muted, 1.4)
   drawHairline(ctx, palette, left, right, 470)
@@ -729,7 +730,7 @@ function drawBadges(
     drawTracked(ctx, 'DAYS', x + 24, boxTop + boxHeight - 64, `500 11px ${MONO}`, palette.muted, 2)
     drawTracked(
       ctx,
-      unlocked ? '已达成' : '未解锁',
+      unlocked ? t('已达成') : t('未解锁'),
       x + 24,
       boxTop + boxHeight - 38,
       `500 12px ${MONO}`,
@@ -753,7 +754,7 @@ export function renderShareCard(canvas: HTMLCanvasElement, input: ShareCardInput
   canvas.width = width
   canvas.height = height
   const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error('无法创建画布。')
+  if (!ctx) throw new Error(t('无法创建画布。'))
   const palette = paletteFor(input.theme)
 
   ctx.textBaseline = 'top'
@@ -792,8 +793,8 @@ export function shareFilename(input: ShareCardInput): string {
     input.template === 'book'
       ? input.book?.title ?? input.title
       : input.template === 'deck'
-        ? `${input.title || '摘录集'}-${input.deck?.length ?? 0}张`
+        ? `${input.title || t('摘录集')}-${input.deck?.length ?? 0}张`
         : input.title || input.quote
   const clean = base.replace(/[\\/:*?"<>|#%{}]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 20)
-  return `页边-${clean || '分享卡'}.png`
+  return `页边-${clean || t('分享卡')}.png`
 }

@@ -1,3 +1,4 @@
+import { t } from '../lib/i18n.js'
 import type { ChapterMeta, Note } from '../../shared/types.js'
 
 import { titleRepeatsContent } from './note-display.js'
@@ -245,7 +246,7 @@ function contentGroups(input: PlanInput): Array<{ chapterTitle: string | null; n
       return (order.get(left) ?? 0) - (order.get(right) ?? 0)
     })
     .map(([chapterId, items]) => ({
-      chapterTitle: chapterId ? titles.get(chapterId) ?? null : '未分章',
+      chapterTitle: chapterId ? titles.get(chapterId) ?? null : t('未分章'),
       notes: items,
     }))
 }
@@ -340,7 +341,7 @@ export function planXhsCarousel(input: PlanInput): XhsCarouselPlan {
   const subtitle =
     input.scope === 'chapter'
       ? `${input.bookTitle}${input.author ? ` · ${input.author}` : ''}`
-      : `${input.author || '未署名'} · ${chapterTitles.length} 节`
+      : `${input.author || t('未署名')} · ${chapterTitles.length} 节`
   const pages: XhsCarouselPage[] = [
     { kind: 'cover', chapterTitle: null, parts: [] },
     ...effectivePages,
@@ -348,9 +349,9 @@ export function planXhsCarousel(input: PlanInput): XhsCarouselPlan {
   ]
   const covered = new Set(effectivePages.flatMap((page) => page.parts.map((part) => part.cardId))).size
   const warnings: string[] = []
-  if (selectedCards.length === 0) warnings.push('还没有核心知识点卡片。')
+  if (selectedCards.length === 0) warnings.push(t('还没有核心知识点卡片。'))
   if (pages.length > 18) warnings.push(`共 ${pages.length} 页，小红书单篇最多 18 张，建议按章节生成或分多篇发布。`)
-  if (selectedCards.length > 60) warnings.push('知识点较多，整套图会很长，建议按章节拆分。')
+  if (selectedCards.length > 60) warnings.push(t('知识点较多，整套图会很长，建议按章节拆分。'))
   if (covered !== selectedCards.length) warnings.push(`有 ${selectedCards.length - covered} 个知识点没有排进页面。`)
 
   return {
@@ -370,10 +371,10 @@ export function planXhsCarousel(input: PlanInput): XhsCarouselPlan {
 }
 
 export function defaultMeasureContext(): CanvasRenderingContext2D {
-  if (typeof document === 'undefined') throw new Error('当前环境没有可用的 Canvas。')
+  if (typeof document === 'undefined') throw new Error(t('当前环境没有可用的 Canvas。'))
   const canvas = document.createElement('canvas')
   const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error('无法创建画布。')
+  if (!ctx) throw new Error(t('无法创建画布。'))
   return ctx
 }
 
@@ -426,7 +427,7 @@ function fitText(
 
 function drawFooter(ctx: CanvasRenderingContext2D, palette: Palette, brand = ''): void {
   drawHairline(ctx, palette, LEFT, PAGE_WIDTH - RIGHT, PAGE_HEIGHT - 90)
-  drawTracked(ctx, '页边 / 小红书图文', LEFT, PAGE_HEIGHT - 64, `500 10px ${MONO}`, palette.muted, 1.6)
+  drawTracked(ctx, t('页边 / 小红书图文'), LEFT, PAGE_HEIGHT - 64, `500 10px ${MONO}`, palette.muted, 1.6)
   drawTrackedRight(
     ctx,
     brand || 'THINREAD / XHS',
@@ -454,7 +455,7 @@ function drawCover(ctx: CanvasRenderingContext2D, plan: XhsCarouselPlan, palette
 
   drawTracked(
     ctx,
-    plan.scope === 'chapter' ? 'CHAPTER NOTES / 章节图文' : 'BOOK NOTES / 整本书图文',
+    plan.scope === 'chapter' ? t('CHAPTER NOTES / 章节图文') : t('BOOK NOTES / 整本书图文'),
     LEFT,
     164,
     `500 11px ${MONO}`,
@@ -486,7 +487,7 @@ function drawCover(ctx: CanvasRenderingContext2D, plan: XhsCarouselPlan, palette
   if (sample) {
     const selectedTop = Math.max(statsY + 106, 628)
     drawAccentRule(ctx, palette, LEFT, selectedTop, 40, 3)
-    drawTracked(ctx, 'SELECTED / 选读', LEFT + 54, selectedTop - 6, `500 11px ${MONO}`, palette.accent, 2)
+    drawTracked(ctx, t('SELECTED / 选读'), LEFT + 54, selectedTop - 6, `500 11px ${MONO}`, palette.accent, 2)
 
     const quoteTop = selectedTop + 64
     const quoteText = [sample.heading, sample.body].filter(Boolean).join(' ')
@@ -527,7 +528,7 @@ function drawCover(ctx: CanvasRenderingContext2D, plan: XhsCarouselPlan, palette
     palette.muted,
     1.4,
   )
-  drawTrackedRight(ctx, '向右滑 →', PAGE_WIDTH - RIGHT, metaY, `500 14px ${MONO}`, palette.accent, 1.8)
+  drawTrackedRight(ctx, t('向右滑 →'), PAGE_WIDTH - RIGHT, metaY, `500 14px ${MONO}`, palette.accent, 1.8)
 
   drawProgress(ctx, palette, 0, total)
   drawFooter(ctx, palette, plan.brand)
@@ -626,7 +627,7 @@ function drawContent(
     drawTracked(ctx, String(part.number).padStart(2, '0'), LEFT, y + 2, `700 18px ${MONO}`, palette.accent, 1.8)
     let cursor = y
     if (part.continuation) {
-      drawTracked(ctx, '续', LEFT + 38, y + 4, `500 13px ${MONO}`, palette.muted, 1)
+      drawTracked(ctx, t('续'), LEFT + 38, y + 4, `500 13px ${MONO}`, palette.muted, 1)
       cursor += 24
     }
     if (part.headingLines.length > 0) {
@@ -676,7 +677,7 @@ function drawClosing(ctx: CanvasRenderingContext2D, plan: XhsCarouselPlan, palet
   drawMasthead(ctx, palette, LEFT, PAGE_WIDTH - RIGHT, 66)
   drawPageNo(ctx, total - 1, total, palette)
 
-  drawTracked(ctx, 'THE LAST PAGE / 回顾', LEFT, 174, `500 13px ${MONO}`, palette.accent, 2.2)
+  drawTracked(ctx, t('THE LAST PAGE / 回顾'), LEFT, 174, `500 13px ${MONO}`, palette.accent, 2.2)
   const title =
     plan.scope === 'chapter'
       ? `这一章，留下 ${plan.totalCards} 个知识点`
@@ -710,7 +711,7 @@ function drawClosing(ctx: CanvasRenderingContext2D, plan: XhsCarouselPlan, palet
   y += 36
   ctx.fillStyle = palette.muted
   ctx.font = `400 16px ${MONO}`
-  ctx.fillText(plan.scope === 'chapter' ? plan.bookTitle : `${plan.author || '未署名'} · ${plan.bookTitle}`, LEFT, y)
+  ctx.fillText(plan.scope === 'chapter' ? plan.bookTitle : `${plan.author || t('未署名')} · ${plan.bookTitle}`, LEFT, y)
 
   drawProgress(ctx, palette, total - 1, total)
   drawFooter(ctx, palette, plan.brand)
@@ -725,11 +726,11 @@ export function renderXhsPage(
   canvas.width = PAGE_WIDTH
   canvas.height = PAGE_HEIGHT
   const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error('无法创建画布。')
+  if (!ctx) throw new Error(t('无法创建画布。'))
   ctx.textBaseline = 'top'
   const palette = sharePalette(theme)
   const page = plan.pages[pageIndex]
-  if (!page) throw new Error('页面不存在。')
+  if (!page) throw new Error(t('页面不存在。'))
   if (page.kind === 'cover') drawCover(ctx, plan, palette, plan.pages.length)
   else if (page.kind === 'closing') drawClosing(ctx, plan, palette, plan.pages.length)
   else drawContent(ctx, plan, page, pageIndex, plan.pages.length, palette)
@@ -738,10 +739,10 @@ export function renderXhsPage(
 export function xhsPageFilename(plan: XhsCarouselPlan, pageIndex: number): string {
   const page = plan.pages[pageIndex]
   const number = String(pageIndex + 1).padStart(2, '0')
-  const title = (page?.kind === 'cover' ? '封面' : page?.kind === 'closing' ? '结尾' : page?.chapterTitle ?? '知识点')
+  const title = (page?.kind === 'cover' ? t('封面') : page?.kind === 'closing' ? t('结尾') : page?.chapterTitle ?? t('知识点'))
     .replace(/[\\/:*?"<>|#%{}]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 16)
-  return `页边-${number}-${title || '小红书'}.png`
+  return `页边-${number}-${title || t('小红书')}.png`
 }

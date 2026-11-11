@@ -1,16 +1,17 @@
+import { t } from '../lib/i18n.js'
 import type { ContentItem, ContentKind } from '../../shared/types.js'
 
 export const CONTENT_KIND_LABELS: Record<ContentKind, string> = {
-  report: '报告',
-  chat: '对话',
-  quiz: '出题',
-  notes: '笔记',
-  format: '排版',
-  compose: '整本成稿',
-  suggestion: '整理建议',
-  pdf: 'PDF 页',
-  graph: '关系图',
-  other: '其他',
+  report: t('报告'),
+  chat: t('对话'),
+  quiz: t('出题'),
+  notes: t('笔记'),
+  format: t('排版'),
+  compose: t('整本成稿'),
+  suggestion: t('整理建议'),
+  pdf: t('PDF 页'),
+  graph: t('关系图'),
+  other: t('其他'),
 }
 
 /** 把不同工具的 JSON 内容转成可读 Markdown，供预览、复制和存为笔记。 */
@@ -20,7 +21,7 @@ export function contentToMarkdown(item: ContentItem): string {
       const parsed = JSON.parse(item.content) as { turns?: Array<{ role?: string; content?: string }> }
       if (Array.isArray(parsed.turns)) {
         return parsed.turns
-          .map((turn) => `**${turn.role === 'user' ? '我' : '助手'}**：${turn.content ?? ''}`)
+          .map((turn) => `**${turn.role === 'user' ? t('我') : t('助手')}**：${turn.content ?? ''}`)
           .join('\n\n')
       }
     } catch {
@@ -85,10 +86,10 @@ export function contentToMarkdown(item: ContentItem): string {
             const facts = [node.identity, node.rank, node.affiliation].filter(Boolean).join(' / ')
             const wiki = node.encyclopedia ? `\n  百科：${node.encyclopedia}` : ''
             const chapters = node.chapters?.length ? `\n  出处：${node.chapters.join('、')}` : ''
-            return `- ${node.label ?? '未命名'}（${node.kind ?? 'other'}${node.role ? ` · ${node.role}` : ''}${node.importance ? ` · 重要度 ${node.importance}` : ''}${facts ? ` · ${facts}` : ''}）：${node.description ?? ''}${wiki}${chapters}`
+            return `- ${node.label ?? t('未命名')}（${node.kind ?? 'other'}${node.role ? ` · ${node.role}` : ''}${node.importance ? ` · 重要度 ${node.importance}` : ''}${facts ? ` · ${facts}` : ''}）：${node.description ?? ''}${wiki}${chapters}`
           }),
           '## 关系',
-          ...(parsed.edges ?? []).map((edge) => `- ${edge.source ?? ''} — ${edge.label ?? '关系'} — ${edge.target ?? ''}${edge.description ? `：${edge.description}` : ''}${edge.chapters?.length ? `（出处：${edge.chapters.join('、')}）` : ''}`),
+          ...(parsed.edges ?? []).map((edge) => `- ${edge.source ?? ''} — ${edge.label ?? t('关系')} — ${edge.target ?? ''}${edge.description ? `：${edge.description}` : ''}${edge.chapters?.length ? `（出处：${edge.chapters.join('、')}）` : ''}`),
         ].filter(Boolean)
         return lines.join('\n')
       }
