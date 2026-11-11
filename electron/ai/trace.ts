@@ -3,12 +3,61 @@ import path from 'node:path'
 
 import { generateObject, generateText } from 'ai'
 
+import { getAiBudget, getAiPricing } from '../settings.js'
 import { aiLimiter } from './limiter.js'
+import { readAiUsage } from './usage.js'
 
 let traceDir: string | null = null
 
 /** 即使调用方忘了传 timeoutMs，也不允许模型请求无限挂住。 */
 const DEFAULT_HARD_TIMEOUT_MS = 10 * 60 * 1000
+
+/** 预算超限是用户可理解的业务错误，不应该被下面的兜底 catch 吞掉。 */
+export class AiBudgetExceededError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'AiBudgetExceededError'
+  }
+}
+
+let budgetCache: { at: number; limit: number; spent: number } | null = null
+
+function currentMonthCost(dataDir: string): number {
+  const summary = readAiUsage(dataDir, 31, getAiPricing())
+  const now = new Date()
+  const prefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  return summary.days
+    .filter((day) => day.date.startsWith(prefix))
+    .reduce((total, day) => total + day.cost, 0)
+}
+
+/**
+ * 月度预算护栏。按设置里的模型价格估算，到上限后拒绝新的模型调用；
+ * 已经生成的内容和本地功能不受影响。价格没填时费用估算为 0，护栏不会误伤。
+ */
+function assertBudget(): void {
+  if (!traceDir) return
+  let budget: { monthlyCny: number; enabled: boolean }
+  try {
+    budget = getAiBudget()
+  } catch {
+    // 设置尚未初始化（测试或首次启动）时不做限制。
+    return
+  }
+  if (!budget.enabled || budget.monthlyCny <= 0) return
+
+  const now = Date.now()
+  if (!budgetCache || now - budgetCache.at > 10_000 || budgetCache.limit !== budget.monthlyCny) {
+    budgetCache = { at: now, limit: budget.monthlyCny, spent: currentMonthCost(path.dirname(traceDir)) }
+  }
+  if (budgetCache.spent >= budgetCache.limit) {
+    throw new AiBudgetExceededError(
+      `本月 AI 预算已用完（已用 ¥${budgetCache.spent.toFixed(2)} / 上限 ¥${budgetCache.limit.toFixed(2)}）。` +
+        '可以在设置里调高上限，或等下个月再继续。',
+    )
+  }
+}
+
 
 export interface AiTraceEntry {
   step: string
@@ -188,6 +237,7 @@ export async function tracedGenerateText(meta: TraceMeta, options: GenerateTextO
   }
   try {
     if (options.abortSignal?.aborted) throw new Error('请求已取消')
+    assertBudget()
     const request = generateText(requestOptions)
     const result = await withHardTimeout(request, timeoutMs, () => controller?.abort())
     traceAiStep({
@@ -222,6 +272,7 @@ export async function tracedGenerateObject(
   const startedAt = Date.now()
   try {
     if (options.abortSignal?.aborted) throw new Error('请求已取消')
+    assertBudget()
     const result = await generateObject(options)
     traceAiStep({
       ...meta,

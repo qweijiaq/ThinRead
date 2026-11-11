@@ -1,5 +1,7 @@
+import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 
 import type { TtsAudio, TtsStatus, TtsSynthesisRequest, TtsVoice } from '../shared/types.js'
@@ -120,6 +122,77 @@ function speechEndpoint(baseUrl: string): string {
   return `${base}/services/audio/tts/SpeechSynthesizer`
 }
 
+const SYSTEM_PREFIX = 'system:'
+let systemVoicesCache: TtsVoice[] | null = null
+
+export function systemTtsAvailable(): boolean {
+  return process.platform === 'darwin'
+}
+
+/** 读取 macOS `say -v ?` 的音色列表；只保留中英文，避免几百个音色把下拉框撑爆。 */
+export function listSystemVoices(): TtsVoice[] {
+  if (!systemTtsAvailable()) return []
+  if (systemVoicesCache) return systemVoicesCache
+  try {
+    const result = spawnSync('say', ['-v', '?'], { encoding: 'utf8', timeout: 5_000 })
+    const rows = (result.stdout || '')
+      .split('\n')
+      .map((line) => /^(.+?)\s{2,}([a-z]{2}_[A-Z]{2})\s+#/.exec(line))
+      .filter((match): match is RegExpExecArray => Boolean(match))
+    const voices: TtsVoice[] = []
+    const seen = new Set<string>()
+    for (const match of rows) {
+      const name = match[1].trim()
+      const locale = match[2]
+      if (!/^(zh|en)/i.test(locale) || seen.has(name)) continue
+      seen.add(name)
+      voices.push({
+        id: `${SYSTEM_PREFIX}${name}`,
+        label: `${name} · ${locale}`,
+        language: locale,
+        gender: 'unknown',
+      })
+    }
+    systemVoicesCache = voices
+    return voices
+  } catch {
+    return []
+  }
+}
+
+function systemVoiceName(voice: string): string {
+  const name = voice.startsWith(SYSTEM_PREFIX) ? voice.slice(SYSTEM_PREFIX.length) : voice
+  return name.trim() || 'Ting-Ting'
+}
+
+/** 用 macOS 内置语音合成；不需要任何 Key，作为千问 TTS 的零配置兜底。 */
+export function synthesizeSystemTts(request: TtsSynthesisRequest): TtsAudio {
+  if (!systemTtsAvailable()) throw new Error('当前系统不支持内置语音合成。')
+  const text = request.text.replace(/\s+/g, ' ').trim()
+  if (!text) throw new Error('没有可合成的文字。')
+  const file = path.join(os.tmpdir(), `thinread-tts-${createHash('sha1').update(text).digest('hex').slice(0, 12)}.wav`)
+  try {
+    const result = spawnSync(
+      'say',
+      ['-v', systemVoiceName(request.voice), '-o', file, '--data-format=LEI16@22050', text],
+      { timeout: 60_000 },
+    )
+    if (result.status !== 0) {
+      const detail = (result.stderr || '').toString().slice(0, 200)
+      throw new Error(`内置语音合成失败${detail ? `：${detail}` : ''}`)
+    }
+    const audio = fs.readFileSync(file)
+    if (audio.length === 0) throw new Error('内置语音没有返回音频。')
+    return { mime: 'audio/wav', base64: audio.toString('base64') }
+  } finally {
+    try {
+      fs.unlinkSync(file)
+    } catch {
+      // 临时文件清理失败不影响播放。
+    }
+  }
+}
+
 export function getTtsStatus(): TtsStatus {
   let config: ReturnType<typeof getQwenTtsConfig>
   let voices = QWEN_VOICES
@@ -139,6 +212,10 @@ export function getTtsStatus(): TtsStatus {
       voiceEn: config.voiceEn,
       pricePerK: config.pricePerK,
       voices,
+    },
+    system: {
+      available: systemTtsAvailable(),
+      voices: listSystemVoices(),
     },
   }
 }
@@ -199,6 +276,20 @@ export async function synthesizeTts(request: TtsSynthesisRequest): Promise<TtsAu
   if (!text) throw new Error('没有可合成的文字。')
   if (text.length > 2_000) throw new Error('单段文字太长，请分段后再听。')
   const config = getQwenTtsConfig()
+  const wantsSystem = request.voice.startsWith(SYSTEM_PREFIX)
+  // 没配千问 Key 时自动退回 macOS 内置语音，听读不会因为缺一把 Key 完全不可用。
+  if (wantsSystem || !config.apiKey) {
+    if (!systemTtsAvailable()) {
+      throw new Error('还没有配置千问 TTS 的 API Key：在设置里填写 TTS Key，或先配置阿里云百炼主 Key。')
+    }
+    const voice = systemVoiceName(request.voice)
+    const key = ttsCacheKey('system', voice, text)
+    const cached = readTtsCache(key)
+    if (cached) return cached
+    const audio = synthesizeSystemTts({ ...request, text, voice: `${SYSTEM_PREFIX}${voice}` })
+    writeTtsCache(key, audio)
+    return audio
+  }
   const voice = request.voice || config.voiceA
   // 播放、整章导出和重复打开同一章都复用同一份音频，避免重复计费。
   const key = ttsCacheKey(config.model, voice, text)

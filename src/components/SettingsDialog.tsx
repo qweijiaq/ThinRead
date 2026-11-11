@@ -92,6 +92,8 @@ export function SettingsDialog({
   const [composeModel, setComposeModel] = useState(settings.composeModel)
   const [labModel, setLabModel] = useState(settings.labModel)
   const [aiPricing, setAiPricing] = useState<Record<string, { input: string; output: string }>>({})
+  const [aiBudgetEnabled, setAiBudgetEnabled] = useState(settings.aiBudgetEnabled)
+  const [aiBudgetMonthly, setAiBudgetMonthly] = useState(String(settings.aiBudgetMonthlyCny || ''))
   const [availableModels, setAvailableModels] = useState<string[]>([])
   const [modelListLoading, setModelListLoading] = useState(false)
   const [detectingLocal, setDetectingLocal] = useState(false)
@@ -147,6 +149,8 @@ export function SettingsDialog({
         ]),
       ),
     )
+    setAiBudgetEnabled(settings.aiBudgetEnabled)
+    setAiBudgetMonthly(String(settings.aiBudgetMonthlyCny || ''))
     setReadwiseToken('')
     setReadwiseTest(null)
     setQwenTtsBaseUrl(settings.qwenTtsBaseUrl)
@@ -317,6 +321,8 @@ export function SettingsDialog({
             ] as const)
             .filter(([, price]) => price.inputPerMTokens > 0 || price.outputPerMTokens > 0),
         ),
+        aiBudgetEnabled,
+        aiBudgetMonthlyCny: Math.max(0, Number(aiBudgetMonthly) || 0),
         ...(readwiseToken.trim() ? { readwiseToken: readwiseToken.trim() } : {}),
         qwenTtsBaseUrl,
         qwenTtsModel,
@@ -846,6 +852,30 @@ export function SettingsDialog({
                 </p>
               </div>
             ) : null}
+            <div className="form-row settings-advanced">
+              <label>{t('月度 AI 预算')}</label>
+              <div className="task-model-grid">
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={aiBudgetEnabled}
+                    onChange={(event) => setAiBudgetEnabled(event.target.checked)}
+                  />
+                  <span>{t('超出后停止调用模型')}</span>
+                </label>
+                <input
+                  value={aiBudgetMonthly}
+                  onChange={(event) => setAiBudgetMonthly(event.target.value)}
+                  inputMode="decimal"
+                  placeholder={t('每月上限（元）')}
+                  aria-label={t('每月 AI 预算上限')}
+                  disabled={!aiBudgetEnabled}
+                />
+              </div>
+              <p className="field-hint">
+                {t('按上面的模型价格估算；到上限后新的生成会被拒绝，已经生成的内容和本地功能不受影响。')}
+              </p>
+            </div>
           </>
         ) : (
           <div className="demo-note">

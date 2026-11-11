@@ -974,6 +974,8 @@ export interface SettingsView {
   composeModel: string
   labModel: string
   aiPricing: AiModelPricing
+  aiBudgetEnabled: boolean
+  aiBudgetMonthlyCny: number
   readwiseConfigured: boolean
   keysNeedReentry: boolean
   appLockEnabled: boolean
@@ -999,6 +1001,8 @@ export interface SettingsPatch {
   composeModel?: string
   labModel?: string
   aiPricing?: AiModelPricing
+  aiBudgetEnabled?: boolean
+  aiBudgetMonthlyCny?: number
   readwiseToken?: string
   qwenTtsBaseUrl?: string
   qwenTtsModel?: string
@@ -1266,6 +1270,10 @@ export interface TtsStatus {
     voiceB: string
     voiceEn: string
     pricePerK: number
+    voices: TtsVoice[]
+  }
+  system: {
+    available: boolean
     voices: TtsVoice[]
   }
 }

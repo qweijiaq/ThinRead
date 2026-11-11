@@ -1677,11 +1677,46 @@ export function pruneDeletedContent(days = DELETED_CONTENT_RETENTION_DAYS): numb
   return Number(result.changes ?? 0)
 }
 
+const ARTIFACT_VERSIONS_PER_SCOPE = 30
+let artifactInsertCount = 0
+
+/**
+ * 每个工具 + 范围只保留最近 N 份生成快照。
+ * 收藏、当前版本和回收站里的内容不参与清理，避免内容库无限膨胀。
+ */
+export function pruneArtifactVersions(keepPerScope = ARTIFACT_VERSIONS_PER_SCOPE): number {
+  const keep = Math.max(5, Math.floor(Number(keepPerScope) || 0))
+  try {
+    const result = database()
+      .prepare(
+        `DELETE FROM lab_artifact_versions
+         WHERE id IN (
+           SELECT id FROM (
+             SELECT id,
+                    ROW_NUMBER() OVER (
+                      PARTITION BY tool, scope
+                      ORDER BY COALESCE(updated_at, created_at) DESC
+                    ) AS rn
+             FROM lab_artifact_versions
+             WHERE status != 'deleted' AND favorite = 0 AND current_at IS NULL
+           )
+           WHERE rn > ?
+         )`,
+      )
+      .run(keep)
+    return Number(result.changes) || 0
+  } catch {
+    // 清理失败不影响生成结果写入。
+    return 0
+  }
+}
+
 /** 轻量维护：更新查询规划器统计并截断 WAL，不自动执行耗时的 VACUUM。 */
 export function optimizeDatabase(): void {
   try {
     database().exec('PRAGMA optimize')
     database().exec('PRAGMA wal_checkpoint(TRUNCATE)')
+    pruneArtifactVersions()
   } catch {
     // 维护失败不影响启动；下次启动会再次尝试。
   }
@@ -2971,6 +3006,8 @@ export function saveLabArtifact(input: {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'draft', ?, NULL)`,
     )
     .run(id, tool, scope, title, input.content, input.meta ?? null, now, kind, bookId, chapterId, now)
+  artifactInsertCount += 1
+  if (artifactInsertCount % 20 === 0) pruneArtifactVersions()
   return {
     id,
     tool,

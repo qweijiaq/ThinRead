@@ -1604,5 +1604,14 @@
   "修复": "Fix",
   "一键修复代码错误，混入的正文会用注释符注释掉": "Fix code errors in one click; prose mixed into the code is commented out",
   "已修复代码": "Code fixed",
-  "代码没有需要修复的地方": "No code fixes were needed"
+  "代码没有需要修复的地方": "No code fixes were needed",
+  "月度 AI 预算": "Monthly AI budget",
+  "超出后停止调用模型": "Stop model calls when exceeded",
+  "每月上限（元）": "Monthly cap (CNY)",
+  "每月 AI 预算上限": "Monthly AI budget cap",
+  "按上面的模型价格估算；到上限后新的生成会被拒绝，已经生成的内容和本地功能不受影响。": "Estimated from the model prices above. Once the cap is reached, new generation requests are rejected; existing content and local features are unaffected.",
+  "还没有可用的语音合成：配置千问 TTS Key，或使用 macOS 内置语音。": "No speech engine is available yet: configure a Qwen TTS key, or use the built-in macOS voices.",
+  "还没有可用的语音合成": "No speech engine is available yet",
+  "macOS 内置语音": "Built-in macOS voices",
+  "使用 macOS 内置语音，完全在本机合成，不产生费用。": "Uses built-in macOS voices. Synthesis happens entirely on this Mac and costs nothing."
 }

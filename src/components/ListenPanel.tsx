@@ -83,8 +83,8 @@ export function ListenPanel({
     initialResume > 0 ? t('已从上次位置继续') : null,
   )
   const [ttsStatus, setTtsStatus] = useState<TtsStatus | null>(null)
-  const [voiceA, setVoiceA] = useState('')
-  const [voiceB, setVoiceB] = useState('')
+  const [voiceA, setVoiceA] = useState('longanhuan_v3.1')
+  const [voiceB, setVoiceB] = useState('xunanchuan_v3.1')
   const [voiceEn, setVoiceEn] = useState('')
   const [audioLoading, setAudioLoading] = useState(false)
   const [fullAudioUrl, setFullAudioUrl] = useState<string | null>(null)
@@ -130,8 +130,8 @@ export function ListenPanel({
   async function synthesizeSegment(segmentIndex: number): Promise<string> {
     const segment = segments[segmentIndex]
     if (!segment) throw new Error(t('找不到要合成的句子。'))
-    if (!ttsStatus?.qwen.configured) {
-      throw new Error(t('千问 TTS 还没有配置，请到设置里填写 Key（或先配置阿里云百炼主 Key）。'))
+    if (!ttsStatus?.qwen.configured && !ttsStatus?.system.available) {
+      throw new Error(t('还没有可用的语音合成：配置千问 TTS Key，或使用 macOS 内置语音。'))
     }
     const voice = remoteVoice(segment.speaker, segment.text)
     const key = `${voice}:${segment.text}`
@@ -162,9 +162,19 @@ export function ListenPanel({
       .getTtsStatus()
       .then((status) => {
         setTtsStatus(status)
-        setVoiceA(status.qwen.voiceA)
-        setVoiceB(status.qwen.voiceB)
-        setVoiceEn(status.qwen.voiceEn)
+        if (status.qwen.configured) {
+          setVoiceA(status.qwen.voiceA)
+          setVoiceB(status.qwen.voiceB)
+          setVoiceEn(status.qwen.voiceEn)
+        } else {
+          const zh = status.system.voices.filter((voice) => voice.language.startsWith('zh'))
+          const en = status.system.voices.filter((voice) => voice.language.startsWith('en'))
+          const first = zh[0] ?? status.system.voices[0]
+          const second = zh[1] ?? status.system.voices.find((voice) => voice.id !== first?.id)
+          setVoiceA(first?.id ?? '')
+          setVoiceB(second?.id ?? first?.id ?? '')
+          setVoiceEn(en[0]?.id ?? '')
+        }
       })
       .catch(() => undefined)
   }, [])
@@ -460,14 +470,17 @@ export function ListenPanel({
   }
 
   const dialogRef = useDialogFocus<HTMLDivElement>(!minimized, onClose, 'button')
-  const configured = Boolean(ttsStatus?.qwen.configured)
-  const model = ttsStatus?.qwen.model || 'qwen-audio-3.1-tts-flash'
-  const aName = voiceA || ttsStatus?.qwen.voiceA || 'longanhuan_v3.1'
-  const bName = voiceB || ttsStatus?.qwen.voiceB || 'xunanchuan_v3.1'
-  const voiceOptions = [...(ttsStatus?.qwen.voices ?? [])].map((voice) => ({
-    value: voice.id,
-    label: voice.label,
-  }))
+  const qwenConfigured = Boolean(ttsStatus?.qwen.configured)
+  const systemAvailable = Boolean(ttsStatus?.system.available)
+  const configured = qwenConfigured || systemAvailable
+  const model = qwenConfigured ? ttsStatus?.qwen.model || 'qwen-audio-3.1-tts-flash' : t('macOS 内置语音')
+  const systemVoices = ttsStatus?.system.voices ?? []
+  const aName = voiceA || ttsStatus?.qwen.voiceA || systemVoices[0]?.id || 'longanhuan_v3.1'
+  const bName = voiceB || ttsStatus?.qwen.voiceB || systemVoices[1]?.id || 'xunanchuan_v3.1'
+  const voiceOptions = [
+    ...(qwenConfigured ? ttsStatus?.qwen.voices ?? [] : systemVoices),
+    ...(qwenConfigured ? systemVoices : ttsStatus?.qwen.voices ?? []),
+  ].map((voice) => ({ value: voice.id, label: voice.label }))
   for (const id of [voiceA, voiceB]) {
     if (id && !voiceOptions.some((option) => option.value === id)) voiceOptions.push({ value: id, label: id })
   }
@@ -495,7 +508,7 @@ export function ListenPanel({
             className="primary-button small"
             onClick={() => void toggle()}
             disabled={!configured || segments.length === 0}
-            title={configured ? undefined : t('千问 TTS 还没有配置，请到设置里填写 Key（或先配置阿里云百炼主 Key）。')}
+            title={configured ? undefined : t('还没有可用的语音合成：配置千问 TTS Key，或使用 macOS 内置语音。')}
           >
             {audioLoading ? t('生成中…') : !playing ? t('播放') : paused ? t('继续') : t('暂停')}
           </button>
@@ -542,7 +555,7 @@ export function ListenPanel({
               className="primary-button small"
               onClick={() => void toggle()}
               disabled={!configured || segments.length === 0}
-              title={configured ? undefined : t('千问 TTS 还没有配置，请到设置里填写 Key（或先配置阿里云百炼主 Key）。')}
+              title={configured ? undefined : t('还没有可用的语音合成：配置千问 TTS Key，或使用 macOS 内置语音。')}
             >
               {audioLoading ? t('生成中…') : !playing ? t('播放') : paused ? t('继续') : t('暂停')}
             </button>
@@ -621,7 +634,7 @@ export function ListenPanel({
               className="listen-voice-select"
               value={voiceA}
               onChange={(value) => changeVoice('a', value)}
-              ariaLabel={t('千问 A 音色')}
+              ariaLabel={t('A 音色')}
               options={voiceOptions}
             />
           </label>
@@ -631,16 +644,18 @@ export function ListenPanel({
               className="listen-voice-select"
               value={voiceB}
               onChange={(value) => changeVoice('b', value)}
-              ariaLabel={t('千问 B 音色')}
+              ariaLabel={t('B 音色')}
               options={voiceOptions}
             />
           </label>
           <span className="listen-engine-hint">
-            {configured
+            {qwenConfigured
               ? t('千问 TTS · 阿里云百炼 · 按字符计费，文本会发送到该服务。')
-              : demo
-                ? t('演示模式不包含语音合成；配置千问 TTS Key 后即可使用。')
-                : t('千问 TTS 还没有配置；请到右上角设置填写 Key，或先配置阿里云百炼主 Key。')}
+              : systemAvailable
+                ? t('使用 macOS 内置语音，完全在本机合成，不产生费用。')
+                : demo
+                  ? t('演示模式不包含语音合成；配置千问 TTS Key 后即可使用。')
+                  : t('千问 TTS 还没有配置；请到右上角设置填写 Key，或先配置阿里云百炼主 Key。')}
           </span>
           <span className="listen-engine-hint">{t('更改 A/B 音色会保存为默认音色。')}</span>
         </div>
@@ -676,7 +691,7 @@ export function ListenPanel({
                   className="ghost-button small"
                   onClick={() => void generateFullAudio()}
                   disabled={segments.length === 0 || !configured}
-                  title={!configured ? t('请先配置千问 TTS') : undefined}
+                  title={!configured ? t('还没有可用的语音合成') : undefined}
                 >
                   {t('生成整章音频')}
                 </button>

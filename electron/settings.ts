@@ -25,6 +25,7 @@ interface StoredSettings {
   composeModel: string
   labModel: string
   aiPricing?: AiModelPricing
+  aiBudget?: { monthlyCny: number; enabled: boolean }
   readwise?: StoredKey
   ui?: {
     autoNext?: boolean
@@ -67,6 +68,7 @@ const DEFAULT_SETTINGS: StoredSettings = {
   notesModel: '',
   composeModel: '',
   labModel: '',
+  aiBudget: { monthlyCny: 0, enabled: false },
   keys: {},
 }
 
@@ -104,6 +106,15 @@ export function normalizeAiPricing(value: unknown): AiModelPricing {
   return result
 }
 
+function normalizeAiBudget(value: unknown): { monthlyCny: number; enabled: boolean } {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return { monthlyCny: 0, enabled: false }
+  const row = value as Record<string, unknown>
+  return {
+    monthlyCny: Math.max(0, Number(row.monthlyCny) || 0),
+    enabled: row.enabled === true,
+  }
+}
+
 function readFile(): StoredSettings {
   try {
     const raw = JSON.parse(fs.readFileSync(filePath, 'utf8')) as Partial<StoredSettings>
@@ -119,6 +130,7 @@ function readFile(): StoredSettings {
       composeModel: typeof raw.composeModel === 'string' ? raw.composeModel : '',
       labModel: typeof raw.labModel === 'string' ? raw.labModel : '',
       aiPricing: normalizeAiPricing(raw.aiPricing),
+      aiBudget: normalizeAiBudget(raw.aiBudget),
       readwise: raw.readwise,
       ui: raw.ui,
       lock: raw.lock,
@@ -209,6 +221,10 @@ function anyKeyNeedsReentry(): boolean {
 export function getAiPricing(): AiModelPricing {
   // 用户填写优先；没填过的模型使用内置参考价，打开统计页就能看到估算费用。
   return { ...REFERENCE_AI_PRICING, ...normalizeAiPricing(settings().aiPricing) }
+}
+
+export function getAiBudget(): { monthlyCny: number; enabled: boolean } {
+  return normalizeAiBudget(settings().aiBudget)
 }
 
 export function getReadwiseToken(): string | null {
@@ -338,6 +354,8 @@ export function getSettingsView(): SettingsView {
     composeModel: current.composeModel,
     labModel: current.labModel,
     aiPricing: getAiPricing(),
+    aiBudgetEnabled: getAiBudget().enabled,
+    aiBudgetMonthlyCny: getAiBudget().monthlyCny,
     readwiseConfigured: readStoredKey(current.readwise) !== null,
     keysNeedReentry: anyKeyNeedsReentry(),
     appLockEnabled: getAppLockEnabled(),
@@ -378,6 +396,13 @@ export function saveSettings(patch: SettingsPatch): SettingsView {
   if (patch.composeModel !== undefined) current.composeModel = patch.composeModel.trim()
   if (patch.labModel !== undefined) current.labModel = patch.labModel.trim()
   if (patch.aiPricing !== undefined) current.aiPricing = normalizeAiPricing(patch.aiPricing)
+  if (patch.aiBudgetEnabled !== undefined || patch.aiBudgetMonthlyCny !== undefined) {
+    const previous = normalizeAiBudget(current.aiBudget)
+    current.aiBudget = normalizeAiBudget({
+      enabled: patch.aiBudgetEnabled ?? previous.enabled,
+      monthlyCny: patch.aiBudgetMonthlyCny ?? previous.monthlyCny,
+    })
+  }
   if (patch.readwiseToken && patch.readwiseToken.trim()) {
     current.readwise = encodeKey(patch.readwiseToken.trim())
   }

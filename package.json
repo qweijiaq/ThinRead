@@ -12,7 +12,7 @@
     "build:renderer": "vite build",
     "build": "pnpm build:electron && pnpm build:renderer",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.test.json",
-    "verify": "pnpm typecheck && pnpm test && pnpm check:extensions && pnpm check:docs",
+    "verify": "pnpm typecheck && pnpm test && pnpm check:boundaries && pnpm check:extensions && pnpm check:docs",
     "start": "electron .",
     "screenshot": "pnpm build && electron . --screenshot=./screenshot.png",
     "test": "node scripts/run-tests.mjs",
@@ -30,7 +30,8 @@
     "manual": "node scripts/build-manual.mjs",
     "check:extensions": "node scripts/check-capabilities.mjs",
     "check:docs": "node scripts/check-docs.mjs",
-    "install:docling": "bash scripts/install-docling.sh"
+    "install:docling": "bash scripts/install-docling.sh",
+    "check:boundaries": "node scripts/check-boundaries.mjs"
   },
   "dependencies": {
     "@breezystack/lamejs": "^1.2.7",

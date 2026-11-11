@@ -37,25 +37,15 @@ import { ChapterList } from './components/ChapterList.js'
 import { ChatPanel } from './components/ChatPanel.js'
 import { FeynmanPanel } from './components/FeynmanPanel.js'
 import { FormatPanel } from './components/FormatPanel.js'
-import { ImportDialog } from './components/ImportDialog.js'
-import { MergeBooksDialog } from './components/MergeBooksDialog.js'
 import { Library } from './components/Library.js'
 import { ListenPanel } from './components/ListenPanel.js'
-import { MarginNoteDialog } from './components/MarginNoteDialog.js'
 import { NotesPanel } from './components/NotesPanel.js'
-import { ChapterTrashDialog } from './components/ChapterTrashDialog.js'
 import { DeepParseOverlay } from './components/DeepParseOverlay.js'
 import { GenerationPreflight } from './components/GenerationPreflight.js'
-import { BookTrashDialog } from './components/BookTrashDialog.js'
-import { OrganizeDialog } from './components/OrganizeDialog.js'
 import { Reader } from './components/Reader.js'
-import { RenameDialog } from './components/RenameDialog.js'
-import { SearchDialog, type SearchCommandId } from './components/SearchDialog.js'
-import { ShareDialog } from './components/ShareDialog.js'
-import { SettingsDialog } from './components/SettingsDialog.js'
 import { OnboardingDialog, SAMPLE_BOOK } from './components/OnboardingDialog.js'
+import type { SearchCommandId } from './components/SearchDialog.js'
 import { ManualView } from './components/ManualView.js'
-import { SplitBookDialog } from './components/SplitBookDialog.js'
 import { TaskCenter } from './components/TaskCenter.js'
 import { TopBar } from './components/TopBar.js'
 import { messageOf } from './lib/errors.js'
@@ -70,6 +60,17 @@ const ReadingPlanDialog = lazy(async () => ({ default: (await import('./componen
 const StatsView = lazy(async () => ({ default: (await import('./components/StatsView.js')).StatsView }))
 const WeeklyReviewsView = lazy(async () => ({ default: (await import('./components/WeeklyReviewsView.js')).WeeklyReviewsView }))
 const XhsCarouselDialog = lazy(async () => ({ default: (await import('./components/XhsCarouselDialog.js')).XhsCarouselDialog }))
+const BookTrashDialog = lazy(async () => ({ default: (await import('./components/BookTrashDialog.js')).BookTrashDialog }))
+const ChapterTrashDialog = lazy(async () => ({ default: (await import('./components/ChapterTrashDialog.js')).ChapterTrashDialog }))
+const ImportDialog = lazy(async () => ({ default: (await import('./components/ImportDialog.js')).ImportDialog }))
+const MarginNoteDialog = lazy(async () => ({ default: (await import('./components/MarginNoteDialog.js')).MarginNoteDialog }))
+const MergeBooksDialog = lazy(async () => ({ default: (await import('./components/MergeBooksDialog.js')).MergeBooksDialog }))
+const OrganizeDialog = lazy(async () => ({ default: (await import('./components/OrganizeDialog.js')).OrganizeDialog }))
+const RenameDialog = lazy(async () => ({ default: (await import('./components/RenameDialog.js')).RenameDialog }))
+const SearchDialog = lazy(async () => ({ default: (await import('./components/SearchDialog.js')).SearchDialog }))
+const SettingsDialog = lazy(async () => ({ default: (await import('./components/SettingsDialog.js')).SettingsDialog }))
+const ShareDialog = lazy(async () => ({ default: (await import('./components/ShareDialog.js')).ShareDialog }))
+const SplitBookDialog = lazy(async () => ({ default: (await import('./components/SplitBookDialog.js')).SplitBookDialog }))
 
 export function App(): JSX.Element {
   useLocale()
@@ -1170,6 +1171,7 @@ export function App(): JSX.Element {
         />
       ) : null}
 
+      <Suspense fallback={null}>
       {settings ? (
         <SettingsDialog
           open={settingsOpen}
@@ -1374,6 +1376,8 @@ export function App(): JSX.Element {
         onHighlightsImported={(result) => void handleHighlightsImported(result)}
         onOcrStarted={handleOcrStarted}
       />
+
+      </Suspense>
 
       <DeepParseOverlay
         open={Boolean(deepParse)}

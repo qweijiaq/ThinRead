@@ -22,6 +22,7 @@ import { deriveTitle } from '../db.js'
 import { genreRule } from './genre.js'
 import { createLanguageModel, nonThinkingProviderOptions } from './provider.js'
 import { traceAiStep, tracedGenerateText } from './trace.js'
+import { backoffDelay, sleep } from './retry.js'
 import type { ModelConfig } from './provider.js'
 import {
   imagePromptBlock,
@@ -131,7 +132,7 @@ function requestTimeout(parent: AbortSignal, ms: number): AbortSignal {
 
 /** 失败步骤的短暂退避；不拖慢正常生成，只在高并发或服务商抖动时多给一次机会。 */
 function retryDelay(attempt: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 600 * (attempt + 1)))
+  return sleep(backoffDelay(attempt))
 }
 
 function isTimeoutError(error: unknown): boolean {
