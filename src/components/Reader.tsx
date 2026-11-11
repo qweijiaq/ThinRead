@@ -80,6 +80,8 @@ interface ReaderProps {
 }
 
 /** 旧版本解析出的章节会把标题重复放进正文；渲染时去掉与章节标题相同的前导标题文本。 */
+import { ReaderSelectionToolbar } from './ReaderSelectionToolbar.js'
+
 function stripDuplicateTitle(html: string, title: string): string {
   try {
     const doc = new DOMParser().parseFromString(`<div id="__root">${html}</div>`, 'text/html')
@@ -1325,105 +1327,22 @@ export function Reader({
         )}
       </div>
       {toolbar && selection ? (
-        <div className="selection-toolbar" role="toolbar" aria-label={t('选中文本操作')} style={{ left: toolbar.x, top: toolbar.y }}>
-          <button
-            type="button"
-            onClick={() => {
-              onCreateMark('highlight', selection)
-              window.getSelection()?.removeAllRanges()
-              setSelection('')
-              setToolbar(null)
-            }}
-          >
-            {t('高亮')}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              onCreateMark('underline', selection)
-              window.getSelection()?.removeAllRanges()
-              setSelection('')
-              setToolbar(null)
-            }}
-          >
-            {t('划线')}
-          </button>
-          <button
-            type="button"
-            title={t('给选中文字加删除线')}
-            onClick={() => {
-              onCreateMark('strikethrough', selection)
-              window.getSelection()?.removeAllRanges()
-              setSelection('')
-              setToolbar(null)
-            }}
-          >
-            {t('删除')}
-          </button>
-          {selectedMarks.length > 0 ? (
-            <button
-              type="button"
-              onClick={() => {
-                onClearMarks(selectedMarks.map((mark) => mark.id))
-                window.getSelection()?.removeAllRanges()
-                setSelection('')
-                setToolbar(null)
-              }}
-            >
-              {t('清除')}
-            </button>
-          ) : null}
-          <button
-            type="button"
-            onClick={() => {
-              onAsk(selection)
-              setSelection('')
-              setToolbar(null)
-            }}
-          >
-            {t('问 AI')}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              onMarginNote(selection)
-              window.getSelection()?.removeAllRanges()
-              setSelection('')
-              setToolbar(null)
-            }}
-          >
-            {t('AI 边注')}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              onShareQuote(selection)
-              setSelection('')
-              setToolbar(null)
-            }}
-          >
-            {t('分享')}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              onListenSelection(selection)
-              setSelection('')
-              setToolbar(null)
-            }}
-          >
-            {t('朗读')}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              void navigator.clipboard.writeText(`“${selection}”`)
-              setToolbar(null)
-            }}
-          >
-            {t('复制')}
-          </button>
-        </div>
+        <ReaderSelectionToolbar
+          x={toolbar.x}
+          y={toolbar.y}
+          selection={selection}
+          selectedMarkIds={selectedMarks.map((mark) => mark.id)}
+          onCreateMark={onCreateMark}
+          onClearMarks={onClearMarks}
+          onAsk={onAsk}
+          onMarginNote={onMarginNote}
+          onShareQuote={onShareQuote}
+          onListenSelection={onListenSelection}
+          onDismiss={() => {
+            setSelection('')
+            setToolbar(null)
+          }}
+        />
       ) : null}
       <CodeReviewDialog
         open={Boolean(codeReview?.open)}
