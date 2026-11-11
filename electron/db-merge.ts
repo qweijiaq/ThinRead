@@ -6,6 +6,7 @@ export interface MergeSnapshotResult {
   notes: number
   annotations: number
   bookmarks: number
+  positions: number
   skipped: number
 }
 
@@ -44,7 +45,7 @@ function sqlValue(value: unknown): string | number | null {
 export function mergeSnapshotDatabase(sourcePath: string): MergeSnapshotResult {
   const source = new DatabaseSync(sourcePath, { readOnly: true })
   const conn = getDb()
-  const result: MergeSnapshotResult = { notes: 0, annotations: 0, bookmarks: 0, skipped: 0 }
+  const result: MergeSnapshotResult = { notes: 0, annotations: 0, bookmarks: 0, positions: 0, skipped: 0 }
   try {
     const books = new Set((conn.prepare('SELECT id FROM books').all() as unknown as Array<{ id: string }>).map((row) => row.id))
     const chapters = new Set(
@@ -114,6 +115,41 @@ export function mergeSnapshotDatabase(sourcePath: string): MergeSnapshotResult {
           } else if (String(row.updated_at ?? '') > String(existing.updated_at ?? '')) {
             update.run(...cols.filter((col) => col !== 'id').map((col) => sqlValue(row[col])), String(row.id))
             result.annotations += 1
+          }
+        }
+        conn.exec('COMMIT')
+      } catch (error) {
+        conn.exec('ROLLBACK')
+        throw error
+      }
+    }
+
+    if (hasTable(source, 'reading_positions') && hasTable(conn, 'reading_positions')) {
+      const rows = source.prepare('SELECT * FROM reading_positions').all() as unknown as Array<Record<string, unknown>>
+      const find = conn.prepare('SELECT updated_at FROM reading_positions WHERE chapter_id = ?')
+      const insert = conn.prepare(
+        `INSERT INTO reading_positions (chapter_id, book_id, scroll_ratio, scroll_top, page, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      const update = conn.prepare(
+        'UPDATE reading_positions SET book_id = ?, scroll_ratio = ?, scroll_top = ?, page = ?, updated_at = ? WHERE chapter_id = ?',
+      )
+      conn.exec('BEGIN IMMEDIATE')
+      try {
+        for (const row of rows) {
+          const chapterId = String(row.chapter_id ?? '')
+          const bookId = String(row.book_id ?? '')
+          if (!books.has(bookId) || !chapters.has(chapterId)) {
+            result.skipped += 1
+            continue
+          }
+          const existing = find.get(chapterId) as unknown as { updated_at?: string } | undefined
+          if (!existing) {
+            insert.run(chapterId, bookId, sqlValue(row.scroll_ratio), sqlValue(row.scroll_top), sqlValue(row.page), sqlValue(row.updated_at))
+            result.positions += 1
+          } else if (String(row.updated_at ?? '') > String(existing.updated_at ?? '')) {
+            update.run(bookId, sqlValue(row.scroll_ratio), sqlValue(row.scroll_top), sqlValue(row.page), sqlValue(row.updated_at), chapterId)
+            result.positions += 1
           }
         }
         conn.exec('COMMIT')

@@ -1051,6 +1051,7 @@ export interface MergeSnapshotResult {
   notes: number
   annotations: number
   bookmarks: number
+  positions: number
   skipped: number
 }
 

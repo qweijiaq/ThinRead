@@ -5,7 +5,15 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import test from 'node:test'
 
-import { closeDatabase, createNote, getChapters, initDatabase, insertBook, listNotes } from '../electron/db.js'
+import {
+  closeDatabase,
+  createNote,
+  getChapters,
+  getReadingPosition,
+  initDatabase,
+  insertBook,
+  listNotes,
+} from '../electron/db.js'
 import { mergeSnapshotDatabase } from '../electron/db-merge.js'
 
 test('merges newer notes and new notes from a snapshot without replacing the library', () => {
@@ -46,11 +54,19 @@ test('merges newer notes and new notes from a snapshot without replacing the lib
         '2026-01-01T00:00:00.000Z',
         '2026-01-02T00:00:00.000Z',
       )
+    source
+      .prepare(
+        `INSERT INTO reading_positions (chapter_id, book_id, scroll_ratio, scroll_top, page, updated_at)
+         VALUES (?, ?, 0.4, 1200, 7, ?)`,
+      )
+      .run(chapterId, book.id, '2026-01-03T00:00:00.000Z')
     source.close()
 
     initDatabase(dir)
     const result = mergeSnapshotDatabase(snapshotPath)
     assert.equal(result.notes, 2)
+    assert.equal(result.positions, 1)
+    assert.equal(getReadingPosition(chapterId)?.page, 7)
     const notes = listNotes(book.id)
     assert.equal(notes.length, 2)
     assert.equal(notes.find((note) => note.id === local.id)?.content, '快照里的新内容')
