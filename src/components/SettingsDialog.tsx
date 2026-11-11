@@ -10,6 +10,7 @@ import type {
   ProviderId,
   ReaderStyle,
   SettingsView,
+  SyncStatus,
   TestResult,
   VisionMode,
 } from '../../shared/types.js'
@@ -123,6 +124,9 @@ export function SettingsDialog({
   const [backupBusy, setBackupBusy] = useState<string | null>(null)
   const [backupError, setBackupError] = useState<string | null>(null)
   const [backupNotice, setBackupNotice] = useState<string | null>(null)
+  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null)
+  const [syncBusy, setSyncBusy] = useState<string | null>(null)
+  const [syncNotice, setSyncNotice] = useState<string | null>(null)
 
   useEffect(() => {
     if (!open) return
@@ -161,6 +165,8 @@ export function SettingsDialog({
     setQwenTtsPricePerK(String(settings.qwenTtsPricePerK || ''))
     setQwenTtsVoices(settings.qwenTtsVoices)
     setNewVoice('')
+    setSyncNotice(null)
+    void window.api.getSyncStatus().then(setSyncStatus).catch(() => setSyncStatus(null))
     setLockPasscode('')
     setLockTest(null)
     setQwenTtsKey('')
@@ -295,6 +301,59 @@ export function SettingsDialog({
 
   function removeVoice(voice: string): void {
     setQwenTtsVoices((current) => current.filter((item) => item !== voice))
+  }
+
+  async function refreshSync(): Promise<void> {
+    try {
+      setSyncStatus(await window.api.getSyncStatus())
+    } catch {
+      setSyncStatus(null)
+    }
+  }
+
+  async function chooseSyncFolder(): Promise<void> {
+    setSyncBusy('choose')
+    setSyncNotice(null)
+    try {
+      setSyncStatus(await window.api.chooseSyncFolder())
+    } catch (error) {
+      setSyncNotice(error instanceof Error ? error.message : String(error))
+    } finally {
+      setSyncBusy(null)
+    }
+  }
+
+  async function pushSync(): Promise<void> {
+    setSyncBusy('push')
+    setSyncNotice(null)
+    try {
+      const snapshot = await window.api.pushSyncSnapshot()
+      await refreshSync()
+      setSyncNotice(`${t('已推送快照')} · ${formatBytes(snapshot.size)}`)
+    } catch (error) {
+      setSyncNotice(error instanceof Error ? error.message : String(error))
+    } finally {
+      setSyncBusy(null)
+    }
+  }
+
+  async function pullSync(name: string): Promise<void> {
+    const confirmed = await confirmDialog({
+      title: t('从同步快照恢复'),
+      message: t('恢复会替换当前的书籍、笔记和设置，并先自动备份当前状态。继续？'),
+      confirmLabel: t('恢复并重载'),
+      danger: true,
+    })
+    if (!confirmed) return
+    setSyncBusy(name)
+    setSyncNotice(null)
+    try {
+      await window.api.pullSyncSnapshot(name)
+      setSyncNotice(t('正在重新加载…'))
+    } catch (error) {
+      setSyncNotice(error instanceof Error ? error.message : String(error))
+      setSyncBusy(null)
+    }
   }
 
   async function persist(options: { silent?: boolean } = {}): Promise<SettingsView | null> {
@@ -1109,6 +1168,54 @@ export function SettingsDialog({
               ))
             )}
           </div>
+        </div>
+
+        <div className="form-row settings-advanced">
+          <label>{t('同步文件夹')}</label>
+          <div className="backup-actions">
+            <button type="button" className="ghost-button small" onClick={() => void chooseSyncFolder()} disabled={syncBusy !== null}>
+              {syncBusy === 'choose' ? t('选择中…') : t('选择文件夹')}
+            </button>
+            <button
+              type="button"
+              className="ghost-button small"
+              onClick={() => void pushSync()}
+              disabled={syncBusy !== null || !syncStatus?.folder}
+            >
+              {syncBusy === 'push' ? t('推送中…') : t('推送快照')}
+            </button>
+            <button type="button" className="text-button muted" onClick={() => void refreshSync()} disabled={syncBusy !== null}>
+              {t('刷新')}
+            </button>
+          </div>
+          <p className="field-hint">
+            {syncStatus?.folder
+              ? `${t('同步目录')}：${syncStatus.folder}`
+              : t('选择一个 iCloud Drive、Dropbox 或 NAS 文件夹；推送会生成一份整库快照，其他设备可以拉取恢复。')}
+          </p>
+          {syncNotice ? <div className="inline-notice" role="status" aria-live="polite">{syncNotice}</div> : null}
+          {syncStatus && syncStatus.snapshots.length > 0 ? (
+            <div className="backup-list">
+              {syncStatus.snapshots.map((item) => (
+                <div key={item.name} className="backup-row">
+                  <div className="backup-row-main">
+                    <strong>{formatBackupTime(item.createdAt)}</strong>
+                    <span>{formatBytes(item.size)}</span>
+                  </div>
+                  <div className="backup-row-actions">
+                    <button
+                      type="button"
+                      className="text-button"
+                      onClick={() => void pullSync(item.name)}
+                      disabled={syncBusy !== null}
+                    >
+                      {syncBusy === item.name ? t('恢复中…') : t('恢复')}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
         </div>
 
         {result ? <div className={`test-result ${result.ok ? 'ok' : 'fail'}`}>{result.message}</div> : null}

@@ -989,6 +989,7 @@ export interface SettingsView {
   aiPricing: AiModelPricing
   aiBudgetEnabled: boolean
   aiBudgetMonthlyCny: number
+  syncFolder: string
   readwiseConfigured: boolean
   keysNeedReentry: boolean
   appLockEnabled: boolean
@@ -1025,6 +1026,18 @@ export interface SettingsPatch {
   qwenTtsPricePerK?: number
   qwenTtsVoices?: string[]
   qwenTtsKey?: string
+}
+
+export interface SyncSnapshot {
+  name: string
+  path: string
+  createdAt: string
+  size: number
+}
+
+export interface SyncStatus {
+  folder: string
+  snapshots: SyncSnapshot[]
 }
 
 export interface LocalModelDetection {
@@ -1748,6 +1761,10 @@ export interface ReadingApi {
   updatePdfAnnotation(id: string, patch: { note?: string; color?: PdfAnnotationColor }): Promise<PdfAnnotation>
   deletePdfAnnotation(id: string): Promise<void>
   getNoteQuality(): Promise<NoteQualitySummary>
+  getSyncStatus(): Promise<SyncStatus>
+  chooseSyncFolder(): Promise<SyncStatus>
+  pushSyncSnapshot(): Promise<SyncSnapshot>
+  pullSyncSnapshot(name: string): Promise<{ ok: boolean }>
   openDataDir(): Promise<void>
   createBackup(): Promise<BackupInfo>
   listBackups(): Promise<BackupInfo[]>

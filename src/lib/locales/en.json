@@ -1633,5 +1633,17 @@
   "绿色": "Green",
   "蓝色": "Blue",
   "给这块标注写一句备注…": "Add a note for this highlight…",
-  "删除标注": "Delete annotation"
+  "删除标注": "Delete annotation",
+  "同步文件夹": "Sync folder",
+  "选择中…": "Choosing…",
+  "选择文件夹": "Choose folder",
+  "推送中…": "Pushing…",
+  "推送快照": "Push snapshot",
+  "刷新": "Refresh",
+  "同步目录": "Sync folder",
+  "选择一个 iCloud Drive、Dropbox 或 NAS 文件夹；推送会生成一份整库快照，其他设备可以拉取恢复。": "Choose an iCloud Drive, Dropbox, or NAS folder. Pushing creates a full-library snapshot that other devices can restore.",
+  "已推送快照": "Snapshot pushed",
+  "从同步快照恢复": "Restore from sync snapshot",
+  "恢复会替换当前的书籍、笔记和设置，并先自动备份当前状态。继续？": "Restoring replaces the current books, notes, and settings, and backs up the current state first. Continue?",
+  "正在重新加载…": "Reloading…"
 }

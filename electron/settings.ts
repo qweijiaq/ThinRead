@@ -26,6 +26,7 @@ interface StoredSettings {
   labModel: string
   aiPricing?: AiModelPricing
   aiBudget?: { monthlyCny: number; enabled: boolean }
+  syncFolder?: string
   readwise?: StoredKey
   ui?: {
     autoNext?: boolean
@@ -69,6 +70,7 @@ const DEFAULT_SETTINGS: StoredSettings = {
   composeModel: '',
   labModel: '',
   aiBudget: { monthlyCny: 0, enabled: false },
+  syncFolder: '',
   keys: {},
 }
 
@@ -131,6 +133,7 @@ function readFile(): StoredSettings {
       labModel: typeof raw.labModel === 'string' ? raw.labModel : '',
       aiPricing: normalizeAiPricing(raw.aiPricing),
       aiBudget: normalizeAiBudget(raw.aiBudget),
+      syncFolder: typeof raw.syncFolder === 'string' ? raw.syncFolder : '',
       readwise: raw.readwise,
       ui: raw.ui,
       lock: raw.lock,
@@ -225,6 +228,12 @@ export function getAiPricing(): AiModelPricing {
 
 export function getAiBudget(): { monthlyCny: number; enabled: boolean } {
   return normalizeAiBudget(settings().aiBudget)
+}
+
+export function setSyncFolder(folder: string): void {
+  const current = settings()
+  current.syncFolder = folder.trim()
+  persist()
 }
 
 export function getReadwiseToken(): string | null {
@@ -356,6 +365,7 @@ export function getSettingsView(): SettingsView {
     aiPricing: getAiPricing(),
     aiBudgetEnabled: getAiBudget().enabled,
     aiBudgetMonthlyCny: getAiBudget().monthlyCny,
+    syncFolder: current.syncFolder ?? '',
     readwiseConfigured: readStoredKey(current.readwise) !== null,
     keysNeedReentry: anyKeyNeedsReentry(),
     appLockEnabled: getAppLockEnabled(),

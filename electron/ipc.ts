@@ -163,6 +163,7 @@ import { resolveVisionModel } from './ai/vision-model.js'
 import { isVisionError } from './ai/note-images.js'
 import { explainCode, fixCode, insertCodeUnderstanding, replaceCodeBlock, reviewCode } from './ai/code-assist.js'
 import { getTtsStatus, synthesizeTts } from './tts.js'
+import { chooseSyncFolder, getSyncStatus, pullSyncSnapshot, pushSyncSnapshot } from './sync.js'
 import { exportNotesMarkdown } from './note-export.js'
 import { searchIndexAsync, searchIndexIds } from './search-index.js'
 import type {
@@ -2752,6 +2753,30 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
   ipcMain.handle('ai:usage', (_event, days?: number) => readAiUsage(dataDir, days, getAiPricing()))
 
   ipcMain.handle('stats:note-quality', () => getNoteQuality())
+
+  ipcMain.handle('sync:status', () => getSyncStatus())
+
+  ipcMain.handle('sync:choose-folder', async () => {
+    const win = getWindow()
+    const options: OpenDialogOptions = {
+      title: '选择同步文件夹',
+      properties: ['openDirectory', 'createDirectory'],
+    }
+    const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options)
+    if (result.canceled || !result.filePaths[0]) return getSyncStatus()
+    return chooseSyncFolder(result.filePaths[0]!)
+  })
+
+  ipcMain.handle('sync:push', () => pushSyncSnapshot(dataDir))
+
+  ipcMain.handle('sync:pull', async (_event, name: unknown) => {
+    if (typeof name !== 'string' || !name.trim()) throw new Error('同步快照名称无效。')
+    cancelAllAiJobs()
+    pullSyncSnapshot(dataDir, name)
+    const window = getWindow()
+    setTimeout(() => window?.webContents.reload(), 250)
+    return { ok: true }
+  })
 
   ipcMain.handle('pdf:annotations', (_event, bookId: unknown, page: unknown) => {
     const [id, pageNumber] = parseIpc('pdf:annotations', pdfAnnotationsArgs, [bookId, page])
