@@ -29,6 +29,83 @@ const MAX_SAVE_CONTENT = 20_000_000
 
 export const bookIdArgs = z.tuple([idSchema])
 
+export const chapterIdArgs = z.tuple([idSchema])
+
+export const chapterIdsArgs = z.tuple([
+  z.array(idSchema).min(1, '至少选择一章').max(2_000, '一次最多处理 2000 章'),
+])
+
+export const chapterFormatArgs = z.tuple([
+  idSchema,
+  z.string().max(4_000).optional(),
+  z.object({ skipReferences: z.boolean().optional(), deepPdf: z.boolean().optional() }).optional(),
+])
+
+export const bookFormatArgs = z.tuple([
+  idSchema,
+  z
+    .object({
+      onlyMissing: z.boolean().optional(),
+      chapterIds: z.array(idSchema).max(2_000).optional(),
+      skipReferences: z.boolean().optional(),
+    })
+    .optional(),
+])
+
+export const notesGenerateArgs = z.tuple([
+  idSchema,
+  z.object({ fresh: z.boolean().optional() }).optional(),
+])
+
+export const bookGenerateArgs = z.tuple([
+  idSchema,
+  z
+    .object({
+      onlyMissing: z.boolean().optional(),
+      chapterIds: z.array(idSchema).max(2_000).optional(),
+    })
+    .optional(),
+])
+
+export const bookTranslateArgs = z.tuple([
+  idSchema,
+  z
+    .object({
+      force: z.boolean().optional(),
+      onlyMissing: z.boolean().optional(),
+      chapterIds: z.array(idSchema).max(2_000).optional(),
+    })
+    .optional(),
+])
+
+export const bookComposeArgs = z.tuple([
+  idSchema,
+  z
+    .object({
+      length: z.enum(['tight', 'full']).optional(),
+      voice: z.enum(['calm', 'personal', 'sharp']).optional(),
+    })
+    .optional(),
+])
+
+export const noteIdArgs = z.tuple([idSchema])
+
+export const chapterUnderstandImageArgs = z.tuple([idSchema, z.string().min(1).max(8_000_000)])
+
+export const chapterCodeAssistArgs = z.tuple([
+  idSchema,
+  z.string().min(1).max(30_000),
+  z.enum(['review', 'explain', 'fix']),
+  z.string().max(40).optional(),
+])
+
+export const chapterSaveContentArgs = z.tuple([idSchema, z.string().min(1).max(5_000_000)])
+
+export const bookReparseArgs = z.tuple([
+  idSchema,
+  z.object({ skipReferences: z.boolean().optional(), deepPdf: z.boolean().optional() }).optional(),
+])
+
 export const mergeBooksArgs = z.tuple([
   z.array(idSchema).min(2, '至少选择两本书').max(100, '一次最多合并 100 本书'),
   z.string().max(MAX_TITLE).optional(),
@@ -84,4 +161,10 @@ export const labArtifactArgs = z.tuple([
 export const saveTextArgs = z.tuple([
   z.string().max(MAX_TITLE),
   z.string().max(MAX_SAVE_CONTENT, '导出内容超过 2000 万字上限'),
+])
+
+export const saveTextFileArgs = z.tuple([
+  z.string().max(MAX_TITLE),
+  z.string().max(MAX_SAVE_CONTENT, '导出内容超过 2000 万字上限'),
+  z.enum(['bib', 'ris', 'txt']),
 ])

@@ -16,6 +16,9 @@ export interface ParsedBook {
 const MAX_CHAPTERS = 600
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024
 const MAX_TOTAL_IMAGE_BYTES = 20 * 1024 * 1024
+// EPUB 是压缩包：限制解压后的总体积，避免恶意/异常文件把主进程内存打满。
+const MAX_EPUB_FILE_BYTES = 80 * 1024 * 1024
+const MAX_EPUB_TOTAL_BYTES = 320 * 1024 * 1024
 
 const IMAGE_MIME: Record<string, string> = {
   '.png': 'image/png',
@@ -332,7 +335,22 @@ function contentContainer(
 export function parseEpub(buffer: Buffer, sourceName: string): ParsedBook {
   let files: Record<string, Uint8Array>
   try {
-    files = unzipSync(new Uint8Array(buffer))
+    let expandedBytes = 0
+    let oversized = false
+    files = unzipSync(new Uint8Array(buffer), {
+      filter(file) {
+        expandedBytes += file.originalSize
+        if (expandedBytes > MAX_EPUB_TOTAL_BYTES) {
+          oversized = true
+          return false
+        }
+        // 单张超大资源先跳过；正文解析不依赖它。
+        return file.originalSize <= MAX_EPUB_FILE_BYTES
+      },
+    })
+    if (oversized) {
+      throw new Error('EPUB 解压后体积过大，暂不支持导入。')
+    }
   } catch (error) {
     throw new Error(`无法解压 EPUB：${error instanceof Error ? error.message : String(error)}`)
   }

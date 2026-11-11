@@ -2,7 +2,7 @@ import * as cheerio from 'cheerio'
 
 import type { NewChapter } from '../db.js'
 import { htmlToText } from '../html.js'
-import { chaptersFromHtml, splitTextIntoChapters } from './text-book.js'
+import { chaptersFromHtml, splitTextIntoChapters, type ChapterSplitOptions } from './text-book.js'
 
 const MAX_BYTES = 8 * 1024 * 1024
 const TIMEOUT_MS = 25_000
@@ -104,7 +104,10 @@ export async function inlineRemoteImages(html: string, baseUrl: string): Promise
 }
 
 /** 抓取网页正文，去掉导航、广告和脚本，并把正文图片内联到本地。 */
-export async function parseUrl(rawUrl: string): Promise<{ title: string; author: string; chapters: NewChapter[]; html: string }> {
+export async function parseUrl(
+  rawUrl: string,
+  options: ChapterSplitOptions = {},
+): Promise<{ title: string; author: string; chapters: NewChapter[]; html: string }> {
   const url = assertFetchableUrl(rawUrl)
   const response = await fetch(url, {
     redirect: 'follow',
@@ -156,8 +159,8 @@ export async function parseUrl(rawUrl: string): Promise<{ title: string; author:
   if (!contentHtml) contentHtml = $('body').html() ?? ''
   if (!/text\/plain/i.test(contentType)) contentHtml = await inlineRemoteImages(contentHtml, url.toString())
   const chapters = /text\/plain/i.test(contentType)
-    ? splitTextIntoChapters(htmlToText(html), title)
-    : chaptersFromHtml(contentHtml, title)
+    ? splitTextIntoChapters(htmlToText(html), title, options)
+    : chaptersFromHtml(contentHtml, title, options)
   if (chapters.length === 0) throw new Error('没有从这个网页提取到可读正文。')
   return { title, author, chapters, html: contentHtml }
 }

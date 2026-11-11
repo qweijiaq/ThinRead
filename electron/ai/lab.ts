@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
 
-import { generateText, streamText } from 'ai'
+import { streamText } from 'ai'
 
 import type {
   ChatTurn,
@@ -35,10 +35,13 @@ import {
 import { labQuizSchema, relationGraphSchema } from '../../shared/schemas.js'
 import { buildKnowledgeMap } from '../knowledge-map.js'
 import { candidateSnippets, extractCharacterCandidates } from './relation-candidates.js'
+import { retrievePassages } from './context.js'
 import { genreRule } from './genre.js'
 import type { ModelConfig } from './provider.js'
 import { createLanguageModel } from './provider.js'
-import { tracedGenerateText } from './trace.js'
+import { tracedGenerateText, traceStreamUsage } from './trace.js'
+
+const LAB_PROMPT_VERSION = 'lab-v2'
 
 const execFileAsync = promisify(execFile)
 
@@ -138,14 +141,18 @@ export async function runLab(args: {
   ]
     .filter(Boolean)
     .join('\n\n')
-  const response = await generateText({
-    model,
-    system: REPORT_SYSTEM,
-    prompt,
-    temperature: 0.35,
-    maxRetries: 1,
-    abortSignal: labTimeout(args.signal, 120_000),
-  })
+  const response = await tracedGenerateText(
+    { step: `lab-run:${request.tool}`, provider: args.config.provider, model: args.config.model, promptVersion: LAB_PROMPT_VERSION },
+    {
+      model,
+      system: REPORT_SYSTEM,
+      prompt,
+      temperature: 0.35,
+      maxOutputTokens: 8_000,
+      maxRetries: 1,
+      abortSignal: labTimeout(args.signal, 120_000),
+    },
+  )
   const markdown = response.text.trim()
   if (!markdown) throw new Error('模型没有返回内容，请重试。')
   return { title: reportTitle(request.tool), markdown }
@@ -172,23 +179,24 @@ export async function labChat(
     onDelta?.(answer)
     return { answer }
   }
-  const history = args.history
-    .slice(-8)
-    .map((turn) => `${turn.role === 'user' ? '读者' : '助手'}：${turn.content}`)
+  const history = chatHistoryDigest(args.history)
   const model = createLanguageModel(args.config)
   const prompt = [context.text, history.length ? `对话记录：\n${history.join('\n')}` : '', `读者：${question}`]
     .filter(Boolean)
     .join('\n\n')
   const signal = labTimeout(args.signal, 120_000)
+  const traceMeta = { step: `lab-chat:${request.tool}`, provider: args.config.provider, model: args.config.model, promptVersion: LAB_PROMPT_VERSION }
 
   if (onDelta) {
     let emitted = false
+    const startedAt = Date.now()
     try {
       const stream = streamText({
         model,
         system,
         prompt,
         temperature: 0.65,
+        maxOutputTokens: 2_500,
         maxRetries: 1,
         abortSignal: signal,
       })
@@ -202,17 +210,20 @@ export async function labChat(
       }
       const answer = text.trim()
       if (!answer) throw new Error('模型没有返回内容，请重试。')
+      traceStreamUsage(traceMeta, startedAt, await stream.usage)
       return { answer }
     } catch (error) {
+      traceStreamUsage(traceMeta, startedAt, undefined, error)
       if (emitted) throw error
     }
   }
 
-  const response = await generateText({
+  const response = await tracedGenerateText(traceMeta, {
     model,
     system,
     prompt,
     temperature: 0.65,
+    maxOutputTokens: 2_500,
     maxRetries: 1,
     abortSignal: signal,
   })
@@ -230,7 +241,7 @@ export async function marginNote(args: {
 }): Promise<LabReport> {
   const quote = args.quote.trim()
   if (!quote) throw new Error('先选中一段原文。')
-  const context = buildChapterContext(args.chapterId)
+  const context = buildChapterContext(args.chapterId, quote)
   if (args.demo) {
     return {
       title: 'AI 边注',
@@ -238,18 +249,22 @@ export async function marginNote(args: {
     }
   }
   const model = createLanguageModel(args.config)
-  const response = await generateText({
-    model,
-    system: '你是「页边」的阅读批注助手。写一条克制的边注，不要复述整章。',
-    prompt: [
-      context.text,
-      `选中的原文：“${quote}”`,
-      '请写 80–150 字：解释这句话在论证里的作用；如果和其他笔记/书有联系，点一句；如果这句话有边界或反例，也点一句。用 Markdown，不要写空话。',
-    ].join('\n\n'),
-    temperature: 0.4,
-    maxRetries: 1,
-    abortSignal: labTimeout(args.signal, 60_000),
-  })
+  const response = await tracedGenerateText(
+    { step: 'lab-margin-note', provider: args.config.provider, model: args.config.model, promptVersion: LAB_PROMPT_VERSION },
+    {
+      model,
+      system: '你是「页边」的阅读批注助手。写一条克制的边注，不要复述整章。',
+      prompt: [
+        context.text,
+        `选中的原文：“${quote}”`,
+        '请写 80–150 字：解释这句话在论证里的作用；如果和其他笔记/书有联系，点一句；如果这句话有边界或反例，也点一句。用 Markdown，不要写空话。',
+      ].join('\n\n'),
+      temperature: 0.4,
+      maxOutputTokens: 800,
+      maxRetries: 1,
+      abortSignal: labTimeout(args.signal, 60_000),
+    },
+  )
   return { title: 'AI 边注', markdown: response.text.trim() }
 }
 
@@ -285,22 +300,26 @@ export async function generateQuiz(args: {
     })
   }
   const model = createLanguageModel(args.config)
-  const response = await generateText({
-    model,
-    system: [
-      `你是阅读教练，正在为《${context.bookTitle}》的章节「${chapterName}」出题。`,
-      '题目必须让读者知道在问哪一章：直接写章节名，或写出具体的概念和原文细节；不要用“本章”“这一章”“该章”这类无法定位的说法。',
-    ].join('\n'),
-    prompt: [
-      context.text,
-      '请生成 5 道真正需要理解才能回答的问题，类型尽量覆盖：主旨、为什么、比较、应用、反例/边界。',
-      '每道题都要能独立读懂，避免只写“本章的观点是什么”。',
-      '只输出 JSON：{"questions":[{"question":"...","kind":"主旨|为什么|比较|应用|反例","answer":"参考答案","source":"原文或读薄稿中的依据"}]}。不要输出 Markdown 代码块。',
-    ].join('\n\n'),
-    temperature: 0.4,
-    maxRetries: 1,
-    abortSignal: labTimeout(args.signal, 90_000),
-  })
+  const response = await tracedGenerateText(
+    { step: 'lab-quiz', provider: args.config.provider, model: args.config.model, promptVersion: LAB_PROMPT_VERSION },
+    {
+      model,
+      system: [
+        `你是阅读教练，正在为《${context.bookTitle}》的章节「${chapterName}」出题。`,
+        '题目必须让读者知道在问哪一章：直接写章节名，或写出具体的概念和原文细节；不要用“本章”“这一章”“该章”这类无法定位的说法。',
+      ].join('\n'),
+      prompt: [
+        context.text,
+        '请生成 5 道真正需要理解才能回答的问题，类型尽量覆盖：主旨、为什么、比较、应用、反例/边界。',
+        '每道题都要能独立读懂，避免只写“本章的观点是什么”。',
+        '只输出 JSON：{"questions":[{"question":"...","kind":"主旨|为什么|比较|应用|反例","answer":"参考答案","source":"原文或读薄稿中的依据"}]}。不要输出 Markdown 代码块。',
+      ].join('\n\n'),
+      temperature: 0.4,
+      maxOutputTokens: 3_000,
+      maxRetries: 1,
+      abortSignal: labTimeout(args.signal, 90_000),
+    },
+  )
   const parsed = parseJsonObject(response.text)
   const raw = Array.isArray(parsed?.questions) ? parsed.questions : []
   const questions: LabQuizQuestion[] = raw
@@ -335,22 +354,26 @@ export async function checkQuizAnswer(args: {
   const context = buildChapterContext(args.chapterId)
   const chapterName = context.chapterTitle
   const model = createLanguageModel(args.config)
-  const response = await generateText({
-    model,
-    system: [
-      `你是阅读教练，正在检查读者对《${context.bookTitle}》章节「${chapterName}」的回答。`,
-      '反馈里直接写章节名或具体概念，不要用“本章”“这一章”这类无法定位的说法。',
-    ].join('\n'),
-    prompt: [
-      context.text,
-      `问题：${args.question}`,
-      `读者的回答：${args.answer}`,
-      '请判断回答质量并给出具体反馈。只输出 JSON：{"verdict":"good|partial|off","feedback":"...","missing":["..."]}。不要输出代码块。',
-    ].join('\n\n'),
-    temperature: 0.2,
-    maxRetries: 1,
-    abortSignal: labTimeout(args.signal, 60_000),
-  })
+  const response = await tracedGenerateText(
+    { step: 'lab-quiz-check', provider: args.config.provider, model: args.config.model, promptVersion: LAB_PROMPT_VERSION },
+    {
+      model,
+      system: [
+        `你是阅读教练，正在检查读者对《${context.bookTitle}》章节「${chapterName}」的回答。`,
+        '反馈里直接写章节名或具体概念，不要用“本章”“这一章”这类无法定位的说法。',
+      ].join('\n'),
+      prompt: [
+        context.text,
+        `问题：${args.question}`,
+        `读者的回答：${args.answer}`,
+        '请判断回答质量并给出具体反馈。只输出 JSON：{"verdict":"good|partial|off","feedback":"...","missing":["..."]}。不要输出代码块。',
+      ].join('\n\n'),
+      temperature: 0.2,
+      maxOutputTokens: 1_500,
+      maxRetries: 1,
+      abortSignal: labTimeout(args.signal, 60_000),
+    },
+  )
   const parsed = parseJsonObject(response.text)
   const verdict = parsed?.verdict === 'good' || parsed?.verdict === 'partial' || parsed?.verdict === 'off'
     ? parsed.verdict
@@ -387,18 +410,22 @@ export async function suggestConceptMerges(args: {
       .map((items) => ({ canonical: items[0]!, tags: items, reason: '演示模式：名称相近', noteCount: items.length }))
   }
   const model = createLanguageModel(args.config)
-  const response = await generateText({
-    model,
-    system: '你是知识库整理助手，只处理标签同义词，不改动标签之外的任何内容。',
-    prompt: [
-      `标签及笔记数：${JSON.stringify(tags.slice(0, 120))}`,
-      '找出真正需要合并的同义或近义标签组（每组至少 2 个，最多 6 个）。不要把上下位概念硬合并。',
-      '只输出 JSON：{"groups":[{"canonical":"建议标准名","tags":["a","b"],"reason":"为什么合并","noteCount":数字}]}。不要输出代码块。',
-    ].join('\n\n'),
-    temperature: 0.2,
-    maxRetries: 1,
-    abortSignal: labTimeout(args.signal, 60_000),
-  })
+  const response = await tracedGenerateText(
+    { step: 'lab-concept-merges', provider: args.config.provider, model: args.config.model, promptVersion: LAB_PROMPT_VERSION },
+    {
+      model,
+      system: '你是知识库整理助手，只处理标签同义词，不改动标签之外的任何内容。',
+      prompt: [
+        `标签及笔记数：${JSON.stringify(tags.slice(0, 120))}`,
+        '找出真正需要合并的同义或近义标签组（每组至少 2 个，最多 6 个）。不要把上下位概念硬合并。',
+        '只输出 JSON：{"groups":[{"canonical":"建议标准名","tags":["a","b"],"reason":"为什么合并","noteCount":数字}]}。不要输出代码块。',
+      ].join('\n\n'),
+      temperature: 0.2,
+      maxOutputTokens: 1_800,
+      maxRetries: 1,
+      abortSignal: labTimeout(args.signal, 60_000),
+    },
+  )
   const parsed = parseJsonObject(response.text)
   const groups = Array.isArray(parsed?.groups) ? parsed.groups : []
   const counts = new Map(tags.map((item) => [item.tag, item.count]))
@@ -514,8 +541,27 @@ export function findDuplicateNotes(): LabDuplicatePair[] {
     }))
 }
 
+/** 对话只保留最近 6 轮原文，更早的压成摘要，避免每轮重发整段历史。 */
+function chatHistoryDigest(history: ChatTurn[]): string[] {
+  if (history.length === 0) return []
+  const recent = history.slice(-6)
+  const older = history.slice(0, -6)
+  const lines: string[] = []
+  if (older.length > 0) {
+    lines.push(
+      `更早对话摘要：${older
+        .map((turn) => `${turn.role === 'user' ? '读者' : '助手'}：${turn.content.replace(/\s+/g, ' ').slice(0, 90)}`)
+        .join(' | ')}`,
+    )
+  }
+  for (const turn of recent) {
+    lines.push(`${turn.role === 'user' ? '读者' : '助手'}：${turn.content.slice(0, 800)}`)
+  }
+  return lines
+}
+
 function buildContext(request: LabRequest): LabContext {
-  if (request.chapterId) return buildChapterContext(request.chapterId)
+  if (request.chapterId) return buildChapterContext(request.chapterId, request.question)
   if (request.bookIds && request.bookIds.length > 0) {
     const books = request.bookIds.map((id) => getBookSummary(id)).filter((book) => Boolean(book))
     const text = books.map((book) => bookDigest(book!.id)).join('\n\n---\n\n').slice(0, 24_000)
@@ -572,7 +618,7 @@ function buildContext(request: LabRequest): LabContext {
   }
 }
 
-function buildChapterContext(chapterId: string): LabContext {
+function buildChapterContext(chapterId: string, query?: string): LabContext {
   const chapter = getChapter(chapterId)
   const book = getBookSummary(chapter.bookId)
   const notes = listNotes(chapter.bookId, chapterId)
@@ -581,6 +627,10 @@ function buildChapterContext(chapterId: string): LabContext {
     .filter((note) => note.kind === 'point' || note.kind === 'claim')
     .map((note) => `- [${note.kind}] ${note.title}：${note.content}${note.role ? `（作用：${note.role}）` : ''}`)
     .join('\n')
+  const rawBudget = condensed ? 4_000 : 10_000
+  const excerpt = query?.trim()
+    ? retrievePassages(chapter.text, query, rawBudget)
+    : chapter.text.slice(0, rawBudget)
   return {
     label: `《${book?.title ?? ''}》· ${chapter.title}`,
     bookTitle: book?.title ?? '',
@@ -588,13 +638,13 @@ function buildChapterContext(chapterId: string): LabContext {
     text: [
       `书名《${book?.title ?? ''}》，章节「${chapter.title}」。`,
       // 读薄稿和卡片已经覆盖章节要点时，原文只留作引文定位。
-      chapter.text.slice(0, condensed ? 5_000 : 12_000),
+      `章节原文（相关节选）：\n${excerpt}`,
       condensed ? `读薄稿：\n${condensed.slice(0, 5_000)}` : '',
       cards ? `核心卡片：\n${cards.slice(0, 6_000)}` : '',
     ]
       .filter(Boolean)
       .join('\n\n')
-      .slice(0, 24_000),
+      .slice(0, 20_000),
   }
 }
 
@@ -696,7 +746,13 @@ function cosine(a: number[], b: number[]): number {
 }
 
 
-function relationContext(bookId: string): { bookTitle: string; author: string; text: string } {
+function relationContext(bookId: string): {
+  bookTitle: string
+  author: string
+  text: string
+  chapterTexts: string[]
+  notesText: string
+} {
   const book = getBookSummary(bookId)
   if (!book) throw new Error('找不到这本书')
   const chapters = getChapters(bookId).filter((chapter) => !chapter.hidden)
@@ -735,8 +791,8 @@ function relationContext(bookId: string): { bookTitle: string; author: string; t
   ]
     .filter(Boolean)
     .join('\n\n')
-    .slice(0, 48_000)
-  return { bookTitle: book.title, author: book.author, text }
+    .slice(0, 44_000)
+  return { bookTitle: book.title, author: book.author, text, chapterTexts, notesText }
 }
 
 function normalizeStringList(value: unknown, max = 8): string[] {
@@ -956,12 +1012,13 @@ export async function generateRelationGraph(args: {
     '只输出 JSON 对象：{"title":"...","genre":"...","summary":"...","plot":"...","nodes":[{"id":"p1","label":"...","kind":"person|organization|place|event|concept","role":"detective|killer|victim|witness|suspect|protagonist|supporting|other","importance":5,"identity":"","rank":"","affiliation":"","realWorld":false,"encyclopedia":"","aliases":["..."],"description":"一句话","chapters":["第X章"]}]}。不要输出 edges，不要输出 Markdown 代码块。',
   ].join('\n')
   const nodeResponse = await tracedGenerateText(
-    { step: 'relation-nodes', model: args.config.model, promptVersion: 'relation-v2' },
+    { step: 'relation-nodes', provider: args.config.provider, model: args.config.model, promptVersion: 'relation-v2' },
     {
       model,
       system: '你是文学与历史图书的结构分析师，擅长把复杂人物关系整理成清晰、克制的图谱。',
       prompt: nodePrompt,
       temperature: 0.25,
+      maxOutputTokens: 24_000,
       maxRetries: 1,
       abortSignal: labTimeout(args.signal, RELATION_NODE_TIMEOUT_MS),
     },
@@ -979,8 +1036,16 @@ export async function generateRelationGraph(args: {
       aliases: node.aliases,
     })),
   )
+  // 关系抽取只需要节点附近的原文，不再把整本书 4 万多字符重发一次。
+  const edgeExcerpts = candidateSnippets(
+    context.chapterTexts,
+    nodeBase.nodes.map((node) => node.label),
+    12_000,
+  )
   const edgePrompt = [
-    context.text,
+    `书名《${context.bookTitle}》，作者 ${context.author || '未知'}。`,
+    edgeExcerpts ? `节点相关原文片段：\n${edgeExcerpts}` : '',
+    context.notesText ? `读者笔记（节选）：\n${context.notesText.slice(0, 5_000)}` : '',
     '',
     '已确定的节点名单（source/target 必须使用这里的 id）：',
     nodeRoster,
@@ -995,12 +1060,13 @@ export async function generateRelationGraph(args: {
   let graph = nodeBase
   try {
     const edgeResponse = await tracedGenerateText(
-      { step: 'relation-edges', model: args.config.model, promptVersion: 'relation-v2' },
+      { step: 'relation-edges', provider: args.config.provider, model: args.config.model, promptVersion: 'relation-v2' },
       {
         model,
         system: '你是文学与历史图书的结构分析师，只负责给已确定的人物/组织/地点/事件标注关系。',
         prompt: edgePrompt,
         temperature: 0.2,
+        maxOutputTokens: 32_000,
         maxRetries: 1,
         abortSignal: labTimeout(args.signal, RELATION_EDGE_TIMEOUT_MS),
       },
@@ -1052,18 +1118,22 @@ export async function analyzePdfPage(args: {
     }
   }
   const model = createLanguageModel(args.config)
-  const response = await generateText({
-    model,
-    system: '你是「页边」的页面阅读助手，负责解释扫描页和图表。',
-    prompt: [
-      `书名《${book.title}》，第 ${page} 页的本机 OCR 文字：\n${ocr}`,
-      '请用 Markdown 解释这一页在说什么：先纠正明显的 OCR 错误，再概括内容；如果像图表，指出坐标轴、关键数据、趋势和它支持的结论；最后说一句和这本书主题/读者笔记的联系。',
-      '只使用页面文字和可推断的版式信息，不要编造看不见的细节。',
-    ].join('\n\n'),
-    temperature: 0.3,
-    maxRetries: 1,
-    abortSignal: labTimeout(args.signal, 90_000),
-  })
+  const response = await tracedGenerateText(
+    { step: 'lab-pdf-page', provider: args.config.provider, model: args.config.model, promptVersion: LAB_PROMPT_VERSION },
+    {
+      model,
+      system: '你是「页边」的页面阅读助手，负责解释扫描页和图表。',
+      maxOutputTokens: 3_000,
+      prompt: [
+        `书名《${book.title}》，第 ${page} 页的本机 OCR 文字：\n${ocr}`,
+        '请用 Markdown 解释这一页在说什么：先纠正明显的 OCR 错误，再概括内容；如果像图表，指出坐标轴、关键数据、趋势和它支持的结论；最后说一句和这本书主题/读者笔记的联系。',
+        '只使用页面文字和可推断的版式信息，不要编造看不见的细节。',
+      ].join('\n\n'),
+      temperature: 0.3,
+      maxRetries: 1,
+      abortSignal: labTimeout(args.signal, 90_000),
+    },
+  )
   return { title: `页面理解 · 第 ${page} 页`, markdown: response.text.trim() }
 }
 

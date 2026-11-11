@@ -2,9 +2,8 @@ import crypto from 'node:crypto'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 
-import { app, BrowserWindow, ClipboardItem, clipboard, dialog, ipcMain, nativeImage, shell } from 'electron'
+import { app, BrowserWindow, ClipboardItem, Notification, clipboard, dialog, ipcMain, nativeImage, shell } from 'electron'
 import type { IpcMainInvokeEvent, OpenDialogOptions } from 'electron'
-import { generateText } from 'ai'
 
 import { backupsDir, createBackup, deleteBackup, exportBackup, importBackupArchive, listBackups, restoreBackup } from './backup.js'
 import { buildDiagnosticsArchive } from './diagnostics.js'
@@ -51,11 +50,19 @@ import {
   createBookmark,
   deleteBookmark,
   deleteBook as deleteBookRow,
+  snapshotBookForTrash,
+  saveBookTrash,
+  listTrashedBooks,
+  restoreTrashedBook,
+  purgeTrashedBook,
+  emptyBookTrash,
+  deleteBackgroundTask,
   getBookCover,
   getBookRecord,
   updateBookCover,
   getBookStyle,
   getBookSummary,
+  getBookTranslationInfo,
   mergeBooks,
   splitBook,
   getChapter,
@@ -85,6 +92,8 @@ import {
   renamePart,
   saveBookStyle,
   saveChapterFormat,
+  saveChapterContent,
+  saveChapterTranslation,
   saveLabArtifact,
   setBookGenre,
   setContentFavorite,
@@ -92,17 +101,28 @@ import {
   updateLabArtifact,
   saveNoteDivergences,
   saveNoteReport,
-  searchLibrary,
   setProgress,
   updateNote,
   listBackgroundTasks,
   upsertBackgroundTask,
   updateBackgroundTask,
 } from './db.js'
+import { searchLibrary } from './search.js'
+import {
+  dismissAiJob,
+  getAiJob,
+  listAiJobs,
+  patchAiJob,
+  publishAiJob,
+  type JobSender,
+} from './ai/jobs.js'
 import { classifyChapters } from './ai/classify.js'
+import { listProviderModels } from './ai/models.js'
 import { optimizeShareCopy } from './ai/share-copy.js'
 import { auditXhsCoverage } from './ai/xhs-coverage.js'
 import { formatChapter as formatChapterWithAI } from './ai/format.js'
+import { translateChapter } from './ai/translate.js'
+import { runBookTranslation, selectTranslatableChapters } from './book-translate.js'
 import {
   analyzePdfPage,
   checkQuizAnswer,
@@ -118,30 +138,41 @@ import { composeBook } from './ai/book-compose.js'
 import { rewriteComposeSection } from './ai/section-rewrite.js'
 import { expandPoint, generateChapterNotes } from './ai/notes.js'
 import { createLanguageModel } from './ai/provider.js'
+import type { ModelConfig } from './ai/provider.js'
 import { askChapter, evaluateExplanation } from './ai/tutor.js'
 import { generateSessionSummary } from './ai/session-summary.js'
-import { traceAsync } from './ai/trace.js'
+import { traceAsync, tracedGenerateText } from './ai/trace.js'
 import { classifyImportedChapters, importBookFile, importHighlightEntries, importHighlightsFile, importScannedPdf, importTextBook, importUrlBook, reparseBookFile } from './import.js'
 import { renderHtmlToPdf } from './pdf.js'
 import { buildKnowledgeMap } from './knowledge-map.js'
 import { readAiUsage } from './ai/usage.js'
-import { configureSemantic, semanticRelatedNotes, warmSemanticIndex } from './semantic.js'
-import { getActiveSettings, getReadwiseToken, getSettingsView, getUiPreferences, getAppLockEnabled, isDemoMode, saveSettings, saveUiPreferences, setAppLockPasscode, verifyAppLockPasscode } from './settings.js'
+import { configureSemantic, semanticRelatedNotes, semanticSearchNotes, warmSemanticIndex } from './semantic.js'
+import { getActiveSettings, getAiPricing, getProviderApiKey, getReadwiseToken, getSettingsView, getUiPreferences, getAppLockEnabled, isDemoMode, saveSettings, saveUiPreferences, setAppLockPasscode, verifyAppLockPasscode } from './settings.js'
 import { fetchReadwiseEntries } from './readwise.js'
 import { parseWechatReadingNotes } from './parsers/wechat-reading.js'
+import { getDoclingStatus } from './parsers/docling.js'
+import { htmlToText, sanitizeChapterHtml, stripEditorArtifacts } from './html.js'
+import { understandImageInChapter } from './image-understanding.js'
+import { resolveVisionModel } from './ai/vision-model.js'
+import { isVisionError } from './ai/note-images.js'
+import { explainCode, fixCode, insertCodeUnderstanding, replaceCodeBlock, reviewCode } from './ai/code-assist.js'
 import { getTtsStatus, synthesizeTts } from './tts.js'
 import { exportNotesMarkdown } from './note-export.js'
 import { searchIndexAsync, searchIndexIds } from './search-index.js'
 import type {
-  BookComposeOptions,
+  AiJobCancelTarget,
+  AiJobSnapshot,
+  AiModelListInput,
+  BookComposeProgress,
   BookComposeResult,
   BookFormatDoneEvent,
-  BookFormatOptions,
   BookFormatProgress,
+  BookTranslationDoneEvent,
+  BookTranslationProgress,
   BookGenre,
+  FormatChapterOptions,
   FormatResult,
   BookGenerationDoneEvent,
-  BookGenerationOptions,
   BookGenerationProgress,
   ChapterFlag,
   ChatMode,
@@ -154,8 +185,10 @@ import type {
   ComposeSectionRewriteInput,
   GeneratePartial,
   HighlightImportResult,
+  ImportBookOptions,
   LabRequest,
   LibraryFilter,
+  LocalModelDetection,
   Note,
   NoteReport,
   OcrDoneEvent,
@@ -179,12 +212,26 @@ import type {
 import type { TutorContext } from './ai/tutor.js'
 import type { z } from 'zod'
 import {
+  bookComposeArgs,
+  bookFormatArgs,
+  bookGenerateArgs,
   bookIdArgs,
+  bookTranslateArgs,
+  bookReparseArgs,
+  chapterFormatArgs,
+  chapterIdArgs,
+  chapterIdsArgs,
   labArtifactArgs,
   mergeBooksArgs,
   noteDraftArgs,
+  noteIdArgs,
+  chapterUnderstandImageArgs,
+  chapterCodeAssistArgs,
+  chapterSaveContentArgs,
   notePatchArgs,
+  notesGenerateArgs,
   saveTextArgs,
+  saveTextFileArgs,
   splitBookArgs,
   textImportArgs,
 } from '../shared/ipc-schemas.js'
@@ -221,14 +268,19 @@ function probeSucceeded(probe: ReadwiseProbe, statuses: number[]): boolean {
   return 'status' in probe && statuses.includes(probe.status)
 }
 
-interface ActiveGeneration {
+interface ActiveNotesRun {
+  key: string
   chapterId: string
+  bookId: string
   controller: AbortController
 }
 
-let active: ActiveGeneration | null = null
-let composeActive: AbortController | null = null
+const activeComposes = new Map<string, AbortController>()
 let activeFormat: AbortController | null = null
+let activeFormatBookId: string | null = null
+const activeChapterFormats = new Map<string, AbortController>()
+const activeTranslations = new Map<string, AbortController>()
+const activeBookTranslations = new Map<string, AbortController>()
 let activeOcr: { controller: AbortController; fileName: string; jobId: string } | null = null
 let activeLab: AbortController | null = null
 let activeSummary: AbortController | null = null
@@ -236,10 +288,9 @@ let activeSection: AbortController | null = null
 let activeCompare: AbortController | null = null
 let activeComposeCompare: AbortController | null = null
 
-function notifyPreviousTaskCancelled(sender: {
-  isDestroyed(): boolean
-  send(channel: string, payload: unknown): void
-}): void {
+const notesRuns = new Map<string, ActiveNotesRun>()
+
+function notifyPreviousTaskCancelled(sender: JobSender): void {
   try {
     if (!sender.isDestroyed()) sender.send('app:notice', { kind: 'info', text: '已取消上一个 AI 任务。' })
   } catch {
@@ -247,32 +298,152 @@ function notifyPreviousTaskCancelled(sender: {
   }
 }
 
+function cancelNotesRuns(target?: AiJobCancelTarget, sender?: JobSender | null): void {
+  for (const [key, run] of notesRuns) {
+    if (target?.chapterId && run.chapterId !== target.chapterId) continue
+    if (target?.bookId && run.bookId !== target.bookId) continue
+    run.controller.abort()
+    notesRuns.delete(key)
+    if (run.chapterId) {
+      patchAiJob(sender ?? null, `ai-notes:${run.chapterId}`, {
+        status: 'cancelled',
+        detail: '已取消',
+        error: undefined,
+      })
+    }
+  }
+}
+
+function cancelFormats(target?: AiJobCancelTarget, sender?: JobSender | null): void {
+  for (const [chapterId, controller] of activeChapterFormats) {
+    if (target?.chapterId && chapterId !== target.chapterId) continue
+    if (target?.bookId) {
+      try {
+        if (getChapter(chapterId).bookId !== target.bookId) continue
+      } catch {
+        continue
+      }
+    }
+    controller.abort()
+    activeChapterFormats.delete(chapterId)
+    patchAiJob(sender ?? null, `ai-format:${chapterId}`, {
+      status: 'cancelled',
+      detail: '已取消',
+      error: undefined,
+    })
+  }
+  if (!target?.chapterId && (!target?.bookId || activeFormatBookId === target.bookId)) {
+    activeFormat?.abort()
+    activeFormat = null
+    activeFormatBookId = null
+  }
+}
+
+function cancelComposeRuns(target?: AiJobCancelTarget, sender?: JobSender | null): void {
+  for (const [bookId, controller] of activeComposes) {
+    if (target?.bookId && bookId !== target.bookId) continue
+    controller.abort()
+    activeComposes.delete(bookId)
+    patchAiJob(sender ?? null, `ai-compose:${bookId}`, {
+      status: 'cancelled',
+      detail: '已取消合并',
+      error: undefined,
+    })
+  }
+}
+
+function cancelTranslations(target?: AiJobCancelTarget, sender?: JobSender | null): void {
+  // 全书翻译独占一本书；按书取消时连同它内部的章节任务一起停掉。
+  if (!target?.chapterId) {
+    for (const [bookId, controller] of activeBookTranslations) {
+      if (target?.bookId && bookId !== target.bookId) continue
+      controller.abort()
+      activeBookTranslations.delete(bookId)
+    }
+  }
+  for (const [chapterId, controller] of activeTranslations) {
+    if (target?.chapterId && chapterId !== target.chapterId) continue
+    if (target?.bookId) {
+      try {
+        if (getChapter(chapterId).bookId !== target.bookId) continue
+      } catch {
+        // 章节已经不存在时也取消。
+      }
+    }
+    controller.abort()
+    activeTranslations.delete(chapterId)
+    patchAiJob(sender ?? null, `ai-translate:${chapterId}`, {
+      status: 'cancelled',
+      detail: '已取消翻译',
+      error: undefined,
+    })
+  }
+}
+
+function cancelAllAiJobs(): void {
+  cancelNotesRuns()
+  cancelFormats()
+  cancelTranslations()
+  cancelComposeRuns()
+  activeLab?.abort()
+  activeLab = null
+  activeSummary?.abort()
+  activeSummary = null
+  activeSection?.abort()
+  activeSection = null
+  activeCompare?.abort()
+  activeCompare = null
+  activeComposeCompare?.abort()
+  activeComposeCompare = null
+}
+
 interface NotesRun {
   settings: ReturnType<typeof getActiveSettings>
   controller: AbortController
+  sender: JobSender
   send(channel: string, payload: unknown): void
   release(): void
+  isCurrent(): boolean
+  /** 同一 runKey 已被更新的任务替换（不是用户取消）。 */
+  isSuperseded(): boolean
 }
 
-/** 单章生成和整本生成共用的启动逻辑：取消上一次、检查 Key、建立 controller 和事件通道。 */
-function beginNotesRun(event: IpcMainInvokeEvent, chapterId: string): NotesRun {
-  if (active) notifyPreviousTaskCancelled(event.sender)
-  active?.controller.abort()
+/** 单章生成和整本生成共用：按 runKey 隔离，切章不会取消别的章节。 */
+function beginNotesRun(
+  event: IpcMainInvokeEvent,
+  chapterId: string,
+  runKey = chapterId ? `chapter:${chapterId}` : 'book',
+  bookId = '',
+): NotesRun {
+  const existing = notesRuns.get(runKey)
+  if (existing) {
+    notifyPreviousTaskCancelled(event.sender)
+    existing.controller.abort()
+    notesRuns.delete(runKey)
+  }
   const settings = getActiveSettings('notes')
-  if (settings.provider !== 'demo' && settings.provider !== 'ollama' && !settings.apiKey) {
+  if (settings.provider !== 'demo' && settings.provider !== 'ollama' && settings.provider !== 'lmstudio' && !settings.apiKey) {
     throw new Error('还没有配置 API Key。请打开右上角设置，选择模型并填入 Key。')
   }
   const controller = new AbortController()
-  active = { chapterId, controller }
+  notesRuns.set(runKey, { key: runKey, chapterId, bookId, controller })
   const sender = event.sender
   return {
     settings,
     controller,
+    sender,
     send(channel, payload) {
       if (!sender.isDestroyed()) sender.send(channel, payload)
     },
     release() {
-      if (active?.controller === controller) active = null
+      if (notesRuns.get(runKey)?.controller === controller) notesRuns.delete(runKey)
+    },
+    isCurrent() {
+      return notesRuns.get(runKey)?.controller === controller
+    },
+    isSuperseded() {
+      const current = notesRuns.get(runKey)
+      return Boolean(current && current.controller !== controller)
     },
   }
 }
@@ -306,6 +477,8 @@ async function generateChapterToDb(
       config: settings,
       genre: book.genre,
       mode: settings.generationMode,
+      notesLanguage: settings.notesLanguage,
+      visionMode: settings.visionMode,
       lookupRelatedNotes: (concepts: string[]) =>
         listRelatedNotes(chapter.bookId, concepts, 4).map((item) => ({
           bookTitle: item.bookTitle,
@@ -340,6 +513,8 @@ async function generateChapterToDb(
 function formatSourceHtml(chapter: ReturnType<typeof getChapter>): string {
   const escapeHtml = (value: string): string =>
     value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  // 图片理解已经写进 formatted_html 时，以它作为排版源，避免再次排版把说明丢掉。
+  if (chapter.formattedHtml?.includes('image-understanding')) return chapter.formattedHtml
   return (
     chapter.html ??
     chapter.text
@@ -353,27 +528,31 @@ async function formatChapterToDb(
   chapterId: string,
   instruction: string | undefined,
   signal?: AbortSignal,
+  options: FormatChapterOptions = {},
 ): Promise<FormatResult> {
   const chapter = getChapter(chapterId)
   const style = getBookStyle(chapter.bookId)
   const config = getActiveSettings()
+  const sourceHtml = formatSourceHtml(chapter)
+  const sourceText = sourceHtml.includes('image-understanding') ? htmlToText(sourceHtml) : chapter.text
   const result = await traceAsync(
-    { step: 'format-chapter', scope: chapterId, model: config.model, promptVersion: 'format-v1' },
+    { step: 'format-chapter', scope: chapterId, model: config.model, promptVersion: 'format-v3' },
     () =>
       formatChapterWithAI({
         chapterTitle: chapter.title,
-        html: formatSourceHtml(chapter),
-        originalText: chapter.text,
+        html: sourceHtml,
+        originalText: sourceText,
         currentHtml: chapter.formattedHtml,
         currentRemoved: chapter.removed,
         instruction,
         style,
+        skipReferences: options.skipReferences === true,
         config,
         signal,
       }),
   )
   if (signal?.aborted) throw new Error('排版已取消')
-  saveChapterFormat(chapterId, result.html, result.removed)
+  const chars = saveChapterFormat(chapterId, result.html, result.removed)
   const savedStyle = saveBookStyle(chapter.bookId, result.style)
   saveLabArtifact({
     tool: 'chapter-format',
@@ -391,6 +570,7 @@ async function formatChapterToDb(
     removed: result.removed,
     style: savedStyle,
     note: result.note,
+    chars,
   }
 }
 
@@ -482,7 +662,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
 
   ipcMain.handle('books:list', () => listBooks())
 
-  ipcMain.handle('books:import', async () => {
+  ipcMain.handle('books:import', async (event, importOptions?: ImportBookOptions) => {
     const win = getWindow()
     const result = win
       ? await dialog.showOpenDialog(win, {
@@ -497,17 +677,31 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
         })
     if (result.canceled || result.filePaths.length === 0) return null
 
-    return importBookFile(result.filePaths[0]!, dataDir)
+    return importBookFile(
+      result.filePaths[0]!,
+      dataDir,
+      {
+        skipReferences: importOptions?.skipReferences === true,
+        deepPdf: importOptions?.deepPdf === true,
+      },
+      (progress) => {
+        if (!event.sender.isDestroyed()) event.sender.send('docling:progress', progress)
+      },
+    )
   })
+
+  ipcMain.handle('docling:status', () => getDoclingStatus(dataDir))
 
   ipcMain.handle('books:import-text', async (_event, rawInput: unknown) => {
     const [input] = parseIpc('books:import-text', textImportArgs, [rawInput])
     return importTextBook(input, dataDir)
   })
 
-  ipcMain.handle('books:import-url', async (_event, url: string) => {
+  ipcMain.handle('books:import-url', async (_event, url: string, importOptions?: ImportBookOptions) => {
     if (typeof url !== 'string') throw new Error('网址无效。')
-    return importUrlBook(url, dataDir)
+    return importUrlBook(url, dataDir, {
+      skipReferences: importOptions?.skipReferences === true,
+    })
   })
 
   ipcMain.handle('books:import-highlights', async (_event, importOptions?: { mergeExisting?: boolean }): Promise<HighlightImportResult | null> => {
@@ -647,24 +841,203 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     saveBookStyle(bookId, style),
   )
 
-  ipcMain.handle('chapters:format', async (event, chapterId: string, instruction?: string) => {
-    if (activeFormat) notifyPreviousTaskCancelled(event.sender)
-    activeFormat?.abort()
-    const controller = new AbortController()
-    activeFormat = controller
-    const sender = event.sender
+  ipcMain.handle('chapters:understand-image', async (_event, rawChapterId: unknown, rawImageSrc: unknown) => {
+    const [chapterId, imageSrc] = parseIpc('chapters:understand-image', chapterUnderstandImageArgs, [
+      rawChapterId,
+      rawImageSrc,
+    ])
+    const chapter = getChapter(chapterId)
+    const book = getBookSummary(chapter.bookId)
+    const settings = getActiveSettings('notes')
+    if (settings.provider === 'demo') throw new Error('演示模式不支持图片理解，请先在设置里配置真实视觉模型。')
+
+    const run = async (
+      config: ModelConfig,
+      model: string,
+      provider: ModelConfig['provider'],
+      fallback: boolean,
+    ) => {
+      const result = await traceAsync(
+        {
+          step: 'image-understanding',
+          scope: chapterId,
+          model,
+          promptVersion: 'image-understanding-v1',
+        },
+        () =>
+          understandImageInChapter({
+            chapterId,
+            imageSrc,
+            config,
+            demo: false,
+            bookTitle: book?.title ?? '',
+            signal: AbortSignal.timeout(120_000),
+          }),
+      )
+      const chars = saveChapterFormat(chapterId, result.html, chapter.removed)
+      return { ...result, chars, model, provider, fallback }
+    }
+
     try {
-      const result = await formatChapterToDb(chapterId, instruction, controller.signal)
-      if (!sender.isDestroyed()) sender.send('chapter:formatted', result)
-      return result
-    } finally {
-      if (activeFormat === controller) activeFormat = null
+      // 先直接尝试当前模型：有些模型（例如 DeepSeek 的某些版本）不在常见视觉名单里，
+      // 但实际能接收图片；只有明确是图片能力错误时才回退到其他服务商。
+      return await run(settings, settings.model, settings.provider, false)
+    } catch (error) {
+      if (!isVisionError(error)) throw error
+      const vision = await resolveVisionModel({ provider: settings.provider, model: settings.model })
+      return await run(vision.config, vision.model, vision.provider, true)
     }
   })
 
-  ipcMain.handle('chapters:format-book', (event, bookId: string, options?: BookFormatOptions) => {
+  ipcMain.handle('chapters:save-content', async (_event, rawChapterId: unknown, rawHtml: unknown) => {
+    const [chapterId, html] = parseIpc('chapters:save-content', chapterSaveContentArgs, [
+      rawChapterId,
+      rawHtml,
+    ])
+    const clean = sanitizeChapterHtml(stripEditorArtifacts(html))
+    if (!htmlToText(clean).trim()) throw new Error('正文不能为空。')
+    const chars = saveChapterContent(chapterId, clean)
+    return { html: clean, chars }
+  })
+
+  ipcMain.handle('chapters:code-assist', async (_event, rawChapterId: unknown, rawCode: unknown, rawMode: unknown, rawLanguage: unknown) => {
+    const [chapterId, code, mode, language] = parseIpc('chapters:code-assist', chapterCodeAssistArgs, [
+      rawChapterId,
+      rawCode,
+      rawMode,
+      rawLanguage,
+    ])
+    const chapter = getChapter(chapterId)
+    const book = getBookSummary(chapter.bookId)
+    const settings = getActiveSettings('notes')
+    if (settings.provider === 'demo') throw new Error('演示模式不支持代码检查，请先配置真实模型。')
+    const common = {
+      config: settings,
+      demo: false,
+      code,
+      language: language ?? '',
+      chapterTitle: chapter.title,
+      bookTitle: book?.title ?? '',
+      signal: AbortSignal.timeout(120_000),
+    }
+    if (mode === 'review') {
+      const text = await traceAsync(
+        { step: 'code-review', scope: chapterId, model: settings.model, promptVersion: 'code-review-v1' },
+        () => reviewCode(common),
+      )
+      return { mode, text, model: settings.model }
+    }
+    const source = chapter.formattedHtml ?? chapter.html ?? ''
+    if (!source.trim()) throw new Error('这一章没有可理解的代码。')
+    if (mode === 'fix') {
+      const fixed = await traceAsync(
+        { step: 'code-fix', scope: chapterId, model: settings.model, promptVersion: 'code-fix-v1' },
+        () => fixCode(common),
+      )
+      const replaced = replaceCodeBlock(source, code, fixed)
+      const chars = replaced.html ? saveChapterFormat(chapterId, replaced.html, chapter.removed) : undefined
+      return {
+        mode,
+        text: fixed,
+        html: replaced.html,
+        chars,
+        changed: replaced.changed,
+        model: settings.model,
+      }
+    }
+    const text = await traceAsync(
+      { step: 'code-explain', scope: chapterId, model: settings.model, promptVersion: 'code-explain-v1' },
+      () => explainCode(common),
+    )
+    const inserted = insertCodeUnderstanding(source, code, text)
+    const chars = inserted.html ? saveChapterFormat(chapterId, inserted.html, chapter.removed) : undefined
+    return {
+      mode,
+      text,
+      html: inserted.html,
+      chars,
+      understood: inserted.understood,
+      skipped: inserted.skipped,
+      model: settings.model,
+    }
+  })
+
+  ipcMain.handle('chapters:format', async (event, rawChapterId: unknown, rawInstruction: unknown, rawOptions: unknown) => {
+    const [chapterId, instruction, options] = parseIpc('chapters:format', chapterFormatArgs, [
+      rawChapterId,
+      rawInstruction,
+      rawOptions,
+    ])
+    const previous = activeChapterFormats.get(chapterId)
+    if (previous) {
+      notifyPreviousTaskCancelled(event.sender)
+      previous.abort()
+    }
+    const chapter = getChapter(chapterId)
+    const controller = new AbortController()
+    activeChapterFormats.set(chapterId, controller)
+    const sender = event.sender
+    const jobId = `ai-format:${chapterId}`
+    const baseDetail = options?.skipReferences ? '正在排版（忽略参考文献）' : '正在排版'
+    publishAiJob(sender, {
+      id: jobId,
+      kind: 'format',
+      chapterId,
+      bookId: chapter.bookId,
+      title: chapter.title,
+      status: 'running',
+      detail: baseDetail,
+      done: 0,
+      total: 1,
+      ...(options ? { formatOptions: options } : {}),
+      updatedAt: new Date().toISOString(),
+    })
+    const startedAt = Date.now()
+    const heartbeat = setInterval(() => {
+      const seconds = Math.round((Date.now() - startedAt) / 1000)
+      patchAiJob(sender, jobId, { detail: `${baseDetail} · 已用 ${seconds} 秒` })
+    }, 15_000)
+    try {
+      const result = await formatChapterToDb(chapterId, instruction, controller.signal, options)
+      const current = activeChapterFormats.get(chapterId) === controller
+      if (current) {
+        if (!sender.isDestroyed()) sender.send('chapter:formatted', result)
+        patchAiJob(sender, jobId, {
+          status: 'done',
+          detail: `完成 · ${result.chars.toLocaleString()} 字`,
+          done: 1,
+          total: 1,
+        })
+      }
+      return result
+    } catch (error) {
+      const current = activeChapterFormats.get(chapterId) === controller
+      const aborted = controller.signal.aborted
+      const message = aborted
+        ? '排版已取消'
+        : error instanceof Error
+          ? error.message
+          : String(error)
+      if (current) {
+        patchAiJob(sender, jobId, {
+          status: aborted ? 'cancelled' : 'error',
+          detail: message,
+          error: aborted ? undefined : message,
+        })
+      }
+      throw error
+    } finally {
+      clearInterval(heartbeat)
+      if (activeChapterFormats.get(chapterId) === controller) activeChapterFormats.delete(chapterId)
+    }
+  })
+
+  ipcMain.handle('chapters:format-book', (event, rawBookId: unknown, rawOptions: unknown) => {
+    const [bookId, options] = parseIpc('chapters:format-book', bookFormatArgs, [rawBookId, rawOptions])
     if (activeFormat) notifyPreviousTaskCancelled(event.sender)
     activeFormat?.abort()
+    activeFormat = null
+    activeFormatBookId = null
     const book = getBookSummary(bookId)
     if (!book) throw new Error('找不到这本书。')
     const visible = getChapters(bookId).filter((chapter) => !chapter.hidden)
@@ -680,9 +1053,18 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
           }
         })
       : scope
+    // 整本排版接管目标章节：取消这些章节单独跑的排版，避免同一章并发写入。
+    for (const chapter of targets) {
+      const running = activeChapterFormats.get(chapter.id)
+      if (!running) continue
+      running.abort()
+      activeChapterFormats.delete(chapter.id)
+      patchAiJob(event.sender, `ai-format:${chapter.id}`, { status: 'cancelled', detail: '已并入整本排版' })
+    }
     let skipped = scope.length - targets.length
     const controller = new AbortController()
     activeFormat = controller
+    activeFormatBookId = bookId
     const sender = event.sender
     const send = (channel: string, payload: unknown): void => {
       if (!sender.isDestroyed()) sender.send(channel, payload)
@@ -699,9 +1081,30 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
       })
       let formatted = 0
       const failed: BookFormatDoneEvent['failed'] = []
+      const startedAt = Date.now()
+      let currentIndex = 0
+      let currentId = ''
+      let currentTitle = ''
+      const heartbeat = setInterval(() => {
+        if (controller.signal.aborted || !currentTitle) return
+        const seconds = Math.round((Date.now() - startedAt) / 1000)
+        send('book:format:progress', {
+          bookId,
+          chapterId: currentId,
+          title: currentTitle,
+          index: currentIndex,
+          total: targets.length,
+          status: 'start',
+          done: Math.max(0, currentIndex - 1),
+          message: `正在排版 · 已用 ${seconds} 秒`,
+        } satisfies BookFormatProgress)
+      }, 15_000)
       for (let index = 0; index < targets.length; index++) {
         if (controller.signal.aborted) break
         const meta = targets[index]!
+        currentIndex = index + 1
+        currentId = meta.id
+        currentTitle = meta.title
         send('book:format:progress', {
           bookId,
           chapterId: meta.id,
@@ -710,11 +1113,13 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
           total: targets.length,
           status: 'start',
           done: index,
+          message: '正在排版',
         } satisfies BookFormatProgress)
         try {
           const chapter = getChapter(meta.id)
           if (chapter.text.trim().length < 80) {
             skipped++
+            currentTitle = ''
             send('book:format:progress', {
               bookId,
               chapterId: meta.id,
@@ -728,8 +1133,11 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
             updateBackgroundTask(taskId, { done: index + 1, failures: failed })
             continue
           }
-          const result = await formatChapterToDb(meta.id, undefined, controller.signal)
+          const result = await formatChapterToDb(meta.id, undefined, controller.signal, {
+            skipReferences: options?.skipReferences === true,
+          })
           formatted++
+          currentTitle = ''
           send('chapter:formatted', result)
           send('book:format:progress', {
             bookId,
@@ -742,6 +1150,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
           } satisfies BookFormatProgress)
           updateBackgroundTask(taskId, { done: index + 1, failures: failed })
         } catch (error) {
+          currentTitle = ''
           if (controller.signal.aborted) break
           const message = error instanceof Error ? error.message : String(error)
           failed.push({ chapterId: meta.id, title: meta.title, message })
@@ -758,40 +1167,283 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
           updateBackgroundTask(taskId, { done: index + 1, failures: failed })
         }
       }
-      updateBackgroundTask(taskId, {
-        status: controller.signal.aborted ? 'paused' : failed.length > 0 ? 'error' : 'done',
-        done: formatted + skipped + failed.length,
-        failures: failed,
-      })
-      send('book:format:done', {
-        bookId,
-        formatted,
-        skipped,
-        failed,
-        cancelled: controller.signal.aborted,
-      } satisfies BookFormatDoneEvent)
-      if (activeFormat === controller) activeFormat = null
+      clearInterval(heartbeat)
+      // 被新的整本排版接管时，旧任务不要再覆盖新任务的进度。
+      const superseded = activeFormat !== null && activeFormat !== controller
+      if (!superseded) {
+        updateBackgroundTask(taskId, {
+          status: controller.signal.aborted ? 'paused' : failed.length > 0 ? 'error' : 'done',
+          done: formatted + skipped + failed.length,
+          failures: failed,
+        })
+        send('book:format:done', {
+          bookId,
+          formatted,
+          skipped,
+          failed,
+          cancelled: controller.signal.aborted,
+        } satisfies BookFormatDoneEvent)
+      }
+      if (activeFormat === controller) {
+        activeFormat = null
+        activeFormatBookId = null
+      }
     })()
   })
 
-  ipcMain.handle('chapters:format-cancel', () => {
-    activeFormat?.abort()
-    activeFormat = null
+  ipcMain.handle('chapters:format-cancel', (event, target?: AiJobCancelTarget) => {
+    cancelFormats(target, event.sender)
   })
 
-  ipcMain.handle('chapters:resetFormat', (_event, chapterId: string) => {
-    resetChapterFormat(chapterId)
-  })
-
-  ipcMain.handle('books:reparse', async (_event, bookId: string) => {
-    if (active) {
-      active.controller.abort()
-      active = null
+  ipcMain.handle('chapters:translate', (event, rawChapterId: unknown, rawOptions?: unknown) => {
+    const [chapterId] = parseIpc('chapters:translate', chapterIdArgs, [rawChapterId])
+    const force = Boolean(
+      rawOptions && typeof rawOptions === 'object' && (rawOptions as { force?: unknown }).force === true,
+    )
+    const chapter = getChapter(chapterId)
+    const book = getBookSummary(chapter.bookId)
+    if (!book) throw new Error('找不到章节所属的书。')
+    if (activeBookTranslations.has(chapter.bookId)) {
+      throw new Error('全书翻译正在进行，请等它完成后再重试单章。')
     }
+    if (!getBookTranslationInfo(chapter.bookId).foreign) {
+      throw new Error('这本书看起来主要是中文，不需要翻译。')
+    }
+    if (!force && (chapter.translatedHtml?.trim() || chapter.translatedText?.trim())) {
+      if (!event.sender.isDestroyed()) {
+        event.sender.send('chapter:translated', {
+          chapterId,
+          text: chapter.translatedText ?? '',
+          html: chapter.translatedHtml ?? '',
+          translatedAt: chapter.translatedAt ?? new Date().toISOString(),
+        })
+      }
+      return
+    }
+
+    const previous = activeTranslations.get(chapterId)
+    previous?.abort()
+    const controller = new AbortController()
+    activeTranslations.set(chapterId, controller)
+    const sender = event.sender
+    const send = (channel: string, payload: unknown): void => {
+      if (!sender.isDestroyed()) sender.send(channel, payload)
+    }
+    const jobId = `ai-translate:${chapterId}`
+    publishAiJob(sender, {
+      id: jobId,
+      kind: 'translate',
+      chapterId,
+      bookId: chapter.bookId,
+      title: chapter.title,
+      status: 'running',
+      detail: '准备翻译',
+      done: 0,
+      total: 0,
+      updatedAt: new Date().toISOString(),
+    })
+
+    void (async () => {
+      try {
+        const result = await translateChapter({
+          bookTitle: book.title,
+          chapterTitle: chapter.title,
+          html: chapter.formattedHtml ?? chapter.html ?? '',
+          text: chapter.text,
+          config: getActiveSettings('notes'),
+          signal: controller.signal,
+          onProgress: (done, total) => {
+            if (activeTranslations.get(chapterId) !== controller) return
+            send('chapter:translation:progress', { chapterId, done, total, message: `翻译 ${done}/${total}` })
+            patchAiJob(sender, jobId, {
+              detail: `翻译 ${done}/${total}`,
+              done,
+              total: Math.max(1, total),
+            })
+          },
+        })
+        if (controller.signal.aborted || activeTranslations.get(chapterId) !== controller) return
+        const { translatedAt } = saveChapterTranslation(chapterId, result.html, result.text)
+        send('chapter:translated', {
+          chapterId,
+          text: result.text,
+          html: result.html,
+          translatedAt,
+        })
+        patchAiJob(sender, jobId, {
+          status: 'done',
+          detail: `完成 · ${result.text.length.toLocaleString()} 字`,
+          done: 1,
+          total: 1,
+        })
+      } catch (error) {
+        if (activeTranslations.get(chapterId) !== controller) return
+        const aborted = controller.signal.aborted
+        const message = aborted
+          ? '翻译已取消'
+          : error instanceof Error
+            ? error.message
+            : String(error)
+        send('chapter:translation:error', { chapterId, message })
+        patchAiJob(sender, jobId, {
+          status: aborted ? 'cancelled' : 'error',
+          detail: message,
+          error: aborted ? undefined : message,
+        })
+      } finally {
+        if (activeTranslations.get(chapterId) === controller) activeTranslations.delete(chapterId)
+      }
+    })()
+  })
+
+  ipcMain.handle('chapters:translate-cancel', (event, target?: AiJobCancelTarget) => {
+    cancelTranslations(target, event.sender)
+  })
+
+  ipcMain.handle('books:translation-info', (_event, rawBookId: unknown) => {
+    const [bookId] = parseIpc('books:translation-info', bookIdArgs, [rawBookId])
+    return getBookTranslationInfo(bookId)
+  })
+
+  ipcMain.handle('books:translate', (event, rawBookId: unknown, rawOptions?: unknown) => {
+    const [bookId, options] = parseIpc('books:translate', bookTranslateArgs, [rawBookId, rawOptions])
+    const book = getBookSummary(bookId)
+    if (!book) throw new Error('找不到这本书。')
+    const info = getBookTranslationInfo(bookId)
+    if (!info.foreign) throw new Error('这本书看起来主要是中文，不需要翻译。')
+
+    const previous = activeBookTranslations.get(bookId)
+    previous?.abort()
+    const controller = new AbortController()
+    activeBookTranslations.set(bookId, controller)
+    const sender = event.sender
+    const send = (channel: string, payload: unknown): void => {
+      if (!sender.isDestroyed()) sender.send(channel, payload)
+    }
+    const taskId = `translate:${bookId}`
+    const targets = selectTranslatableChapters(bookId, options).map((chapter) => ({
+      id: chapter.id,
+      title: chapter.title,
+    }))
+    if (targets.length === 0) {
+      activeBookTranslations.delete(bookId)
+      throw new Error('没有可翻译的章节。')
+    }
+    upsertBackgroundTask({
+      id: taskId,
+      kind: 'translate',
+      bookId,
+      targets,
+      status: 'running',
+      done: 0,
+      meta: { translateOptions: options ?? {} },
+    })
+    send('book:translation:progress', {
+      bookId,
+      title: book.title,
+      done: 0,
+      total: targets.length,
+      translated: info.translated,
+      message: '准备翻译',
+    } satisfies BookTranslationProgress)
+
+    void (async () => {
+      try {
+        const result = await runBookTranslation({
+          bookId,
+          options,
+          signal: controller.signal,
+          onProgress: (progress) => {
+            if (activeBookTranslations.get(bookId) !== controller) return
+            updateBackgroundTask(taskId, { status: 'running', done: progress.done })
+            send('book:translation:progress', {
+              bookId,
+              title: book.title,
+              done: progress.done,
+              total: progress.total,
+              translated: progress.translated,
+              message: progress.message ?? progress.title,
+            } satisfies BookTranslationProgress)
+          },
+          onChapterTranslated: (chapter) => {
+            if (activeBookTranslations.get(bookId) !== controller) return
+            send('chapter:translated', chapter)
+          },
+        })
+        if (activeBookTranslations.get(bookId) !== controller) return
+        updateBackgroundTask(taskId, {
+          status: result.cancelled ? 'paused' : result.failed.length > 0 ? 'error' : 'done',
+          done: result.translated + result.skipped + result.failed.length,
+          failures: result.failed,
+        })
+        send('book:translation:done', {
+          bookId,
+          translated: result.translated,
+          skipped: result.skipped,
+          failed: result.failed,
+          cancelled: result.cancelled,
+        } satisfies BookTranslationDoneEvent)
+      } catch (error) {
+        if (activeBookTranslations.get(bookId) !== controller) return
+        const aborted = controller.signal.aborted
+        const message = aborted
+          ? '翻译已取消'
+          : error instanceof Error
+            ? error.message
+            : String(error)
+        updateBackgroundTask(taskId, { status: aborted ? 'paused' : 'error' })
+        send('book:translation:done', {
+          bookId,
+          translated: 0,
+          skipped: 0,
+          failed: [],
+          cancelled: aborted,
+          ...(aborted ? {} : { error: message }),
+        } satisfies BookTranslationDoneEvent)
+      } finally {
+        if (activeBookTranslations.get(bookId) === controller) activeBookTranslations.delete(bookId)
+      }
+    })()
+  })
+
+  ipcMain.handle('ai:jobs-list', () => listAiJobs())
+
+  ipcMain.handle('ai:job-state', (_event, chapterId: string) => ({
+    notes: getAiJob(`ai-notes:${chapterId}`) ?? null,
+    format: getAiJob(`ai-format:${chapterId}`) ?? null,
+    translate: getAiJob(`ai-translate:${chapterId}`) ?? null,
+  }))
+
+  ipcMain.handle('ai:book-jobs', (_event, bookId: string) => ({
+    compose: getAiJob(`ai-compose:${bookId}`) ?? null,
+  }))
+
+  ipcMain.handle('ai:job-dismiss', (_event, id: string) => {
+    if (!dismissAiJob(id)) return
+    deleteBackgroundTask(id)
+  })
+
+  ipcMain.handle('chapters:resetFormat', (_event, chapterId: string) => resetChapterFormat(chapterId))
+
+  ipcMain.handle('books:reparse', async (event, rawBookId: unknown, rawOptions: unknown) => {
+    const [bookId, options] = parseIpc('books:reparse', bookReparseArgs, [rawBookId, rawOptions])
+    cancelNotesRuns({ bookId }, event.sender)
+    cancelFormats({ bookId }, event.sender)
+    cancelTranslations({ bookId }, event.sender)
     const record = getBookRecord(bookId)
     if (!record) throw new Error('找不到这本书')
     await autoBackup(`重新解析《${record.title}》前`)
-    const parsed = await reparseBookFile(record)
+    const parsed = await reparseBookFile(
+      record,
+      dataDir,
+      {
+        skipReferences: options?.skipReferences === true,
+        deepPdf: options?.deepPdf === true,
+      },
+      (progress) => {
+        if (!event.sender.isDestroyed()) event.sender.send('docling:progress', { ...progress, bookId })
+      },
+    )
     const chapters = classifyImportedChapters(parsed.chapters)
     return replaceBookChapters(bookId, { title: parsed.title, author: parsed.author, chapters })
   })
@@ -858,24 +1510,69 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     }
   })
 
-  ipcMain.handle('books:delete', async (_event, rawBookId: unknown) => {
+  ipcMain.handle('books:delete', async (event, rawBookId: unknown) => {
     const [bookId] = parseIpc('books:delete', bookIdArgs, [rawBookId])
-    if (active) {
-      try {
-        if (getChapter(active.chapterId).bookId === bookId) {
-          active.controller.abort()
-          active = null
-        }
-      } catch {
-        active = null
-      }
-    }
+    cancelNotesRuns({ bookId }, event.sender)
+    cancelFormats({ bookId }, event.sender)
+    cancelTranslations({ bookId }, event.sender)
     const record = getBookRecord(bookId)
     if (record) await autoBackup(`删除《${record.title}》前`)
-    // 先解析并校验目录：非法 id 不能拼进 fs.rm，否则 ../../ 可以删到数据目录之外。
+    const payload = snapshotBookForTrash(bookId)
+    if (!payload) throw new Error('这本书不存在。')
     const bookDir = bookStorageDir(dataDir, bookId)
-    deleteBookRow(bookId)
-    await fs.rm(bookDir, { recursive: true, force: true })
+    const trashDir = path.join(dataDir, 'trash', 'books', bookId)
+    await fs.mkdir(path.dirname(trashDir), { recursive: true })
+    await fs.rm(trashDir, { recursive: true, force: true }).catch(() => undefined)
+    let moved = false
+    try {
+      await fs.rename(bookDir, trashDir)
+      moved = true
+    } catch {
+      // 原始目录已经不存在时仍然保留数据库快照。
+    }
+    try {
+      saveBookTrash(bookId, payload, path.relative(dataDir, trashDir))
+      deleteBookRow(bookId)
+    } catch (error) {
+      if (moved) await fs.rename(trashDir, bookDir).catch(() => undefined)
+      throw error
+    }
+  })
+
+  ipcMain.handle('books:trash-list', () => listTrashedBooks())
+
+  ipcMain.handle('books:trash-restore', async (_event, rawBookId: unknown) => {
+    const [bookId] = parseIpc('books:trash-restore', bookIdArgs, [rawBookId])
+    const book = restoreTrashedBook(bookId)
+    if (!book) throw new Error('回收站里没有这本书，或原书已经存在。')
+    const trashDir = path.join(dataDir, 'trash', 'books', bookId)
+    const bookDir = bookStorageDir(dataDir, bookId)
+    try {
+      await fs.mkdir(path.dirname(bookDir), { recursive: true })
+      await fs.rename(trashDir, bookDir)
+    } catch {
+      // 源文件可能已被清理；数据库行仍能恢复阅读和笔记。
+    }
+    return book
+  })
+
+  const removeTrashDir = async (relative: string): Promise<void> => {
+    if (!relative.startsWith('trash/books/')) return
+    const target = path.resolve(dataDir, relative)
+    const root = path.resolve(dataDir, 'trash', 'books')
+    if (target !== root && !target.startsWith(`${root}${path.sep}`)) return
+    await fs.rm(target, { recursive: true, force: true })
+  }
+
+  ipcMain.handle('books:trash-purge', async (_event, rawBookId: unknown) => {
+    const [bookId] = parseIpc('books:trash-purge', bookIdArgs, [rawBookId])
+    const relative = purgeTrashedBook(bookId)
+    if (relative) await removeTrashDir(relative)
+  })
+
+  ipcMain.handle('books:trash-empty', async () => {
+    const dirs = emptyBookTrash()
+    await Promise.all(dirs.map((relative) => removeTrashDir(relative)))
   })
 
   ipcMain.handle('chapters:get', (_event, chapterId: string) => getChapter(chapterId))
@@ -911,6 +1608,14 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
   ipcMain.handle('reading:stats-record', (_event, day: string, seconds: number, bookId?: string | null) => {
     if (typeof day !== 'string') throw new Error('阅读日期无效。')
     recordReadingStats(day, Number(seconds), typeof bookId === 'string' ? bookId : null)
+  })
+
+  ipcMain.handle('settings:detect-local', async (): Promise<LocalModelDetection> => {
+    const [ollama, lmstudio] = await Promise.all([
+      listProviderModels({ provider: 'ollama', baseUrl: 'http://127.0.0.1:11434/v1' }),
+      listProviderModels({ provider: 'lmstudio', baseUrl: 'http://127.0.0.1:1234/v1' }),
+    ])
+    return { ollama: ollama.models, lmstudio: lmstudio.models }
   })
 
   ipcMain.handle('preferences:get', () => getUiPreferences())
@@ -1008,11 +1713,12 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     applyChapterFlags(flags)
   })
 
-  ipcMain.handle('chapters:delete', async (_event, chapterIds: string[]) => {
-    if (!Array.isArray(chapterIds) || chapterIds.length === 0) throw new Error('章节无效。')
-    if (active && chapterIds.includes(active.chapterId)) {
-      active.controller.abort()
-      active = null
+  ipcMain.handle('chapters:delete', async (event, rawChapterIds: unknown) => {
+    const [chapterIds] = parseIpc('chapters:delete', chapterIdsArgs, [rawChapterIds])
+    for (const chapterId of chapterIds) {
+      cancelNotesRuns({ chapterId }, event.sender)
+      cancelFormats({ chapterId }, event.sender)
+      cancelTranslations({ chapterId }, event.sender)
     }
     await autoBackup(`删除 ${chapterIds.length} 个章节前`)
     deleteChapters(chapterIds)
@@ -1043,7 +1749,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
 
   ipcMain.handle('library:search-semantic', async (_event, query: string) => {
     if (typeof query !== 'string' || query.trim().length < 4) return []
-    const semantic = await semanticRelatedNotes('', query, 12).catch(() => null)
+    const semantic = await semanticSearchNotes(query, 12).catch(() => null)
     return (semantic ?? []).map((note) => ({
       type: 'note' as const,
       id: note.id,
@@ -1146,20 +1852,19 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     )
   })
 
-  ipcMain.handle('reader:summary', async (event, input: SessionSummaryInput) => {
+  ipcMain.handle('reader:summary', async (_event, input: SessionSummaryInput) => {
     if (!input || typeof input.chapterId !== 'string') throw new Error('阅读小结参数无效。')
     const chapter = getChapter(input.chapterId)
     const book = getBookSummary(chapter.bookId)
     if (!book) throw new Error('找不到章节所属的书。')
     const minutes = Math.max(1, Math.min(24 * 60, Math.round(Number(input.minutes) || 1)))
     const config = getActiveSettings('notes')
-    if (activeSummary) notifyPreviousTaskCancelled(event.sender)
     activeSummary?.abort()
     const controller = new AbortController()
     activeSummary = controller
     try {
       return await traceAsync(
-        { step: 'reader-summary', scope: chapter.id, model: config.model, promptVersion: 'reader-summary-v1' },
+        { step: 'reader-summary', scope: chapter.id, model: config.model, promptVersion: 'reader-summary-v2' },
         () =>
           generateSessionSummary({
             config,
@@ -1463,9 +2168,14 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
   ipcMain.handle('notes:related', async (_event, bookId: string, tags: string[], queryText?: string) => {
     try {
       const query = typeof queryText === 'string' ? queryText : ''
-      const semantic = await semanticRelatedNotes(bookId, query, 6)
+      // 回声只参考知识点/用户笔记；读薄稿和章节小结不是独立知识点。
+      const semantic = await semanticRelatedNotes(bookId, query, 6, {
+        excludeKinds: ['condensed', 'summary', 'question'],
+      })
       if (semantic && semantic.length > 0) return semantic
-      return listRelatedNotes(bookId, Array.isArray(tags) ? tags : [])
+      return listRelatedNotes(bookId, Array.isArray(tags) ? tags : [], 6, {
+        excludeKinds: ['summary'],
+      })
     } catch (error) {
       console.warn('[notes:related] 查询相关笔记失败', error instanceof Error ? error.message : error)
       return []
@@ -1501,12 +2211,33 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
 
   ipcMain.handle('notes:trash-empty', () => emptyNoteTrash())
 
-  ipcMain.handle('notes:generate', (event, chapterId: string, options?: { fresh?: boolean }) => {
+  ipcMain.handle('notes:generate', (event, rawChapterId: unknown, rawOptions: unknown) => {
+    const [chapterId, options] = parseIpc('notes:generate', notesGenerateArgs, [rawChapterId, rawOptions])
     const chapter = getChapter(chapterId)
     const book = getBookSummary(chapter.bookId)
     if (!book) throw new Error('找不到章节所属的书')
 
-    const run = beginNotesRun(event, chapterId)
+    const run = beginNotesRun(event, chapterId, `chapter:${chapterId}`, chapter.bookId)
+    const jobId = `ai-notes:${chapterId}`
+    publishAiJob(run.sender, {
+      id: jobId,
+      kind: 'notes',
+      chapterId,
+      bookId: chapter.bookId,
+      title: chapter.title,
+      status: 'running',
+      detail: '准备中',
+      done: 0,
+      total: 0,
+      updatedAt: new Date().toISOString(),
+    })
+    let lastDetail = '准备中'
+    const startedAt = Date.now()
+    const heartbeat = setInterval(() => {
+      if (!run.isCurrent()) return
+      const seconds = Math.round((Date.now() - startedAt) / 1000)
+      patchAiJob(run.sender, jobId, { detail: `${lastDetail} · 已用 ${seconds} 秒` })
+    }, 15_000)
 
     void (async () => {
       try {
@@ -1514,27 +2245,60 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
           chapterId,
           run.settings,
           run.controller.signal,
-          (partial) => run.send('generation:partial', { chapterId, partial }),
+          (partial) => {
+            if (!run.isCurrent()) return
+            run.send('generation:partial', { chapterId, partial })
+            const progress = partial.progress
+            if (!progress) return
+            const detail =
+              progress.phase === 'condense'
+                ? `读薄 ${progress.done}/${progress.total}`
+                : progress.phase === 'cards'
+                  ? `提炼知识点 · ${progress.cards} 张`
+                  : `扩展 ${progress.done}/${progress.total}`
+            lastDetail = detail
+            patchAiJob(run.sender, jobId, {
+              detail,
+              done: progress.done,
+              total: Math.max(1, progress.total),
+              partial,
+            })
+          },
           { fresh: options?.fresh === true },
         )
-        if (run.controller.signal.aborted) return
+        if (run.controller.signal.aborted || !run.isCurrent()) return
+        const cards = result.notes.filter((note) => note.kind === 'point').length
         run.send('generation:done', { chapterId, notes: result.notes, report: result.report })
+        patchAiJob(run.sender, jobId, {
+          status: 'done',
+          detail: `完成 · ${cards} 张知识点`,
+          done: 1,
+          total: 1,
+          partial: undefined,
+        })
       } catch (error) {
-        if (run.controller.signal.aborted) {
-          run.send('generation:error', { chapterId, message: '生成已取消' })
-        } else {
-          run.send('generation:error', {
-            chapterId,
-            message: error instanceof Error ? error.message : String(error),
-          })
-        }
+        if (!run.isCurrent()) return
+        const aborted = run.controller.signal.aborted
+        const message = aborted
+          ? '生成已取消'
+          : error instanceof Error
+            ? error.message
+            : String(error)
+        run.send('generation:error', { chapterId, message })
+        patchAiJob(run.sender, jobId, {
+          status: aborted ? 'cancelled' : 'error',
+          detail: message,
+          error: aborted ? undefined : message,
+        })
       } finally {
+        clearInterval(heartbeat)
         run.release()
       }
     })()
   })
 
-  ipcMain.handle('notes:generate-book', (event, bookId: string, options?: BookGenerationOptions) => {
+  ipcMain.handle('notes:generate-book', (event, rawBookId: unknown, rawOptions: unknown) => {
+    const [bookId, options] = parseIpc('notes:generate-book', bookGenerateArgs, [rawBookId, rawOptions])
     const book = getBookSummary(bookId)
     if (!book) throw new Error('找不到这本书')
 
@@ -1550,8 +2314,9 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     const targets = scope.filter((chapter) => !onlyMissing || !existing.has(chapter.id))
     const skippedByOption = scope.length - targets.length
 
-    const run = beginNotesRun(event, '')
+    const run = beginNotesRun(event, '', `book:${bookId}`, bookId)
     const { settings, controller, send } = run
+    let heartbeat: ReturnType<typeof setInterval> | null = null
 
     void (async () => {
       const taskId = `notes:${bookId}`
@@ -1565,9 +2330,32 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
       let generated = 0
       let skipped = 0
       const failed: BookGenerationDoneEvent['failed'] = []
+      const startedAt = Date.now()
+      let currentIndex = 0
+      let currentId = ''
+      let currentTitle = ''
+      let currentDetail = ''
+      heartbeat = setInterval(() => {
+        if (controller.signal.aborted || !currentTitle) return
+        const seconds = Math.round((Date.now() - startedAt) / 1000)
+        send('book:generation:progress', {
+          bookId,
+          chapterId: currentId,
+          title: currentTitle,
+          index: currentIndex,
+          total: targets.length,
+          status: 'start',
+          done: Math.max(0, currentIndex - 1),
+          message: `${currentDetail || '正在生成'} · 已用 ${seconds} 秒`,
+        } satisfies BookGenerationProgress)
+      }, 15_000)
       for (let index = 0; index < targets.length; index++) {
         if (controller.signal.aborted) break
         const meta = targets[index]!
+        currentIndex = index + 1
+        currentId = meta.id
+        currentTitle = meta.title
+        currentDetail = '正在生成'
         send('book:generation:progress', {
           bookId,
           chapterId: meta.id,
@@ -1576,11 +2364,14 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
           total: targets.length,
           status: 'start',
           done: index,
+          message: currentDetail,
         } satisfies BookGenerationProgress)
         try {
           const content = getChapter(meta.id)
           if (content.text.trim().length < 80) {
             skipped++
+            currentTitle = ''
+            currentDetail = '正文太短，已跳过'
             send('book:generation:progress', {
               bookId,
               chapterId: meta.id,
@@ -1598,10 +2389,31 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
             meta.id,
             settings,
             controller.signal,
-            (partial) => send('generation:partial', { chapterId: meta.id, partial }),
+            (partial) => {
+              send('generation:partial', { chapterId: meta.id, partial })
+              const progress = partial.progress
+              if (!progress) return
+              currentDetail =
+                progress.phase === 'condense'
+                  ? `读薄 ${progress.done}/${progress.total} 小节`
+                  : progress.phase === 'cards'
+                    ? `提炼知识点 · ${progress.cards} 张卡片`
+                    : `扩展 ${progress.done}/${progress.total} 张卡片`
+              send('book:generation:progress', {
+                bookId,
+                chapterId: meta.id,
+                title: meta.title,
+                index: index + 1,
+                total: targets.length,
+                status: 'start',
+                done: index,
+                message: currentDetail,
+              } satisfies BookGenerationProgress)
+            },
             { fresh: options?.onlyMissing === false },
           )
           generated++
+          currentTitle = ''
           send('generation:done', { chapterId: meta.id, notes: result.notes, report: result.report })
           send('book:generation:progress', {
             bookId,
@@ -1615,6 +2427,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
           } satisfies BookGenerationProgress)
           updateBackgroundTask(taskId, { done: index + 1, failures: failed })
         } catch (error) {
+          currentTitle = ''
           if (controller.signal.aborted) {
             send('generation:error', { chapterId: meta.id, message: '生成已取消' })
             break
@@ -1635,19 +2448,21 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
           updateBackgroundTask(taskId, { done: index + 1, failures: failed })
         }
       }
-      updateBackgroundTask(taskId, {
-        status: controller.signal.aborted ? 'paused' : failed.length > 0 ? 'error' : 'done',
-        done: generated + skipped + failed.length,
-        failures: failed,
-      })
-      send('book:generation:done', {
-        bookId,
-        generated,
-        skipped,
-        existing: skippedByOption,
-        failed,
-        cancelled: controller.signal.aborted,
-      } satisfies BookGenerationDoneEvent)
+      if (!run.isSuperseded()) {
+        updateBackgroundTask(taskId, {
+          status: controller.signal.aborted ? 'paused' : failed.length > 0 ? 'error' : 'done',
+          done: generated + skipped + failed.length,
+          failures: failed,
+        })
+        send('book:generation:done', {
+          bookId,
+          generated,
+          skipped,
+          existing: skippedByOption,
+          failed,
+          cancelled: controller.signal.aborted,
+        } satisfies BookGenerationDoneEvent)
+      }
     })()
       .catch((error: unknown) => {
         // 任务初始化或收尾失败时也要给出最终事件，避免界面一直转圈。
@@ -1661,12 +2476,14 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
           cancelled: false,
         } satisfies BookGenerationDoneEvent)
       })
-      .finally(() => run.release())
+      .finally(() => {
+        if (heartbeat) clearInterval(heartbeat)
+        run.release()
+      })
   })
 
-  ipcMain.handle('notes:cancel', () => {
-    active?.controller.abort()
-    active = null
+  ipcMain.handle('notes:cancel', (event, target?: AiJobCancelTarget) => {
+    cancelNotesRuns(target, event.sender)
   })
 
   ipcMain.handle('notes:compare', async (event, input: CompareNotesInput) => {
@@ -1682,7 +2499,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     const base = listContent({ tool: 'chapter-notes', chapterId: chapter.id, limit: 1 })[0]
     if (!base) throw new Error('这一章还没有生成过笔记，先生成一版再对比。')
     const config = { ...getActiveSettings('notes'), model }
-    if (!config.apiKey && config.provider !== 'ollama') throw new Error('对比模型还没有配置 API Key。')
+    if (!config.apiKey && config.provider !== 'ollama' && config.provider !== 'lmstudio') throw new Error('对比模型还没有配置 API Key。')
     if (activeCompare) notifyPreviousTaskCancelled(event.sender)
     activeCompare?.abort()
     const controller = new AbortController()
@@ -1700,6 +2517,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
               config,
               genre: book.genre,
               mode: config.generationMode,
+              visionMode: config.visionMode,
               lookupRelatedNotes: (concepts: string[]) =>
                 listRelatedNotes(chapter.bookId, concepts, 4).map((item) => ({
                   bookTitle: item.bookTitle,
@@ -1733,7 +2551,8 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     }
   })
 
-  ipcMain.handle('notes:expand', async (_event, noteId: string) => {
+  ipcMain.handle('notes:expand', async (_event, rawNoteId: unknown) => {
+    const [noteId] = parseIpc('notes:expand', noteIdArgs, [rawNoteId])
     const note = getNote(noteId)
     const chapter = note.chapterId ? getChapter(note.chapterId) : null
     const book = chapter ? getBookSummary(chapter.bookId) : null
@@ -1813,12 +2632,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     }
     const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options)
     if (result.canceled || result.filePaths.length === 0) return { saved: false, path: null }
-    active?.controller.abort()
-    active = null
-    composeActive?.abort()
-    composeActive = null
-    activeFormat?.abort()
-    activeFormat = null
+    cancelAllAiJobs()
     const info = importBackupArchive(dataDir, result.filePaths[0]!)
     restoreBackup(dataDir, info.id, { safetyBackup: true })
     const window = getWindow()
@@ -1861,12 +2675,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
 
   ipcMain.handle('backup:restore', async (_event, id: string) => {
     if (typeof id !== 'string') throw new Error('备份编号无效。')
-    active?.controller.abort()
-    active = null
-    composeActive?.abort()
-    composeActive = null
-    activeFormat?.abort()
-    activeFormat = null
+    cancelAllAiJobs()
     await autoBackup('恢复备份前')
     restoreBackup(dataDir, id, { safetyBackup: true })
     const window = getWindow()
@@ -1894,19 +2703,37 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     }
     try {
       const model = createLanguageModel(settings)
-      const result = await generateText({
-        model,
-        prompt: '只回复四个字：连接成功',
-        maxOutputTokens: 20,
-        abortSignal: AbortSignal.timeout(25_000),
-      })
+      const result = await tracedGenerateText(
+        {
+          step: 'settings-test',
+          provider: settings.provider,
+          model: settings.model,
+          promptVersion: 'settings-test-v1',
+        },
+        {
+          model,
+          prompt: '只回复四个字：连接成功',
+          maxOutputTokens: 20,
+          abortSignal: AbortSignal.timeout(25_000),
+        },
+      )
       return { ok: true, message: `连接成功：${result.text.trim().slice(0, 40) || '模型已响应'}` }
     } catch (error) {
       return { ok: false, message: error instanceof Error ? error.message : String(error) }
     }
   })
 
-  ipcMain.handle('ai:usage', (_event, days?: number) => readAiUsage(dataDir, days))
+  ipcMain.handle('ai:list-models', async (_event, input?: AiModelListInput) => {
+    const provider = input?.provider ?? getActiveSettings().provider
+    const apiKey = input?.apiKey?.trim() || getProviderApiKey(provider)
+    return listProviderModels({
+      provider,
+      baseUrl: typeof input?.baseUrl === 'string' ? input.baseUrl : undefined,
+      apiKey: apiKey ?? undefined,
+    })
+  })
+
+  ipcMain.handle('ai:usage', (_event, days?: number) => readAiUsage(dataDir, days, getAiPricing()))
 
   ipcMain.handle('app:info', () => ({
     version: app.getVersion(),
@@ -1921,9 +2748,13 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
 
   ipcMain.handle(
     'book:compose',
-    async (event, bookId: string, options?: BookComposeOptions): Promise<BookComposeResult> => {
-      if (composeActive) notifyPreviousTaskCancelled(event.sender)
-      composeActive?.abort()
+    async (event, rawBookId: unknown, rawOptions: unknown): Promise<BookComposeResult> => {
+      const [bookId, options] = parseIpc('book:compose', bookComposeArgs, [rawBookId, rawOptions])
+      const previous = activeComposes.get(bookId)
+      if (previous) {
+        notifyPreviousTaskCancelled(event.sender)
+        previous.abort()
+      }
       const book = getBookSummary(bookId)
       if (!book) throw new Error('找不到这本书')
       const settings = getActiveSettings('compose')
@@ -1942,18 +2773,52 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
       if (sources.length === 0) throw new Error('这本书还没有读薄稿。先在「成书」里给章节生成笔记。')
 
       const controller = new AbortController()
-      composeActive = controller
+      activeComposes.set(bookId, controller)
       const sender = event.sender
       const send = (channel: string, payload: unknown): void => {
         if (!sender.isDestroyed()) sender.send(channel, payload)
       }
+      const jobId = `ai-compose:${bookId}`
+      const publish = (patch: Partial<AiJobSnapshot>): void => {
+        if (activeComposes.get(bookId) !== controller) return
+        patchAiJob(sender, jobId, patch)
+      }
+      publishAiJob(sender, {
+        id: jobId,
+        kind: 'compose',
+        chapterId: '',
+        bookId,
+        title: book.title,
+        status: 'running',
+        detail: '正在收齐读薄稿',
+        done: 0,
+        total: 0,
+        composeOptions: {
+          length: options?.length === 'full' ? 'full' : 'tight',
+          voice: options?.voice === 'sharp' ? 'sharp' : options?.voice === 'personal' ? 'personal' : 'calm',
+        },
+        updatedAt: new Date().toISOString(),
+      })
+      // 模型一次请求可能跑一两分钟；心跳让界面知道任务还在推进，而不是卡死。
+      let lastProgress: BookComposeProgress | null = null
+      const startedAt = Date.now()
+      const heartbeat = setInterval(() => {
+        if (activeComposes.get(bookId) !== controller || !lastProgress) return
+        const seconds = Math.round((Date.now() - startedAt) / 1000)
+        const progress: BookComposeProgress = {
+          ...lastProgress,
+          message: `${lastProgress.message} · 已用 ${seconds} 秒`,
+        }
+        send('book:compose:progress', progress)
+        publish({ detail: progress.message, composeProgress: progress })
+      }, 15_000)
       try {
         const result = await traceAsync(
           {
             step: 'book-compose',
             scope: bookId,
             model: settings.model,
-            promptVersion: settings.generationMode === 'deep' ? 'compose-v4-deep' : 'compose-v4',
+            promptVersion: settings.generationMode === 'deep' ? 'compose-v5-deep' : 'compose-v5',
           },
           () =>
             composeBook({
@@ -1969,7 +2834,17 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
               config: settings,
               demo: settings.provider === 'demo',
               signal: controller.signal,
-              onProgress: (progress) => send('book:compose:progress', progress),
+              cacheDir: path.join(app.getPath('userData'), 'notes-cache'),
+              onProgress: (progress) => {
+                lastProgress = progress
+                send('book:compose:progress', progress)
+                publish({
+                  detail: progress.message,
+                  done: progress.done,
+                  total: progress.total,
+                  composeProgress: progress,
+                })
+              },
             }),
         )
         saveLabArtifact({
@@ -1978,16 +2853,37 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
           title: result.title,
           content: JSON.stringify(result),
         })
+        publish({
+          status: 'done',
+          detail: `完成 · ${result.outputChars.toLocaleString()} 字`,
+          done: 1,
+          total: 1,
+          composeProgress: undefined,
+        })
         return result
+      } catch (error) {
+        const aborted = controller.signal.aborted
+        const message = aborted
+          ? '已取消合并'
+          : error instanceof Error
+            ? error.message
+            : String(error)
+        publish({
+          status: aborted ? 'cancelled' : 'error',
+          detail: message,
+          error: aborted ? undefined : message,
+          composeProgress: undefined,
+        })
+        throw error
       } finally {
-        if (composeActive === controller) composeActive = null
+        clearInterval(heartbeat)
+        if (activeComposes.get(bookId) === controller) activeComposes.delete(bookId)
       }
     },
   )
 
-  ipcMain.handle('book:compose-cancel', () => {
-    composeActive?.abort()
-    composeActive = null
+  ipcMain.handle('book:compose-cancel', (event, target?: AiJobCancelTarget) => {
+    cancelComposeRuns(target, event.sender)
   })
 
   ipcMain.handle('book:compose-compare', async (event, input: CompareComposeInput) => {
@@ -2002,7 +2898,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     const base = listContent({ tool: 'book-compose', bookId: book.id, limit: 1 })[0]
     if (!base) throw new Error('这本书还没有成稿，先生成一版再对比。')
     const settings = { ...getActiveSettings('compose'), model }
-    if (!settings.apiKey && settings.provider !== 'ollama') throw new Error('对比模型还没有配置 API Key。')
+    if (!settings.apiKey && settings.provider !== 'ollama' && settings.provider !== 'lmstudio') throw new Error('对比模型还没有配置 API Key。')
     const notes = listNotes(book.id)
     const chapters = getChapters(book.id).filter((chapter) => !chapter.hidden)
     const sources = chapters.flatMap((chapter) => {
@@ -2026,7 +2922,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
           step: 'book-compose-compare',
           scope: book.id,
           model,
-          promptVersion: settings.generationMode === 'deep' ? 'compose-v4-deep' : 'compose-v4',
+          promptVersion: settings.generationMode === 'deep' ? 'compose-v5-deep' : 'compose-v5',
         },
         () =>
           composeBook({
@@ -2047,6 +2943,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
             config: settings,
             demo: false,
             signal: controller.signal,
+            cacheDir: path.join(app.getPath('userData'), 'notes-cache'),
             onProgress: () => undefined,
           }),
       )
@@ -2105,10 +3002,52 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     activeSection = null
   })
 
+  ipcMain.handle('app:notify', (_event, rawTitle: unknown, rawBody: unknown) => {
+    if (typeof rawTitle !== 'string' || typeof rawBody !== 'string') return
+    if (!Notification.isSupported()) return
+    new Notification({ title: rawTitle.slice(0, 80), body: rawBody.slice(0, 240) }).show()
+  })
+
   ipcMain.handle('app:copy-text', (_event, text: string) => {
     if (typeof text !== 'string') throw new Error('复制内容无效。')
     clipboard.writeText(text)
   })
+
+  ipcMain.handle(
+    'app:save-text-file',
+    async (_event, rawName: unknown, rawContent: unknown, rawExtension: unknown): Promise<SaveFileResult> => {
+      const [defaultName, content, extension] = parseIpc('app:save-text-file', saveTextFileArgs, [
+        rawName,
+        rawContent,
+        rawExtension,
+      ])
+      const win = getWindow()
+      const filter =
+        extension === 'bib'
+          ? { name: 'BibTeX', extensions: ['bib'] }
+          : extension === 'ris'
+            ? { name: 'RIS', extensions: ['ris'] }
+            : { name: '文本', extensions: ['txt'] }
+      const suggested = path.basename(
+        typeof defaultName === 'string' && defaultName.trim() ? defaultName : `citation.${extension}`,
+      )
+      const withExtension = suggested.toLowerCase().endsWith(`.${extension}`)
+        ? suggested
+        : `${suggested}.${extension}`
+      const options = {
+        title: '导出引用',
+        defaultPath: withExtension,
+        filters: [filter],
+      }
+      const result = win ? await dialog.showSaveDialog(win, options) : await dialog.showSaveDialog(options)
+      if (result.canceled || !result.filePath) return { saved: false, path: null }
+      const filePath = result.filePath.toLowerCase().endsWith(`.${extension}`)
+        ? result.filePath
+        : `${result.filePath}.${extension}`
+      await fs.writeFile(filePath, content, 'utf8')
+      return { saved: true, path: filePath }
+    },
+  )
 
   ipcMain.handle('app:save-markdown', async (_event, rawName: unknown, rawContent: unknown): Promise<SaveFileResult> => {
     const [defaultName, content] = parseIpc('app:save-markdown', saveTextArgs, [rawName, rawContent])
@@ -2206,11 +3145,26 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
   )
 
   ipcMain.handle('app:copy-image', async (_event, dataUrl: string) => {
-    if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/png;base64,')) {
+    if (typeof dataUrl !== 'string' || !/^data:image\//i.test(dataUrl)) {
       throw new Error('图片数据无效。')
     }
-    const image = nativeImage.createFromDataURL(dataUrl)
-    if (image.isEmpty()) throw new Error('图片数据为空。')
+    let image = nativeImage.createFromDataURL(dataUrl)
+    if (image.isEmpty()) {
+      // nativeImage 对 SVG/部分 WebP 支持不稳定，用 canvas 先栅格化再写入剪贴板。
+      try {
+        const match = /^data:image\/[a-z0-9.+-]+;base64,([\s\S]+)$/i.exec(dataUrl)
+        if (!match) throw new Error('unsupported image data')
+        const { createCanvas, loadImage } = await import('@napi-rs/canvas')
+        const source = await loadImage(Buffer.from(match[1]!, 'base64'))
+        const canvas = createCanvas(source.width, source.height)
+        const context = canvas.getContext('2d')
+        context.drawImage(source, 0, 0)
+        image = nativeImage.createFromBuffer(canvas.toBuffer('image/png'))
+      } catch {
+        image = nativeImage.createEmpty()
+      }
+    }
+    if (image.isEmpty()) throw new Error('图片格式不支持复制。')
     const png = image.toPNG()
     await clipboard.write([
       new ClipboardItem({

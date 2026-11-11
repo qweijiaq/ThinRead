@@ -1,11 +1,13 @@
 import crypto from 'node:crypto'
 import fs from 'node:fs/promises'
+import os from 'node:os'
 import path from 'node:path'
 
 import type {
   BookFormat,
   BookSummary,
   HighlightImportResult,
+  ImportBookOptions,
   OcrImportOptions,
   OcrProgress,
   TextImportInput,
@@ -16,12 +18,14 @@ import type { NewChapter } from './db.js'
 import { parseDocx, parseHtmlDocument, parseMarkdownDocument } from './parsers/document.js'
 import { parseEpub } from './parsers/epub.js'
 import { parseMobi } from './parsers/mobi.js'
-import { parsePdf } from './parsers/pdf.js'
+import { parsePdf, readPdfOutlineFile } from './parsers/pdf.js'
+import { parsePdfWithDocling, type DoclingProgress } from './parsers/docling.js'
 import { extractPdfCover } from './parsers/pdf-cover.js'
 import { parseScannedPdf } from './parsers/pdf-ocr.js'
 import { groupHighlights, parseHighlightsFile } from './parsers/highlights.js'
 import type { HighlightEntry } from './parsers/highlights.js'
-import { chaptersFromHtml, splitTextIntoChapters } from './parsers/text-book.js'
+import { chaptersFromHtml, isReferenceHeading, splitTextIntoChapters } from './parsers/text-book.js'
+import { stripReferencesFromChapters } from './references.js'
 import { parseUrl } from './parsers/url.js'
 
 /** 导入和重新解析共用：给章节打上来源标记，并自动隐藏高置信度的非正文页。 */
@@ -57,7 +61,21 @@ function parsedDocumentText(parsed: { chapters: NewChapter[] }): string {
   return parsed.chapters.map((chapter) => `# ${chapter.title}\n\n${chapter.text}`).join('\n\n')
 }
 
-export async function importBookFile(sourcePath: string, dataDir: string): Promise<BookSummary> {
+function withoutReferenceChapters(
+  chapters: NewChapter[],
+  options: ImportBookOptions,
+): NewChapter[] {
+  if (!options.skipReferences) return chapters
+  const filtered = chapters.filter((chapter) => !isReferenceHeading(chapter.title))
+  return filtered.length > 0 ? filtered : chapters
+}
+
+export async function importBookFile(
+  sourcePath: string,
+  dataDir: string,
+  options: ImportBookOptions = {},
+  onDoclingProgress?: (progress: DoclingProgress) => void,
+): Promise<BookSummary> {
   const extension = path.extname(sourcePath).toLowerCase()
   if (!SUPPORTED_EXTENSIONS.has(extension)) {
     throw new Error('目前支持 EPUB、PDF、MOBI、AZW3、DOCX、HTML、Markdown 和 TXT。')
@@ -73,21 +91,40 @@ export async function importBookFile(sourcePath: string, dataDir: string): Promi
     parsed = parseEpub(buffer, sourcePath)
     format = 'epub'
   } else if (extension === '.pdf') {
-    parsed = await parsePdf(buffer, sourcePath)
+    if (options.deepPdf) {
+      const info = await readPdfOutlineFile(sourcePath)
+      parsed = await parsePdfWithDocling({
+        sourcePath,
+        dataDir,
+        outline: info.outline,
+        title: info.title,
+        author: info.author,
+        onProgress: onDoclingProgress,
+      })
+    } else {
+      const imageDir = await fs.mkdtemp(path.join(os.tmpdir(), 'thinread-pdf-pages-'))
+      try {
+        parsed = await parsePdf(buffer, sourcePath, { imageDir })
+      } finally {
+        await fs.rm(imageDir, { recursive: true, force: true }).catch(() => undefined)
+      }
+    }
     format = 'pdf'
   } else if (extension === '.mobi' || extension === '.azw3') {
     parsed = await parseMobi(buffer, sourcePath)
     format = 'mobi'
   } else if (extension === '.docx') {
-    parsed = parseDocx(buffer, path.basename(sourcePath))
+    parsed = parseDocx(buffer, path.basename(sourcePath), options)
     storedBytes = parsedDocumentText(parsed)
   } else if (extension === '.html' || extension === '.htm') {
-    parsed = parseHtmlDocument(buffer.toString('utf8'), path.basename(sourcePath))
+    parsed = parseHtmlDocument(buffer.toString('utf8'), path.basename(sourcePath), options)
     storedBytes = parsedDocumentText(parsed)
   } else {
-    parsed = parseMarkdownDocument(buffer.toString('utf8'), path.basename(sourcePath))
+    parsed = parseMarkdownDocument(buffer.toString('utf8'), path.basename(sourcePath), options)
     storedBytes = parsedDocumentText(parsed)
   }
+  if (options.skipReferences) parsed.chapters = stripReferencesFromChapters(parsed.chapters)
+  parsed.chapters = withoutReferenceChapters(parsed.chapters, options)
 
   const bookId = crypto.randomUUID()
   const bookDir = path.join(dataDir, 'books', bookId)
@@ -141,30 +178,66 @@ async function persistParsedBook(
   )
 }
 
-export async function reparseBookFile(record: {
-  format: BookFormat
-  filePath: string
-  title: string
-  author: string
-}): Promise<{ title: string; author: string; chapters: NewChapter[] }> {
+export async function reparseBookFile(
+  record: {
+    format: BookFormat
+    filePath: string
+    title: string
+    author: string
+  },
+  dataDir: string,
+  options: ImportBookOptions = {},
+  onDoclingProgress?: (progress: DoclingProgress) => void,
+): Promise<{ title: string; author: string; chapters: NewChapter[] }> {
+  const finish = (parsed: { title: string; author: string; chapters: NewChapter[] }) => ({
+    ...parsed,
+    chapters: options.skipReferences
+      ? withoutReferenceChapters(stripReferencesFromChapters(parsed.chapters), options)
+      : parsed.chapters,
+  })
+
   if (record.format === 'pdf-ocr') {
     const textPath = path.join(path.dirname(record.filePath), 'source-ocr.txt')
     const text = await fs.readFile(textPath, 'utf8')
-    return { title: record.title, author: record.author, chapters: splitTextIntoChapters(text, record.title) }
+    return finish({
+      title: record.title,
+      author: record.author,
+      chapters: splitTextIntoChapters(text, record.title, { skipReferences: options.skipReferences === true }),
+    })
   }
   const buffer = await fs.readFile(record.filePath)
-  if (record.format === 'epub') return parseEpub(buffer, record.filePath)
-  if (record.format === 'pdf') return parsePdf(buffer, record.filePath)
-  if (record.format === 'mobi') return parseMobi(buffer, record.filePath)
+  if (record.format === 'epub') return finish(parseEpub(buffer, record.filePath))
+  if (record.format === 'pdf') {
+    if (options.deepPdf) {
+      const info = await readPdfOutlineFile(record.filePath)
+      return finish(
+        await parsePdfWithDocling({
+          sourcePath: record.filePath,
+          dataDir,
+          outline: info.outline,
+          title: info.title,
+          author: info.author,
+          onProgress: onDoclingProgress,
+        }),
+      )
+    }
+    const imageDir = await fs.mkdtemp(path.join(os.tmpdir(), 'thinread-pdf-pages-'))
+    try {
+      return finish(await parsePdf(buffer, record.filePath, { imageDir }))
+    } finally {
+      await fs.rm(imageDir, { recursive: true, force: true }).catch(() => undefined)
+    }
+  }
+  if (record.format === 'mobi') return finish(await parseMobi(buffer, record.filePath))
   const text = buffer.toString('utf8')
-  return {
+  return finish({
     title: record.title,
     author: record.author,
     chapters:
       record.format === 'url'
-        ? chaptersFromHtml(text, record.title)
-        : splitTextIntoChapters(text, record.title),
-  }
+        ? chaptersFromHtml(text, record.title, { skipReferences: options.skipReferences === true })
+        : splitTextIntoChapters(text, record.title, { skipReferences: options.skipReferences === true }),
+  })
 }
 
 export async function importHighlightEntries(
@@ -306,7 +379,11 @@ export async function importTextBook(input: TextImportInput, dataDir: string): P
   const text = input.text.replace(/\r\n?/g, '\n').trim()
   if (text.length < 20) throw new Error('至少输入一段可阅读的正文。')
   const title = input.title?.trim() || '未命名文本'
-  const chapters = splitTextIntoChapters(text, title)
+  const splitChapters = splitTextIntoChapters(text, title, { skipReferences: input.skipReferences === true })
+  const chapters = withoutReferenceChapters(
+    input.skipReferences ? stripReferencesFromChapters(splitChapters) : splitChapters,
+    input,
+  )
   if (chapters.length === 0) throw new Error('没有从文本中读出可阅读的章节。')
   const parsed = { title, author: input.author?.trim() ?? '', chapters }
   const bookId = crypto.randomUUID()
@@ -322,8 +399,12 @@ export async function importTextBook(input: TextImportInput, dataDir: string): P
   }
 }
 
-export async function importUrlBook(rawUrl: string, dataDir: string): Promise<BookSummary> {
-  const parsed = await parseUrl(rawUrl)
+export async function importUrlBook(
+  rawUrl: string,
+  dataDir: string,
+  options: ImportBookOptions = {},
+): Promise<BookSummary> {
+  const parsed = await parseUrl(rawUrl, { skipReferences: options.skipReferences === true })
   const bookId = crypto.randomUUID()
   const bookDir = path.join(dataDir, 'books', bookId)
   await fs.mkdir(bookDir, { recursive: true })
@@ -331,7 +412,14 @@ export async function importUrlBook(rawUrl: string, dataDir: string): Promise<Bo
   await fs.writeFile(storedPath, parsed.html, 'utf8')
   try {
     return await persistParsedBook(
-      { title: parsed.title, author: parsed.author, chapters: parsed.chapters },
+      {
+        title: parsed.title,
+        author: parsed.author,
+        chapters: withoutReferenceChapters(
+          options.skipReferences ? stripReferencesFromChapters(parsed.chapters) : parsed.chapters,
+          options,
+        ),
+      },
       'url',
       storedPath,
       bookId,

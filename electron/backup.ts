@@ -15,6 +15,32 @@ const AUTO_KEEP = 8
 const BACKUP_DIR = 'backups'
 const BLOBS_DIR = 'blobs'
 const ARCHIVE_PATTERN = /^backup-[A-Za-z0-9-]+\.zip$/
+// 备份是本地文件，也要防止异常压缩包把主进程内存打满。
+const MAX_BACKUP_ARCHIVE_BYTES = 512 * 1024 * 1024
+const MAX_BACKUP_FILE_BYTES = 512 * 1024 * 1024
+const MAX_BACKUP_TOTAL_BYTES = 2 * 1024 * 1024 * 1024
+
+function unzipBackup(archivePath: string, onlyNames?: Set<string>): Record<string, Uint8Array> {
+  const stat = fs.statSync(archivePath)
+  if (stat.size > MAX_BACKUP_ARCHIVE_BYTES) {
+    throw new Error('备份文件超过 512MB，暂不支持导入。')
+  }
+  let expandedBytes = 0
+  let oversized = false
+  const files = unzipSync(new Uint8Array(fs.readFileSync(archivePath)), {
+    filter(file) {
+      if (onlyNames && !onlyNames.has(file.name)) return false
+      expandedBytes += file.originalSize
+      if (expandedBytes > MAX_BACKUP_TOTAL_BYTES) {
+        oversized = true
+        return false
+      }
+      return file.originalSize <= MAX_BACKUP_FILE_BYTES
+    },
+  })
+  if (oversized) throw new Error('备份解压后体积过大，暂不支持恢复。')
+  return files
+}
 
 interface BackupMetadata {
   version: number
@@ -265,7 +291,7 @@ export function exportBackup(dataDir: string, id: string, destination: string): 
 
 /** 把外部 .zip 整库包导入本机备份目录，供恢复流程使用。 */
 export function importBackupArchive(dataDir: string, sourcePath: string): BackupInfo {
-  const files = unzipSync(new Uint8Array(fs.readFileSync(sourcePath)))
+  const files = unzipBackup(sourcePath, new Set(['db/reading-notes.db']))
   if (!files['db/reading-notes.db']) throw new Error('这个文件不是有效的页边整库包：缺少数据库。')
   const dir = backupsDir(dataDir)
   ensureDir(dir)
@@ -491,7 +517,7 @@ export function restoreBackup(dataDir: string, id: string, options?: { safetyBac
       throw new Error(`恢复前自动备份失败，已取消恢复：${error instanceof Error ? error.message : String(error)}`)
     }
   }
-  const files = unzipSync(new Uint8Array(fs.readFileSync(archivePath)))
+  const files = unzipBackup(archivePath)
   const dbFile = files['db/reading-notes.db']
   if (!dbFile) throw new Error('备份里没有数据库文件。')
 

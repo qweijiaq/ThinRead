@@ -22,7 +22,7 @@ const CHAPTER_TEXT = [
 /** 需要真实 API Key 的端到端检查；由 --e2e-real 触发，不写用户数据库。 */
 export async function runRealE2e(): Promise<void> {
   const notesSettings = getActiveSettings('notes')
-  if (notesSettings.provider === 'demo' || (!notesSettings.apiKey && notesSettings.provider !== 'ollama')) {
+  if (notesSettings.provider === 'demo' || (!notesSettings.apiKey && notesSettings.provider !== 'ollama' && notesSettings.provider !== 'lmstudio')) {
     throw new Error('SETUP REQUIRED：请先在设置里配置一个真实模型和 API Key。')
   }
   const notesConfig = {
@@ -136,7 +136,7 @@ export async function runRealE2e(): Promise<void> {
 /** 只跑「标准档 + 缓存」的真实模型检查；不写成稿/播客，成本最低。 */
 export async function runRealNotesE2e(): Promise<void> {
   const settings = getActiveSettings('notes')
-  if (settings.provider === 'demo' || (!settings.apiKey && settings.provider !== 'ollama')) {
+  if (settings.provider === 'demo' || (!settings.apiKey && settings.provider !== 'ollama' && settings.provider !== 'lmstudio')) {
     throw new Error('SETUP REQUIRED：请先在设置里配置真实模型和 API Key。')
   }
   const chapterText = [

@@ -3,8 +3,8 @@ import path from 'node:path'
 
 import { safeStorage } from 'electron'
 
-import { PROVIDER_PRESETS } from '../shared/types.js'
-import type { GenerationMode, ProviderId, SettingsPatch, SettingsView } from '../shared/types.js'
+import { PROVIDER_PRESETS, REFERENCE_AI_PRICING } from '../shared/types.js'
+import type { AiModelPricing, GenerationMode, NotesLanguage, ProviderId, SettingsPatch, SettingsView, VisionMode } from '../shared/types.js'
 import { createAppLock, isUsablePasscode, verifyAppLock, type AppLockRecord } from './app-lock.js'
 
 interface StoredKey {
@@ -19,9 +19,12 @@ interface StoredSettings {
   baseUrl: string
   model: string
   generationMode: GenerationMode
+  notesLanguage: NotesLanguage
+  visionMode: VisionMode
   notesModel: string
   composeModel: string
   labModel: string
+  aiPricing?: AiModelPricing
   readwise?: StoredKey
   ui?: {
     autoNext?: boolean
@@ -59,6 +62,8 @@ const DEFAULT_SETTINGS: StoredSettings = {
   baseUrl: '',
   model: 'demo',
   generationMode: 'standard',
+  notesLanguage: 'zh',
+  visionMode: 'auto',
   notesModel: '',
   composeModel: '',
   labModel: '',
@@ -75,6 +80,30 @@ function normalizeMode(value: unknown): GenerationMode {
   return value === 'fast' || value === 'deep' ? value : 'standard'
 }
 
+function normalizeNotesLanguage(value: unknown): NotesLanguage {
+  return value === 'source' ? 'source' : 'zh'
+}
+
+function normalizeVisionMode(value: unknown): VisionMode {
+  return value === 'always' || value === 'off' ? value : 'auto'
+}
+
+/** 只接受非负数字；价格按人民币 / 百万 token 保存。 */
+export function normalizeAiPricing(value: unknown): AiModelPricing {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const result: AiModelPricing = {}
+  for (const [model, raw] of Object.entries(value as Record<string, unknown>)) {
+    const id = model.trim()
+    if (!id || !raw || typeof raw !== 'object' || Array.isArray(raw)) continue
+    const row = raw as Record<string, unknown>
+    const input = Math.max(0, Number(row.inputPerMTokens) || 0)
+    const output = Math.max(0, Number(row.outputPerMTokens) || 0)
+    if (input === 0 && output === 0) continue
+    result[id] = { inputPerMTokens: input, outputPerMTokens: output }
+  }
+  return result
+}
+
 function readFile(): StoredSettings {
   try {
     const raw = JSON.parse(fs.readFileSync(filePath, 'utf8')) as Partial<StoredSettings>
@@ -84,9 +113,12 @@ function readFile(): StoredSettings {
       baseUrl: raw.baseUrl ?? '',
       model: raw.model ?? DEFAULT_SETTINGS.model,
       generationMode: normalizeMode(raw.generationMode),
+      notesLanguage: normalizeNotesLanguage(raw.notesLanguage),
+      visionMode: normalizeVisionMode(raw.visionMode),
       notesModel: typeof raw.notesModel === 'string' ? raw.notesModel : '',
       composeModel: typeof raw.composeModel === 'string' ? raw.composeModel : '',
       labModel: typeof raw.labModel === 'string' ? raw.labModel : '',
+      aiPricing: normalizeAiPricing(raw.aiPricing),
       readwise: raw.readwise,
       ui: raw.ui,
       lock: raw.lock,
@@ -113,6 +145,8 @@ export function getActiveSettings(task?: 'notes' | 'compose' | 'lab'): {
   model: string
   apiKey: string | null
   generationMode: GenerationMode
+  notesLanguage: NotesLanguage
+  visionMode: VisionMode
 } {
   const current = settings()
   const model =
@@ -126,6 +160,8 @@ export function getActiveSettings(task?: 'notes' | 'compose' | 'lab'): {
     model,
     apiKey: readKey(current.provider),
     generationMode: current.generationMode,
+    notesLanguage: current.notesLanguage,
+    visionMode: current.visionMode,
   }
 }
 
@@ -145,6 +181,17 @@ function readKey(provider: ProviderId): string | null {
   return readStoredKey(settings().keys[provider])
 }
 
+/** 供模型列表等只读操作使用；不把 Key 暴露给渲染进程。 */
+export function getProviderApiKey(provider: ProviderId): string | null {
+  return readKey(provider)
+}
+
+/** 已配置 Key 的服务商；用于自动寻找可用的视觉模型。 */
+export function getConfiguredProviders(): ProviderId[] {
+  const current = settings()
+  return (Object.keys(current.keys) as ProviderId[]).filter((provider) => Boolean(readKey(provider)))
+}
+
 /** 备份跨机器恢复时，safeStorage 加密的 Key 可能解不开；只提示重填，不回传明文。 */
 function needsReentry(stored: StoredKey | undefined): boolean {
   return Boolean(stored?.enc) && readStoredKey(stored) === null
@@ -157,6 +204,11 @@ function anyKeyNeedsReentry(): boolean {
     needsReentry(current.readwise) ||
     needsReentry(current.qwenTts?.key)
   )
+}
+
+export function getAiPricing(): AiModelPricing {
+  // 用户填写优先；没填过的模型使用内置参考价，打开统计页就能看到估算费用。
+  return { ...REFERENCE_AI_PRICING, ...normalizeAiPricing(settings().aiPricing) }
 }
 
 export function getReadwiseToken(): string | null {
@@ -280,9 +332,12 @@ export function getSettingsView(): SettingsView {
     apiKeyHint: demo ? '演示模式' : (stored?.hint ?? ''),
     demo,
     generationMode: current.generationMode,
+    notesLanguage: current.notesLanguage,
+    visionMode: current.visionMode,
     notesModel: current.notesModel,
     composeModel: current.composeModel,
     labModel: current.labModel,
+    aiPricing: getAiPricing(),
     readwiseConfigured: readStoredKey(current.readwise) !== null,
     keysNeedReentry: anyKeyNeedsReentry(),
     appLockEnabled: getAppLockEnabled(),
@@ -317,9 +372,12 @@ export function saveSettings(patch: SettingsPatch): SettingsView {
   current.baseUrl = patch.baseUrl.trim()
   current.model = patch.model.trim()
   if (patch.generationMode) current.generationMode = normalizeMode(patch.generationMode)
+  if (patch.notesLanguage) current.notesLanguage = normalizeNotesLanguage(patch.notesLanguage)
+  if (patch.visionMode) current.visionMode = normalizeVisionMode(patch.visionMode)
   if (patch.notesModel !== undefined) current.notesModel = patch.notesModel.trim()
   if (patch.composeModel !== undefined) current.composeModel = patch.composeModel.trim()
   if (patch.labModel !== undefined) current.labModel = patch.labModel.trim()
+  if (patch.aiPricing !== undefined) current.aiPricing = normalizeAiPricing(patch.aiPricing)
   if (patch.readwiseToken && patch.readwiseToken.trim()) {
     current.readwise = encodeKey(patch.readwiseToken.trim())
   }

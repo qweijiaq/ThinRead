@@ -13,6 +13,7 @@ interface LibraryProps {
   importing: boolean
   onOpen(bookId: string): void
   onImport(): void
+  onOpenTrash(): void
   onDelete(bookId: string): void
   onRename(book: BookSummary): void
   onCompose(bookId: string): void
@@ -38,7 +39,7 @@ function formatWords(value: number): string {
 
 type LibrarySort = 'recent' | 'title' | 'progress' | 'chars'
 
-export function Library({ books, importing, onOpen, onImport, onDelete, onRename, onCompose, onPlan, onOpenPlan, planVersion, onMerge, onSettings, onStats, demo }: LibraryProps): JSX.Element {
+export function Library({ books, importing, onOpen, onImport, onOpenTrash, onDelete, onRename, onCompose, onPlan, onOpenPlan, planVersion, onMerge, onSettings, onStats, demo }: LibraryProps): JSX.Element {
   useLocale()
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState<LibrarySort>('recent')
@@ -148,6 +149,9 @@ export function Library({ books, importing, onOpen, onImport, onDelete, onRename
             {demo ? t('配置真实模型') : t('模型设置')}
           </button>
         </div>
+        <button type="button" className="text-button muted welcome-trash-link" onClick={onOpenTrash}>
+          {t('最近删除')}
+        </button>
         <div className="welcome-grid">
           <div>
             <h3>{t('按章生成')}</h3>
@@ -198,6 +202,9 @@ export function Library({ books, importing, onOpen, onImport, onDelete, onRename
               {t('合并书籍')}
             </button>
           ) : null}
+          <button type="button" className="text-button muted" onClick={onOpenTrash}>
+            {t('最近删除')}
+          </button>
           <button type="button" className="primary-button" onClick={onImport} disabled={importing}>
             {importing ? t('正在解析…') : t('导入新书')}
           </button>
@@ -342,7 +349,7 @@ export function Library({ books, importing, onOpen, onImport, onDelete, onRename
                       event.stopPropagation()
                       void confirmDialog({
                         title: t('移除书籍'),
-                        message: `${t('从书架移除')}《${book.title}》${t('？笔记也会一并删除。')}`,
+                        message: `${t('从书架移除')}《${book.title}》${t('？书、章节和笔记会一起进入书籍回收站，30 天内可以恢复。')}`,
                         confirmLabel: t('移除'),
                         danger: true,
                       }).then((confirmed) => {

@@ -16,6 +16,12 @@ export type BookGenre =
 
 export type GenerationMode = 'fast' | 'standard' | 'deep'
 
+/** 外文书籍的读薄/知识点输出语言；默认简体中文。 */
+export type NotesLanguage = 'zh' | 'source'
+
+/** 读薄/卡片是否把章节图片作为多模态输入。 */
+export type VisionMode = 'auto' | 'always' | 'off'
+
 export type NoteKind = 'condensed' | 'summary' | 'claim' | 'point' | 'question' | 'thought' | 'highlight'
 
 export type NoteAuthor = 'ai' | 'user'
@@ -78,6 +84,11 @@ export interface ChapterContent extends ChapterMeta {
   removed: RemovedPart[]
   /** 上一次笔记生成的覆盖报告。 */
   noteReport: NoteReport | null
+  /** AI 翻译后的正文纯文本，用于兼容旧数据和纯文本回退。 */
+  translatedText: string | null
+  /** AI 翻译后的 HTML，保留标题、表格和段落结构。 */
+  translatedHtml: string | null
+  translatedAt: string | null
 }
 
 export interface ReaderStyle {
@@ -94,11 +105,11 @@ export interface ReaderStyle {
 export const DEFAULT_READER_STYLE: ReaderStyle = {
   fontFamily: 'serif',
   fontSize: 17,
-  lineHeight: 1.98,
-  paragraphSpacing: 1.15,
+  lineHeight: 1.86,
+  paragraphSpacing: 0.7,
   indent: false,
   theme: 'folio',
-  maxWidth: 760,
+  maxWidth: 720,
 }
 
 export interface RemovedPart {
@@ -107,12 +118,19 @@ export interface RemovedPart {
   verified: boolean
 }
 
+export interface FormatChapterOptions {
+  /** 在 AI 排版前先在本地移除参考文献、注释、索引和延伸阅读。 */
+  skipReferences?: boolean
+}
+
 export interface FormatResult {
   chapterId: string
   html: string
   removed: RemovedPart[]
   style: ReaderStyle
   note: string
+  /** 排版后正文的实际字符数，用于同步章节字数与书架进度。 */
+  chars: number
 }
 
 export interface Note {
@@ -192,6 +210,10 @@ export interface NoteReport {
   /** 本次生成累计的模型 token；旧报告可能没有。 */
   usage?: TokenUsage
   promptVersion?: string
+  /** 本次送入模型的图片数量。 */
+  images?: number
+  /** 是否真的把图片作为视觉输入发送。 */
+  visionUsed?: boolean
   /** 本次直接复用了内容哈希缓存，没有调用模型。 */
   cached?: boolean
   /** 缓存命中时省下的 token。 */
@@ -249,6 +271,16 @@ export interface TrashedNote {
   deletedAt: string
 }
 
+export interface TrashedBook {
+  id: string
+  title: string
+  author: string
+  format: BookFormat
+  chapterCount: number
+  noteCount: number
+  deletedAt: string
+}
+
 export interface TrashedChapter {
   id: string
   title: string
@@ -265,13 +297,15 @@ export interface BackgroundTaskTarget {
 
 export interface BackgroundTaskRecord {
   id: string
-  kind: 'notes' | 'format'
+  kind: 'notes' | 'format' | 'compose' | 'translate'
   bookId: string
   targets: BackgroundTaskTarget[]
   status: 'running' | 'paused' | 'done' | 'error' | 'cancelled'
   done: number
   total: number
   failures: Array<{ chapterId: string; title: string; message: string }>
+  /** 任务附加参数，例如成稿的篇幅/语气选项；旧任务可能没有。 */
+  meta?: Record<string, unknown>
   createdAt: string
   updatedAt: string
 }
@@ -386,20 +420,114 @@ export interface AppNotice {
   text: string
 }
 
+export type CitationStyle = 'apa' | 'bibtex' | 'ris'
+
+export interface CitationMeta {
+  title: string
+  author: string
+  year: string
+  publisher: string
+  url: string
+  doi: string
+}
+
+/** 模型价格（人民币 / 百万 token）；由用户填写，不内置会过期的价目表。 */
+export interface AiModelPrice {
+  inputPerMTokens: number
+  outputPerMTokens: number
+}
+
+export type AiModelPricing = Record<string, AiModelPrice>
+
+/**
+ * 内置参考价（人民币 / 百万 token），用于首次打开时就有费用估算。
+ * 数据来自各厂商 2026-11-08 前后的公开价目页；美元按 1 USD ≈ 6.73 CNY 折算。
+ * DeepSeek 取高峰时段缓存未命中价，实际空闲时段会便宜一半。
+ * 价格会变，设置里可以随时改写；统计页只做估算，最终以账单为准。
+ */
+export const AI_PRICING_REFERENCE_DATE = '2026-11-08'
+
+export const REFERENCE_AI_PRICING: AiModelPricing = {
+  'deepseek-flash': { inputPerMTokens: 2, outputPerMTokens: 8 },
+  'deepseek-v4-flash': { inputPerMTokens: 2, outputPerMTokens: 8 },
+  'deepseek-v4.1-flash': { inputPerMTokens: 2, outputPerMTokens: 8 },
+  'deepseek-v4.1-flash-1017': { inputPerMTokens: 2, outputPerMTokens: 8 },
+  'deepseek-chat': { inputPerMTokens: 2, outputPerMTokens: 8 },
+  'deepseek-reasoner': { inputPerMTokens: 2, outputPerMTokens: 8 },
+  'deepseek-v4-pro': { inputPerMTokens: 9, outputPerMTokens: 27 },
+  'glm-5.3': { inputPerMTokens: 8, outputPerMTokens: 28 },
+  'glm-5.3-flash': { inputPerMTokens: 0.8, outputPerMTokens: 2.8 },
+  'glm-5.2': { inputPerMTokens: 8, outputPerMTokens: 28 },
+  'glm-4.6v': { inputPerMTokens: 1, outputPerMTokens: 3 },
+  'claude-sonnet-5': { inputPerMTokens: 13.5, outputPerMTokens: 67.3 },
+  'claude-sonnet-5.5': { inputPerMTokens: 13.5, outputPerMTokens: 67.3 },
+  'claude-opus-5': { inputPerMTokens: 33.7, outputPerMTokens: 168.3 },
+  'claude-opus-5.5': { inputPerMTokens: 26.9, outputPerMTokens: 134.6 },
+  'claude-haiku-5': { inputPerMTokens: 0.7, outputPerMTokens: 3.4 },
+  'claude-haiku-5.5': { inputPerMTokens: 0.7, outputPerMTokens: 3.4 },
+  'gpt-5.6-sol': { inputPerMTokens: 26.9, outputPerMTokens: 134.6 },
+  'gpt-6-sol': { inputPerMTokens: 13.5, outputPerMTokens: 67.3 },
+  'gpt-6.1-sol': { inputPerMTokens: 13.5, outputPerMTokens: 67.3 },
+  'gpt-6-luna': { inputPerMTokens: 0.7, outputPerMTokens: 3.4 },
+  'gpt-4o-mini': { inputPerMTokens: 1, outputPerMTokens: 4 },
+  'gpt-4o': { inputPerMTokens: 16.8, outputPerMTokens: 67.3 },
+  'kimi-k3': { inputPerMTokens: 20, outputPerMTokens: 100 },
+  'kimi-k3.1-pro': { inputPerMTokens: 13, outputPerMTokens: 68 },
+  'kimi-k3.1-pro-highspeed': { inputPerMTokens: 26, outputPerMTokens: 136 },
+  'moonshot-v1-128k': { inputPerMTokens: 13.5, outputPerMTokens: 33.7 },
+  'qwen3.8-max': { inputPerMTokens: 12, outputPerMTokens: 36 },
+  'qwen3.8-max-0902': { inputPerMTokens: 12, outputPerMTokens: 36 },
+  'qwen3.7-max': { inputPerMTokens: 12, outputPerMTokens: 36 },
+  'qwen3.7-plus': { inputPerMTokens: 2, outputPerMTokens: 8 },
+  'qwen-plus': { inputPerMTokens: 0.8, outputPerMTokens: 2 },
+  'qwen-max': { inputPerMTokens: 2.4, outputPerMTokens: 9.6 },
+  'anthropic/claude-sonnet-5': { inputPerMTokens: 13.5, outputPerMTokens: 67.3 },
+  'deepseek/deepseek-chat': { inputPerMTokens: 2, outputPerMTokens: 8 },
+  'openai/gpt-4o': { inputPerMTokens: 16.8, outputPerMTokens: 67.3 },
+  'qwen3.8-flash': { inputPerMTokens: 1, outputPerMTokens: 3.2 },
+  'qwen3.6-plus': { inputPerMTokens: 3.4, outputPerMTokens: 20.2 },
+  'claude-opus-4-6': { inputPerMTokens: 33.7, outputPerMTokens: 168.3 },
+  'qwen3:8b': { inputPerMTokens: 0, outputPerMTokens: 0 },
+}
+
 export interface AiUsageDay {
   date: string
   calls: number
   failed: number
   tokens: number
+  inputTokens: number
+  outputTokens: number
+  cost: number
+  cacheHits: number
+  cacheTokens: number
+  cacheSavings: number
+}
+
+export interface AiUsageRow {
+  calls: number
+  failed: number
+  tokens: number
+  inputTokens: number
+  outputTokens: number
+  cost: number
+  cacheHits: number
+  cacheTokens: number
+  cacheSavings: number
 }
 
 export interface AiUsageSummary {
   days: AiUsageDay[]
-  models: Array<{ model: string; calls: number; tokens: number }>
-  steps: Array<{ step: string; calls: number; tokens: number }>
+  models: Array<AiUsageRow & { model: string }>
+  steps: Array<AiUsageRow & { step: string }>
   totalCalls: number
   totalFailed: number
   totalTokens: number
+  totalInputTokens: number
+  totalOutputTokens: number
+  totalCost: number
+  totalCacheHits: number
+  totalCacheTokens: number
+  totalCacheSavings: number
 }
 
 export interface ComposeSectionRewriteInput {
@@ -706,7 +834,10 @@ export type ProviderId =
   | 'moonshot'
   | 'alibaba'
   | 'openrouter'
+  | 'opencode'
+  | 'opencode-go'
   | 'ollama'
+  | 'lmstudio'
 
 export interface ProviderPreset {
   id: ProviderId
@@ -792,6 +923,24 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     hint: '一个 Key 访问多家模型；模型 ID 要带厂商前缀。',
   },
   {
+    id: 'opencode',
+    label: 'OpenCode Zen / Console',
+    baseUrl: 'https://opencode.ai/inference/openai/v1',
+    defaultModel: 'qwen3.8-flash',
+    suggestedModels: ['qwen3.8-flash', 'gpt-6.1-sol', 'claude-opus-4-6', 'deepseek-v4.1-flash'],
+    keyUrl: 'https://opencode.ai/auth',
+    hint: 'OpenCode 的按量计费网关（Zen / Console）。模型很多，保存前可以在设置里刷新完整模型列表。',
+  },
+  {
+    id: 'opencode-go',
+    label: 'OpenCode Go',
+    baseUrl: 'https://opencode.ai/inference/go/openai/v1',
+    defaultModel: 'gpt-6-luna',
+    suggestedModels: ['gpt-6-luna', 'grok-4.7', 'kimi-k3.1-pro', 'deepseek-v4.1-flash'],
+    keyUrl: 'https://opencode.ai/console/go',
+    hint: 'OpenCode Go 是订阅制；统计页只记录 token，不按每 token 估算费用。',
+  },
+  {
     id: 'ollama',
     label: '本地 Ollama',
     baseUrl: 'http://localhost:11434/v1',
@@ -799,6 +948,15 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     suggestedModels: ['qwen3:8b', 'llama3.1', 'llava'],
     keyUrl: '',
     hint: '本地推理，书和笔记都不出设备。',
+  },
+  {
+    id: 'lmstudio',
+    label: '本地 LM Studio',
+    baseUrl: 'http://localhost:1234/v1',
+    defaultModel: 'local-model',
+    suggestedModels: [],
+    keyUrl: '',
+    hint: 'LM Studio 的 OpenAI 兼容端点；本地推理，书和笔记都不出设备。',
   },
 ]
 
@@ -810,9 +968,12 @@ export interface SettingsView {
   apiKeyHint: string
   demo: boolean
   generationMode: GenerationMode
+  notesLanguage: NotesLanguage
+  visionMode: VisionMode
   notesModel: string
   composeModel: string
   labModel: string
+  aiPricing: AiModelPricing
   readwiseConfigured: boolean
   keysNeedReentry: boolean
   appLockEnabled: boolean
@@ -832,9 +993,12 @@ export interface SettingsPatch {
   model: string
   apiKey?: string
   generationMode?: GenerationMode
+  notesLanguage?: NotesLanguage
+  visionMode?: VisionMode
   notesModel?: string
   composeModel?: string
   labModel?: string
+  aiPricing?: AiModelPricing
   readwiseToken?: string
   qwenTtsBaseUrl?: string
   qwenTtsModel?: string
@@ -846,12 +1010,76 @@ export interface SettingsPatch {
   qwenTtsKey?: string
 }
 
+export interface LocalModelDetection {
+  ollama: string[]
+  lmstudio: string[]
+}
+
 export interface TestResult {
   ok: boolean
   message: string
 }
 
-export interface TextImportInput {
+export interface ImportBookOptions {
+  /** 导入时跳过参考文献、注释、索引和延伸阅读。 */
+  skipReferences?: boolean
+  /** PDF 使用 Docling 深度解析；需要本机安装 Python + Docling。 */
+  deepPdf?: boolean
+}
+
+export interface DoclingStatus {
+  available: boolean
+  version?: string
+  python?: string
+  error?: string
+}
+
+export interface ChapterContentSaveResult {
+  html: string
+  chars: number
+}
+
+export interface CodeAssistResult {
+  mode: 'review' | 'explain' | 'fix'
+  text: string
+  html?: string
+  chars?: number
+  understood?: number
+  skipped?: number
+  changed?: boolean
+  model?: string
+}
+
+export interface ImageUnderstandingResult {
+  html: string
+  understood: number
+  skipped: number
+  chars: number
+  model?: string
+  provider?: string
+  fallback?: boolean
+}
+
+export interface DoclingProgressEvent {
+  bookId?: string
+  phase: 'initialize' | 'build' | 'assemble' | 'enrich' | 'pages' | 'done'
+  done?: number
+  total?: number
+}
+
+export interface AiModelListInput {
+  provider?: ProviderId
+  baseUrl?: string
+  /** 测试新 Key 时可以临时传入；留空则使用已保存的 Key。 */
+  apiKey?: string
+}
+
+export interface AiModelListResult {
+  models: string[]
+  error?: string
+}
+
+export interface TextImportInput extends ImportBookOptions {
   title?: string
   author?: string
   text: string
@@ -1083,7 +1311,101 @@ export interface GenerationErrorEvent {
   message: string
 }
 
-export interface BookFormatOptions {
+export type AiJobKind = 'notes' | 'format' | 'compose' | 'translate'
+export type AiJobStatus = 'running' | 'done' | 'error' | 'cancelled'
+
+/** 单章 AI 任务快照：切章或切视图后用它重新接上进行中的任务。 */
+export interface AiJobSnapshot {
+  id: string
+  kind: AiJobKind
+  chapterId: string
+  bookId: string
+  title: string
+  status: AiJobStatus
+  detail: string
+  done: number
+  total: number
+  error?: string
+  partial?: GeneratePartial
+  composeProgress?: BookComposeProgress
+  /** 成稿任务的生成选项，应用重启后继续时复用。 */
+  composeOptions?: BookComposeOptions
+  /** 单章排版选项，应用重启后继续时复用。 */
+  formatOptions?: FormatChapterOptions
+  updatedAt: string
+}
+
+export interface ChapterAiJobs {
+  notes: AiJobSnapshot | null
+  format: AiJobSnapshot | null
+  translate: AiJobSnapshot | null
+}
+
+export interface BookAiJobs {
+  compose: AiJobSnapshot | null
+}
+
+export interface AiJobCancelTarget {
+  chapterId?: string
+  bookId?: string
+}
+
+export interface BookTranslationInfo {
+  /** 整本书是否以外文为主；只有 true 时界面才显示翻译入口。 */
+  foreign: boolean
+  language: string
+  ratio: number
+  total: number
+  translated: number
+}
+
+export interface BookTranslationOptions {
+  /** 忽略已有译文，全部重新翻译。 */
+  force?: boolean
+  /** 只处理还没有译文的章节。 */
+  onlyMissing?: boolean
+  /** 只处理这些章节；用于任务中心重试失败章节。 */
+  chapterIds?: string[]
+}
+
+export interface BookTranslationProgress {
+  bookId: string
+  title: string
+  done: number
+  total: number
+  translated: number
+  message?: string
+}
+
+export interface BookTranslationDoneEvent {
+  bookId: string
+  translated: number
+  skipped: number
+  failed: Array<{ chapterId: string; title: string; message: string }>
+  cancelled: boolean
+  error?: string
+}
+
+export interface ChapterTranslationProgress {
+  chapterId: string
+  done: number
+  total: number
+  message?: string
+}
+
+export interface ChapterTranslatedEvent {
+  chapterId: string
+  text: string
+  html: string
+  translatedAt: string
+}
+
+export interface ChapterTranslationErrorEvent {
+  chapterId: string
+  message: string
+}
+
+export interface BookFormatOptions extends FormatChapterOptions {
   /** 只处理还没有 AI 排版结果的章节；默认 false。 */
   onlyMissing?: boolean
   /** 只重试这些章节；不传表示全部可见章节。 */
@@ -1195,10 +1517,16 @@ export interface GenerateNotesOptions {
 
 export interface ReadingApi {
   listBooks(): Promise<BookSummary[]>
-  importBook(): Promise<BookSummary | null>
+  importBook(options?: ImportBookOptions): Promise<BookSummary | null>
+  getDoclingStatus(): Promise<DoclingStatus>
+  understandChapterImage(chapterId: string, imageSrc: string): Promise<ImageUnderstandingResult>
+  codeAssist(chapterId: string, code: string, mode: 'review' | 'explain' | 'fix', language?: string): Promise<CodeAssistResult>
+  saveChapterContent(chapterId: string, html: string): Promise<ChapterContentSaveResult>
+  onDoclingProgress(cb: (event: DoclingProgressEvent) => void): () => void
   importText(input: TextImportInput): Promise<BookSummary>
-  importUrl(url: string): Promise<BookSummary>
+  importUrl(url: string, options?: ImportBookOptions): Promise<BookSummary>
   importScannedPdf(options?: OcrImportOptions): Promise<OcrImportStarted | null>
+  listAiModels(input?: AiModelListInput): Promise<AiModelListResult>
   cancelOcrImport(): Promise<void>
   listOcrJobs(): Promise<OcrJob[]>
   resumeOcrJob(id: string): Promise<OcrImportStarted | null>
@@ -1215,14 +1543,27 @@ export interface ReadingApi {
   setBookGenre(bookId: string, genre: BookGenre): Promise<BookSummary>
   renameChapter(chapterId: string, title: string): Promise<void>
   renamePart(bookId: string, partIndex: number, title: string): Promise<void>
-  reparseBook(bookId: string): Promise<BookSummary>
+  reparseBook(bookId: string, options?: ImportBookOptions): Promise<BookSummary>
   mergeBooks(bookIds: string[], title: string, author: string): Promise<BookSummary>
   splitBook(bookId: string, fromChapterId: string, title: string): Promise<BookSummary>
   deleteBook(bookId: string): Promise<void>
-  formatChapter(chapterId: string, instruction?: string): Promise<FormatResult>
+  listTrashedBooks(): Promise<TrashedBook[]>
+  restoreTrashedBook(bookId: string): Promise<BookSummary | null>
+  purgeTrashedBook(bookId: string): Promise<void>
+  emptyBookTrash(): Promise<void>
+  formatChapter(chapterId: string, instruction?: string, options?: FormatChapterOptions): Promise<FormatResult>
   formatBook(bookId: string, options?: BookFormatOptions): Promise<void>
-  cancelFormat(): Promise<void>
-  resetChapterFormat(chapterId: string): Promise<void>
+  cancelFormat(target?: AiJobCancelTarget): Promise<void>
+  translateChapter(chapterId: string, options?: { force?: boolean }): Promise<void>
+  translateBook(bookId: string, options?: BookTranslationOptions): Promise<void>
+  getBookTranslationInfo(bookId: string): Promise<BookTranslationInfo>
+  cancelTranslation(target?: AiJobCancelTarget): Promise<void>
+  listAiJobs(): Promise<AiJobSnapshot[]>
+  getChapterAiJobs(chapterId: string): Promise<ChapterAiJobs>
+  getBookAiJobs(bookId: string): Promise<BookAiJobs>
+  dismissAiJob(id: string): Promise<void>
+  onAiJobUpdate(cb: (event: AiJobSnapshot) => void): () => void
+  resetChapterFormat(chapterId: string): Promise<number>
   saveStyle(bookId: string, style: ReaderStyle): Promise<ReaderStyle>
   getChapter(chapterId: string): Promise<ChapterContent>
   setProgress(bookId: string, chapterId: string): Promise<void>
@@ -1332,9 +1673,9 @@ export interface ReadingApi {
   deleteNote(id: string): Promise<void>
   generateNotes(chapterId: string, options?: GenerateNotesOptions): Promise<void>
   generateBookNotes(bookId: string, options?: BookGenerationOptions): Promise<void>
-  cancelGeneration(): Promise<void>
+  cancelGeneration(target?: AiJobCancelTarget): Promise<void>
   composeBook(bookId: string, options: BookComposeOptions): Promise<BookComposeResult>
-  cancelBookCompose(): Promise<void>
+  cancelBookCompose(target?: AiJobCancelTarget): Promise<void>
   rewriteComposeSection(input: ComposeSectionRewriteInput): Promise<ComposeSectionRewriteResult>
   cancelComposeSectionRewrite(): Promise<void>
   compareChapterNotes(input: CompareNotesInput): Promise<CompareNotesResult>
@@ -1343,6 +1684,7 @@ export interface ReadingApi {
   savePdf(defaultName: string, html: string): Promise<SaveFileResult>
   saveBinary(defaultName: string, base64: string): Promise<SaveFileResult>
   copyImage(dataUrl: string): Promise<void>
+  notifyDesktop(title: string, body: string): Promise<void>
   expandNote(noteId: string): Promise<Note>
   compareChapterNotes(input: CompareNotesInput): Promise<CompareNotesResult>
   compareBookCompose(input: CompareComposeInput): Promise<CompareComposeResult>
@@ -1365,11 +1707,13 @@ export interface ReadingApi {
   exportDiagnostics(): Promise<SaveFileResult>
   logRendererError(report: RendererErrorReport): Promise<void>
   copyText(text: string): Promise<void>
+  saveTextFile(defaultName: string, content: string, extension: 'bib' | 'ris' | 'txt'): Promise<SaveFileResult>
   optimizeShareCopy(input: ShareCopyInput): Promise<ShareCopyResult>
   saveMarkdown(defaultName: string, content: string): Promise<SaveFileResult>
   readBookFile(bookId: string): Promise<Uint8Array>
   getTtsStatus(): Promise<TtsStatus>
   synthesizeTts(request: TtsSynthesisRequest): Promise<TtsAudio>
+  detectLocalModels(): Promise<LocalModelDetection>
   search(query: string): Promise<SearchResult[]>
   searchSemantic(query: string): Promise<SearchResult[]>
   onGenerationPartial(cb: (event: GenerationPartialEvent) => void): () => void
@@ -1383,6 +1727,11 @@ export interface ReadingApi {
   onBookFormatProgress(cb: (event: BookFormatProgress) => void): () => void
   onBookFormatDone(cb: (event: BookFormatDoneEvent) => void): () => void
   onChapterFormatted(cb: (event: FormatResult) => void): () => void
+  onChapterTranslationProgress(cb: (event: ChapterTranslationProgress) => void): () => void
+  onChapterTranslated(cb: (event: ChapterTranslatedEvent) => void): () => void
+  onChapterTranslationError(cb: (event: ChapterTranslationErrorEvent) => void): () => void
+  onBookTranslationProgress(cb: (event: BookTranslationProgress) => void): () => void
+  onBookTranslationDone(cb: (event: BookTranslationDoneEvent) => void): () => void
   onBookComposeProgress(cb: (event: BookComposeProgress) => void): () => void
   onSemanticReady(cb: () => void): () => void
   onAppNotice(cb: (notice: AppNotice) => void): () => void

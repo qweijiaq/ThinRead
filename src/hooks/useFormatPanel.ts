@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { ChapterContent, ReaderStyle } from '../../shared/types.js'
 import type { FormatMessage } from '../components/FormatPanel.js'
@@ -15,13 +15,13 @@ export interface FormatPanelState {
   error: string | null
   note: string | null
   messages: FormatMessage[]
-  formatCurrentChapter(instruction?: string): Promise<void>
+  formatCurrentChapter(instruction?: string, options?: { skipReferences?: boolean }): Promise<void>
   resetChapterFormat(): Promise<void>
-  /** 切换章节时重置排版面板，并让进行中的请求作废。 */
+  /** 切换章节时重置面板；后台排版继续执行，回来后再接上。 */
   resetFormatState(): void
 }
 
-/** 单章 AI 排版：请求、结果写回章节、以及切换章节时的作废。 */
+/** 单章 AI 排版：请求、结果写回章节、切章后重新接上后台任务。 */
 export function useFormatPanel(options: FormatPanelOptions): FormatPanelState {
   const { chapterId, setChapter, setStyle } = options
   const [busy, setBusy] = useState(false)
@@ -29,17 +29,69 @@ export function useFormatPanel(options: FormatPanelOptions): FormatPanelState {
   const [note, setNote] = useState<string | null>(null)
   const [messages, setMessages] = useState<FormatMessage[]>([])
   const tokenRef = useRef(0)
+  const [attachKey, setAttachKey] = useState(0)
 
   const resetFormatState = useCallback(() => {
+    // 只清空面板；主进程里的排版任务继续跑。
     tokenRef.current += 1
     setBusy(false)
     setError(null)
     setNote(null)
     setMessages([])
+    setAttachKey((value) => value + 1)
   }, [])
 
+  useEffect(() => {
+    if (!chapterId) return
+    let cancelled = false
+    void window.api
+      .getChapterAiJobs(chapterId)
+      .then((jobs) => {
+        if (cancelled) return
+        const job = jobs.format
+        if (!job) {
+          setBusy(false)
+          return
+        }
+        if (job.status === 'running') {
+          setBusy(true)
+          setNote(job.detail)
+          setError(null)
+          return
+        }
+        setBusy(false)
+        if (
+          job.status === 'error' &&
+          job.error &&
+          Date.now() - Date.parse(job.updatedAt) < 10 * 60 * 1000
+        ) {
+          setError(job.error)
+        }
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [chapterId, attachKey])
+
+  useEffect(() => {
+    const off = window.api.onChapterFormatted((event) => {
+      if (event.chapterId !== chapterId) return
+      setBusy(false)
+      setNote(event.note)
+      setError(null)
+      setChapter((current) =>
+        current && current.id === event.chapterId
+          ? { ...current, formattedHtml: event.html, removed: event.removed, chars: event.chars }
+          : current,
+      )
+      setStyle(event.style)
+    })
+    return off
+  }, [chapterId, setChapter, setStyle])
+
   const formatCurrentChapter = useCallback(
-    async (instruction?: string) => {
+    async (instruction?: string, options?: { skipReferences?: boolean }) => {
       if (!chapterId) return
       const token = ++tokenRef.current
       setBusy(true)
@@ -49,11 +101,11 @@ export function useFormatPanel(options: FormatPanelOptions): FormatPanelState {
         setMessages((previous) => [...previous, { role: 'user', text: instruction.trim() }])
       }
       try {
-        const result = await window.api.formatChapter(chapterId, instruction)
+        const result = await window.api.formatChapter(chapterId, instruction, options)
         if (token !== tokenRef.current) return
         setChapter((current) =>
           current && current.id === chapterId
-            ? { ...current, formattedHtml: result.html, removed: result.removed }
+            ? { ...current, formattedHtml: result.html, removed: result.removed, chars: result.chars }
             : current,
         )
         setStyle(result.style)
@@ -79,9 +131,9 @@ export function useFormatPanel(options: FormatPanelOptions): FormatPanelState {
     setNote(null)
     setMessages([])
     try {
-      await window.api.resetChapterFormat(chapterId)
+      const chars = await window.api.resetChapterFormat(chapterId)
       setChapter((current) =>
-        current && current.id === chapterId ? { ...current, formattedHtml: null, removed: [] } : current,
+        current && current.id === chapterId ? { ...current, formattedHtml: null, removed: [], chars } : current,
       )
     } catch (err) {
       setError(messageOf(err))

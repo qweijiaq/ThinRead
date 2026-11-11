@@ -1,9 +1,9 @@
-import { generateObject } from 'ai'
 import { z } from 'zod'
 
 import type { ChapterKind, ChapterSuggestion, ClassifyResult } from '../../shared/types.js'
-import { createLanguageModel } from './provider.js'
+import { createLanguageModel, nonThinkingProviderOptions } from './provider.js'
 import type { ModelConfig } from './provider.js'
+import { tracedGenerateText } from './trace.js'
 
 export interface ClassifiableChapter {
   id: string
@@ -43,6 +43,51 @@ interface Judgment {
   kind: ChapterKind
   reason: string
   confidence: number
+}
+
+/** 不依赖 provider 的结构化输出：从自由文本里提取 JSON，再用 zod 校验。 */
+export function parseClassifyJson(text: string): z.infer<typeof classifySchema> | null {
+  const trimmed = text
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/```\s*$/i, '')
+    .trim()
+  const candidates = [trimmed]
+  const start = trimmed.indexOf('{')
+  const end = trimmed.lastIndexOf('}')
+  if (start >= 0 && end > start) candidates.push(trimmed.slice(start, end + 1))
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate) as unknown
+      const raw = Array.isArray(parsed) ? { chapters: parsed } : parsed
+      if (!raw || typeof raw !== 'object') continue
+      const rows = (raw as { chapters?: unknown }).chapters
+      if (!Array.isArray(rows)) continue
+      // 容忍模型省略 reason/confidence 或把数字写成字符串。
+      const chapters = rows
+        .map((item) => {
+          if (!item || typeof item !== 'object') return null
+          const row = item as Record<string, unknown>
+          const index = Number(row.index)
+          const rawKind = typeof row.kind === 'string' ? row.kind.trim() : ''
+          if (!Number.isFinite(index) || !rawKind) return null
+          const confidence = Number(row.confidence)
+          return {
+            index,
+            kind: rawKind,
+            reason: typeof row.reason === 'string' ? row.reason.trim().slice(0, 80) : '',
+            confidence: Number.isFinite(confidence) ? Math.min(1, Math.max(0, confidence)) : 0.8,
+          }
+        })
+        .filter((item): item is NonNullable<typeof item> => Boolean(item))
+      if (chapters.length === 0) continue
+      const checked = classifySchema.safeParse({ chapters })
+      if (checked.success) return checked.data
+    } catch {
+      // 继续尝试下一段文本。
+    }
+  }
+  return null
 }
 
 export function classifyHeuristically(chapters: ClassifiableChapter[]): ChapterSuggestion[] {
@@ -197,18 +242,41 @@ async function classifyWithAI(
       '只根据标题、字数和开头摘录判断；不确定时选 content，不要过度删除。',
       '输入：',
       JSON.stringify(payload),
-      '只返回一个 JSON 对象，格式为 {"chapters": [{"index": 0, "kind": "content", "reason": "…", "confidence": 0.9}]}，与输入 index 一一对应。不要输出 Markdown 代码块或额外解释。',
+      '只返回一个 JSON 对象，格式为 {"chapters": [{"index": 0, "kind": "content", "reason": "…", "confidence": 0.9}]}，与输入 index 一一对应。不要输出 Markdown 代码块、思考过程或额外解释。',
     ].join('\n')
-
-    const response = await generateObject({
+    const traceMeta = {
+      step: 'classify-chapters',
+      provider: config.provider,
+      model: config.model,
+      promptVersion: 'classify-v3',
+    }
+    const providerOptions = nonThinkingProviderOptions(config)
+    const response = await tracedGenerateText(traceMeta, {
       model,
-      schema: classifySchema,
       prompt,
-      temperature: 0,
-      abortSignal: AbortSignal.timeout(45_000),
+      // 有些模型会把思考 token 也算进输出；给足空间，避免 JSON 还没开始就被截断。
+      maxOutputTokens: 6_000,
+      ...(providerOptions ? { providerOptions } : {}),
+      abortSignal: AbortSignal.timeout(60_000),
     })
+    let parsed = parseClassifyJson(response.text)
+    if (!parsed) {
+      // 兼容不支持结构化输出或第一次被截断的模型：再给一次更严格的 JSON 指令。
+      const retry = await tracedGenerateText(
+        { ...traceMeta, step: 'classify-chapters-retry' },
+        {
+          model,
+          prompt: `${prompt}\n\n重要：上一次没有返回可解析的 JSON。请只输出一个合法 JSON 对象，不要任何解释、思考过程或 Markdown 代码块。`,
+          maxOutputTokens: 8_000,
+          ...(providerOptions ? { providerOptions } : {}),
+          abortSignal: AbortSignal.timeout(60_000),
+        },
+      )
+      parsed = parseClassifyJson(retry.text)
+    }
+    if (!parsed) throw new Error('模型没有返回可解析的目录 JSON，请换一个模型或稍后重试。')
 
-    for (const item of response.object.chapters) {
+    for (const item of parsed.chapters) {
       const chapter = batch.find((candidate) => candidate.idx === item.index)
       if (!chapter) continue
       result.set(chapter.id, {

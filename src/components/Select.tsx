@@ -15,6 +15,8 @@ interface SelectProps {
   className?: string
   disabled?: boolean
   ariaLabel?: string
+  /** 选项很多时（例如模型列表）在弹层顶部显示搜索框。 */
+  searchable?: boolean
 }
 
 interface PopoverPosition {
@@ -33,19 +35,33 @@ export function Select({
   className = '',
   disabled = false,
   ariaLabel,
+  searchable = false,
 }: SelectProps): JSX.Element {
   const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
   const [position, setPosition] = useState<PopoverPosition | null>(null)
   const triggerRef = useRef<HTMLButtonElement | null>(null)
   const popoverRef = useRef<HTMLDivElement | null>(null)
+  const searchRef = useRef<HTMLInputElement | null>(null)
   const optionRefs = useRef<Array<HTMLButtonElement | null>>([])
   const [activeIndex, setActiveIndex] = useState(0)
-  const selectedIndex = Math.max(0, options.findIndex((option) => option.value === value))
+  const openedAtRef = useRef(0)
+  const needle = query.trim().toLowerCase()
+  const filteredOptions =
+    searchable && needle
+      ? options.filter(
+          (option) =>
+            option.label.toLowerCase().includes(needle) || option.value.toLowerCase().includes(needle),
+        )
+      : options
   const selected = options.find((option) => option.value === value)
+  const selectedIndex = Math.max(0, filteredOptions.findIndex((option) => option.value === value))
 
   function openMenu(): void {
     if (disabled) return
+    openedAtRef.current = Date.now()
     setActiveIndex(selectedIndex)
+    setQuery('')
     setOpen(true)
   }
 
@@ -65,8 +81,8 @@ export function Select({
     if (!trigger) return
     const rect = trigger.getBoundingClientRect()
     const width = Math.min(Math.max(rect.width, 190), Math.max(190, window.innerWidth - 16))
-    const maxHeight = Math.min(300, Math.max(160, window.innerHeight - 24))
-    const idealHeight = Math.min(options.length * 38 + 10, maxHeight)
+    const maxHeight = Math.min(360, Math.max(160, window.innerHeight - 24))
+    const idealHeight = Math.min(filteredOptions.length * 38 + (searchable ? 46 : 10), maxHeight)
     const below = window.innerHeight - rect.bottom - 8
     const above = rect.top - 8
     const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8))
@@ -75,13 +91,16 @@ export function Select({
     } else {
       setPosition({ left, width, top: rect.bottom + 4, maxHeight: Math.min(maxHeight, below) })
     }
-  }, [open, options.length])
+  }, [open, filteredOptions.length, searchable])
 
   useEffect(() => {
     if (!open) return
-    const frame = window.requestAnimationFrame(() => optionRefs.current[activeIndex]?.focus())
+    const frame = window.requestAnimationFrame(() => {
+      if (searchable) searchRef.current?.focus()
+      else optionRefs.current[activeIndex]?.focus()
+    })
     return () => window.cancelAnimationFrame(frame)
-  }, [open, activeIndex])
+  }, [open, activeIndex, searchable])
 
   useEffect(() => {
     if (!open) return
@@ -98,6 +117,8 @@ export function Select({
     }
     function onScroll(event: Event): void {
       if (popoverRef.current?.contains(event.target as Node)) return
+      // 打开瞬间聚焦选项可能让滚动容器自动滚动；这一段不算用户滚动，否则弹层会刚开就关。
+      if (Date.now() - openedAtRef.current < 250) return
       setOpen(false)
     }
     function onResize(): void {
@@ -116,11 +137,11 @@ export function Select({
   }, [open])
 
   function moveActive(delta: number): void {
-    if (options.length === 0) return
+    if (filteredOptions.length === 0) return
     let next = activeIndex
-    for (let step = 0; step < options.length; step++) {
-      next = (next + delta + options.length) % options.length
-      if (!options[next]?.disabled) break
+    for (let step = 0; step < filteredOptions.length; step++) {
+      next = (next + delta + filteredOptions.length) % filteredOptions.length
+      if (!filteredOptions[next]?.disabled) break
     }
     setActiveIndex(next)
     optionRefs.current[next]?.focus()
@@ -170,7 +191,38 @@ export function Select({
                 maxHeight: position.maxHeight,
               }}
             >
-              {options.map((option, index) => (
+              {searchable ? (
+                <div className="ui-select-search">
+                  <input
+                    ref={searchRef}
+                    value={query}
+                    onChange={(event) => {
+                      setQuery(event.target.value)
+                      setActiveIndex(0)
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'ArrowDown') {
+                        event.preventDefault()
+                        optionRefs.current[0]?.focus()
+                      } else if (event.key === 'Enter' && filteredOptions[activeIndex]) {
+                        event.preventDefault()
+                        choose(filteredOptions[activeIndex]!)
+                      } else if (event.key === 'Escape') {
+                        event.preventDefault()
+                        setOpen(false)
+                        triggerRef.current?.focus()
+                      }
+                    }}
+                    placeholder="搜索模型…"
+                    spellCheck={false}
+                    autoComplete="off"
+                  />
+                </div>
+              ) : null}
+              {filteredOptions.length === 0 ? (
+                <p className="ui-select-empty">没有匹配的选项</p>
+              ) : null}
+              {filteredOptions.map((option, index) => (
                 <button
                   key={`${option.value}-${index}`}
                   ref={(node) => {
@@ -196,8 +248,8 @@ export function Select({
                       optionRefs.current[0]?.focus()
                     } else if (event.key === 'End') {
                       event.preventDefault()
-                      setActiveIndex(options.length - 1)
-                      optionRefs.current[options.length - 1]?.focus()
+                      setActiveIndex(filteredOptions.length - 1)
+                      optionRefs.current[filteredOptions.length - 1]?.focus()
                     } else if (event.key === 'Enter' || event.key === ' ') {
                       event.preventDefault()
                       choose(option)

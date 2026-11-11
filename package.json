@@ -1,6 +1,6 @@
 {
   "name": "reading-notes",
-  "version": "0.1.5",
+  "version": "0.2.0",
   "private": true,
   "license": "MIT",
   "description": "页边 · ThinRead — 本地优先的 AI 读书笔记应用",
@@ -12,7 +12,7 @@
     "build:renderer": "vite build",
     "build": "pnpm build:electron && pnpm build:renderer",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.test.json",
-    "verify": "pnpm typecheck && pnpm test",
+    "verify": "pnpm typecheck && pnpm test && pnpm check:extensions && pnpm check:docs",
     "start": "electron .",
     "screenshot": "pnpm build && electron . --screenshot=./screenshot.png",
     "test": "node scripts/run-tests.mjs",
@@ -27,12 +27,16 @@
     "build-storybook": "storybook build",
     "capture:storybook": "node scripts/capture-storybook.mjs",
     "i18n:inventory": "node scripts/i18n-inventory.mjs",
-    "manual": "node scripts/build-manual.mjs"
+    "manual": "node scripts/build-manual.mjs",
+    "check:extensions": "node scripts/check-capabilities.mjs",
+    "check:docs": "node scripts/check-docs.mjs",
+    "install:docling": "bash scripts/install-docling.sh"
   },
   "dependencies": {
     "@breezystack/lamejs": "^1.2.7",
     "@huggingface/transformers": "^4.3.2",
     "@napi-rs/canvas": "^1.0.13",
+    "highlight.js": "^11.12.0",
     "pdfjs-dist": "^5.0.0"
   },
   "devDependencies": {

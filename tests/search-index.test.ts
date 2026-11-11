@@ -45,6 +45,7 @@ test('builds a local index over chapters, books and notes', async () => {
 
     updateNote(created.id, { content: '把通知关掉，注意力才回得来。' })
     assert.ok(searchIndex('通知')?.some((result) => result.id === created.id))
+    assert.equal(searchIndex('手机')?.some((result) => result.id === created.id), false)
 
     const artifact = saveLabArtifact({
       tool: 'book-club',

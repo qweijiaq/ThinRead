@@ -3,6 +3,7 @@ import type { LabReport as LabReportData, LabRequest, LabToolId } from '../../sh
 import { listLabArtifacts, loadLabArtifact, parseArtifactMeta, saveLabArtifact } from '../lib/lab-artifacts.js'
 import { labReportScope } from '../lib/lab-scope.js'
 import { t } from '../lib/i18n.js'
+import { confirmDialog } from './ConfirmDialog.js'
 import { Markdown } from './Markdown.js'
 import { Select } from './Select.js'
 
@@ -15,6 +16,7 @@ interface LabReportProps {
   sourceLabel: string
   onSave(title: string, markdown: string, bookId: string, chapterId: string): Promise<void>
   onListen?(title: string, text: string): void
+  demo?: boolean
 }
 
 const QUESTION_TOOLS = new Set<LabToolId>(['cross-book-synthesis', 'reading-path', 'view-timeline', 'margin-note'])
@@ -30,7 +32,17 @@ const CHAPTER_TOOLS = new Set<LabToolId>([
 ])
 const BOOK_TOOLS = new Set<LabToolId>(['cross-book-synthesis', 'reading-path'])
 
-export function LabReport({ tool, bookIds, bookId, chapterId, question, sourceLabel, onSave, onListen }: LabReportProps): JSX.Element {
+export function LabReport({
+  tool,
+  bookIds,
+  bookId,
+  chapterId,
+  question,
+  sourceLabel,
+  onSave,
+  onListen,
+  demo = false,
+}: LabReportProps): JSX.Element {
   const [result, setResult] = useState<LabReportData | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -69,6 +81,22 @@ export function LabReport({ tool, bookIds, bookId, chapterId, question, sourceLa
   async function run(requestOverride?: LabRequest): Promise<void> {
     if (busy) return
     if (!requestOverride && !ready) return
+    if (!demo) {
+      const settings = await window.api.getSettings().catch(() => null)
+      const price = settings ? settings.aiPricing[settings.labModel || settings.model] : null
+      const costHint = price
+        ? `，${t('估算约')} ¥${(
+            (18_000 / 1_000_000) * price.inputPerMTokens +
+            (6_000 / 1_000_000) * price.outputPerMTokens
+          ).toFixed(3)}`
+        : ''
+      const confirmed = await confirmDialog({
+        title: t('运行工作台任务'),
+        message: `${t('本次会读取当前书/章节/笔记，发起 1 次模型请求；长书输入的上下文可能有 1–2.4 万字符，输出通常更长，可能持续一两分钟')}${costHint}。${t('实际费用以你设置的价格为准；继续？')}`,
+        confirmLabel: t('开始生成'),
+      })
+      if (!confirmed) return
+    }
     const request = requestOverride ?? {
       tool,
       bookIds:

@@ -1,14 +1,17 @@
 import { useEffect, useState, type JSX } from 'react'
 
-import { PROVIDER_PRESETS } from '../../shared/types.js'
+import { AI_PRICING_REFERENCE_DATE, PROVIDER_PRESETS } from '../../shared/types.js'
+import { BUILTIN_EXTENSIONS } from '../../shared/extensions.js'
 import type {
   AppInfo,
   BackupInfo,
   GenerationMode,
+  NotesLanguage,
   ProviderId,
   ReaderStyle,
   SettingsView,
   TestResult,
+  VisionMode,
 } from '../../shared/types.js'
 import { setLocale, t, useLocale } from '../lib/i18n.js'
 import { getAutoNext, getDailyGoal, setAutoNext, setDailyGoal } from '../lib/preferences.js'
@@ -23,10 +26,13 @@ interface SettingsDialogProps {
   appInfo: AppInfo | null
   theme: ReaderStyle['theme']
   onClose(): void
-  onSaved(settings: SettingsView): void
+  onSaved(settings: SettingsView, options?: { silent?: boolean }): void
+  onTestResult?(result: TestResult): void
   onThemeChange(theme: ReaderStyle['theme']): void
   onOpenManual(): void
   onOpenOnboarding(): void
+  coreMode: boolean
+  onToggleCoreMode(value: boolean): void
 }
 
 const THEME_OPTIONS: Array<[ReaderStyle['theme'], string]> = [
@@ -68,18 +74,29 @@ export function SettingsDialog({
   theme,
   onClose,
   onSaved,
+  onTestResult,
   onThemeChange,
   onOpenManual,
   onOpenOnboarding,
+  coreMode,
+  onToggleCoreMode,
 }: SettingsDialogProps): JSX.Element | null {
   const [provider, setProvider] = useState<ProviderId>(settings.provider)
   const [baseUrl, setBaseUrl] = useState(settings.baseUrl)
   const [model, setModel] = useState(settings.model)
   const [apiKey, setApiKey] = useState('')
   const [generationMode, setGenerationMode] = useState<GenerationMode>(settings.generationMode)
+  const [notesLanguage, setNotesLanguage] = useState<NotesLanguage>(settings.notesLanguage)
+  const [visionMode, setVisionMode] = useState<VisionMode>(settings.visionMode)
   const [notesModel, setNotesModel] = useState(settings.notesModel)
   const [composeModel, setComposeModel] = useState(settings.composeModel)
   const [labModel, setLabModel] = useState(settings.labModel)
+  const [aiPricing, setAiPricing] = useState<Record<string, { input: string; output: string }>>({})
+  const [availableModels, setAvailableModels] = useState<string[]>([])
+  const [modelListLoading, setModelListLoading] = useState(false)
+  const [detectingLocal, setDetectingLocal] = useState(false)
+  const [showAdvanced, setShowAdvanced] = useState(false)
+  const [modelListError, setModelListError] = useState<string | null>(null)
   const [readwiseToken, setReadwiseToken] = useState('')
   const [readwiseTest, setReadwiseTest] = useState<TestResult | null>(null)
   const [qwenTtsBaseUrl, setQwenTtsBaseUrl] = useState(settings.qwenTtsBaseUrl)
@@ -112,9 +129,24 @@ export function SettingsDialog({
     setModel(settings.model)
     setApiKey('')
     setGenerationMode(settings.generationMode)
+    setNotesLanguage(settings.notesLanguage)
+    setVisionMode(settings.visionMode)
     setNotesModel(settings.notesModel)
     setComposeModel(settings.composeModel)
     setLabModel(settings.labModel)
+    setAvailableModels([])
+    setModelListError(null)
+    setAiPricing(
+      Object.fromEntries(
+        Object.entries(settings.aiPricing).map(([id, price]) => [
+          id,
+          {
+            input: price.inputPerMTokens ? String(price.inputPerMTokens) : '',
+            output: price.outputPerMTokens ? String(price.outputPerMTokens) : '',
+          },
+        ]),
+      ),
+    )
     setReadwiseToken('')
     setReadwiseTest(null)
     setQwenTtsBaseUrl(settings.qwenTtsBaseUrl)
@@ -138,17 +170,115 @@ export function SettingsDialog({
       .catch((error: unknown) => {
         setBackupError(error instanceof Error ? error.message : String(error))
       })
-  }, [open, settings])
+    // 只在打开设置时同步一次；保存/测试连接会更新 settings，不能因此重置正在编辑的表单和测试结果。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    if (provider === 'demo') {
+      setAvailableModels([])
+      setModelListError(null)
+      return
+    }
+    const canQuery =
+      settings.apiKeyConfigured ||
+      provider === 'ollama' ||
+      provider === 'lmstudio' ||
+      provider === 'openrouter' ||
+      provider === 'opencode' ||
+      provider === 'opencode-go'
+    if (canQuery) void refreshModels(false)
+    // 只在打开设置或切换服务商时自动读取，避免输入 Base URL 时反复请求。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, provider])
 
   if (!open) return null
 
   const preset = PROVIDER_PRESETS.find((item) => item.id === provider)
+  const priceModels = [...new Set([model, notesModel, composeModel, labModel].map((value) => value.trim()).filter((value) => value && value !== 'demo'))]
+  const modelOptions = [
+    ...new Set(
+      [
+        ...availableModels,
+        ...(preset?.suggestedModels ?? []),
+        model,
+        notesModel,
+        composeModel,
+        labModel,
+      ]
+        .map((value) => value.trim())
+        .filter((value) => value && value !== 'demo'),
+    ),
+  ]
+
+  async function refreshModels(manual = false): Promise<void> {
+    if (provider === 'demo') {
+      setAvailableModels([])
+      setModelListError(null)
+      return
+    }
+    setModelListLoading(true)
+    if (manual) setModelListError(null)
+    try {
+      const result = await window.api.listAiModels({
+        provider,
+        baseUrl,
+        apiKey: apiKey.trim() || undefined,
+      })
+      setAvailableModels(result.models)
+      setModelListError(result.error ?? null)
+      if (manual && result.models.length > 0) {
+        setResult({ ok: true, message: `已读取 ${result.models.length} 个可用模型。` })
+      }
+    } catch (error) {
+      setModelListError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setModelListLoading(false)
+    }
+  }
+
+  async function detectLocalModels(): Promise<void> {
+    setDetectingLocal(true)
+    setResult(null)
+    try {
+      const found = await window.api.detectLocalModels()
+      if (found.ollama.length > 0) {
+        changeProvider('ollama')
+        setBaseUrl('http://127.0.0.1:11434/v1')
+        setModel(found.ollama[0]!)
+        setAvailableModels(found.ollama)
+        setResult({
+          ok: true,
+          message: `检测到本机 Ollama，共 ${found.ollama.length} 个模型。`,
+        })
+      } else if (found.lmstudio.length > 0) {
+        changeProvider('lmstudio')
+        setBaseUrl('http://127.0.0.1:1234/v1')
+        setModel(found.lmstudio[0]!)
+        setAvailableModels(found.lmstudio)
+        setResult({
+          ok: true,
+          message: `检测到本机 LM Studio，共 ${found.lmstudio.length} 个模型。`,
+        })
+      } else {
+        setResult({ ok: false, message: '没有检测到本机 Ollama 或 LM Studio。' })
+      }
+    } catch (error) {
+      setResult({ ok: false, message: error instanceof Error ? error.message : String(error) })
+    } finally {
+      setDetectingLocal(false)
+    }
+  }
 
   function changeProvider(next: ProviderId): void {
     setProvider(next)
     const nextPreset = PROVIDER_PRESETS.find((item) => item.id === next)
     setBaseUrl(nextPreset?.baseUrl ?? '')
     setModel(nextPreset?.defaultModel ?? '')
+    setApiKey('')
+    setAvailableModels([])
+    setModelListError(null)
     setResult(null)
   }
 
@@ -163,7 +293,7 @@ export function SettingsDialog({
     setQwenTtsVoices((current) => current.filter((item) => item !== voice))
   }
 
-  async function persist(): Promise<SettingsView | null> {
+  async function persist(options: { silent?: boolean } = {}): Promise<SettingsView | null> {
     setSaving(true)
     try {
       const saved = await window.api.saveSettings({
@@ -171,9 +301,22 @@ export function SettingsDialog({
         baseUrl,
         model,
         generationMode,
+        notesLanguage,
+        visionMode,
         notesModel,
         composeModel,
         labModel,
+        aiPricing: Object.fromEntries(
+          Object.entries(aiPricing)
+            .map(([id, price]) => [
+              id,
+              {
+                inputPerMTokens: Math.max(0, Number(price.input) || 0),
+                outputPerMTokens: Math.max(0, Number(price.output) || 0),
+              },
+            ] as const)
+            .filter(([, price]) => price.inputPerMTokens > 0 || price.outputPerMTokens > 0),
+        ),
         ...(readwiseToken.trim() ? { readwiseToken: readwiseToken.trim() } : {}),
         qwenTtsBaseUrl,
         qwenTtsModel,
@@ -185,10 +328,12 @@ export function SettingsDialog({
         ...(qwenTtsKey.trim() ? { qwenTtsKey: qwenTtsKey.trim() } : {}),
         ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
       })
-      onSaved(saved)
+      onSaved(saved, { silent: options.silent === true })
       return saved
     } catch (error) {
-      setResult({ ok: false, message: error instanceof Error ? error.message : String(error) })
+      const next = { ok: false, message: error instanceof Error ? error.message : String(error) }
+      setResult(next)
+      if (options.silent) onTestResult?.(next)
       return null
     } finally {
       setSaving(false)
@@ -359,12 +504,19 @@ export function SettingsDialog({
   }
 
   async function test(): Promise<void> {
-    const saved = await persist()
+    // 测试连接会先保存当前设置；这里不弹“已切换到…”的提示，只提示测试结果。
+    const saved = await persist({ silent: true })
     if (!saved) return
     setTesting(true)
     setResult(null)
     try {
-      setResult(await window.api.testConnection())
+      const next = await window.api.testConnection()
+      setResult(next)
+      onTestResult?.(next)
+    } catch (error) {
+      const next = { ok: false, message: error instanceof Error ? error.message : String(error) }
+      setResult(next)
+      onTestResult?.(next)
     } finally {
       setTesting(false)
     }
@@ -388,12 +540,34 @@ export function SettingsDialog({
           </button>
         </div>
 
-        <div className="settings-body">
+        <div className={`settings-body${showAdvanced ? ' show-advanced' : ''}`}>
+        <div className="form-row">
+          <label>{t('界面模式')}</label>
+          <Checkbox
+            checked={coreMode}
+            onChange={onToggleCoreMode}
+            label={t('精简模式：只显示阅读、读薄、卡片和成书')}
+          />
+          <p className="field-hint">
+            {t('关闭后会显示 AI 内容库、知识地图、AI 工具和工作台等完整入口。')}
+          </p>
+        </div>
+
         {settings.keysNeedReentry ? (
           <div className="inline-notice" role="status">
             {t('这个备份来自另一台机器，部分 API Key 无法在当前系统解密；需要重新填写后才能继续使用。')}
           </div>
         ) : null}
+        <div className="form-row settings-mode-toggle">
+          <div>
+            <strong>{t('显示高级设置')}</strong>
+            <p className="field-hint">{t('TTS、Readwise、价格、备份和应用锁默认收起。')}</p>
+          </div>
+          <button type="button" className="ghost-button small" onClick={() => setShowAdvanced((value) => !value)}>
+            {showAdvanced ? t('收起高级设置') : t('显示高级设置')}
+          </button>
+        </div>
+
         <div className="form-row">
           <label>{t('界面语言（Beta）')}</label>
           <div className="segmented theme-segmented">
@@ -405,6 +579,29 @@ export function SettingsDialog({
             </button>
           </div>
           <p className="field-hint">{t('主要界面已支持英文，剩余界面仍在迁移。')}</p>
+        </div>
+
+        <div className="form-row settings-advanced">
+          <label>{t('扩展能力')}</label>
+          <p className="field-hint">
+            {t('内置浏览器收录扩展只申请 browser:capture；扩展清单、权限边界和校验方式见使用手册。')}
+          </p>
+          <div className="extension-list">
+            {BUILTIN_EXTENSIONS.map((extension) => (
+              <div className="extension-row" key={extension.id}>
+                <div>
+                  <strong>{t(extension.name)}</strong>
+                  <p>{t(extension.description)}</p>
+                </div>
+                <span className="extension-caps">
+                  {extension.capabilities.map((capability) => t(capability)).join(' · ')}
+                </span>
+              </div>
+            ))}
+          </div>
+          <button type="button" className="text-button" onClick={onOpenManual}>
+            {t('查看扩展说明')}
+          </button>
         </div>
 
         <div className="form-row">
@@ -439,6 +636,39 @@ export function SettingsDialog({
             ))}
           </div>
           <p className="field-hint">{t(MODE_HINTS[generationMode])}</p>
+        </div>
+
+        <div className="form-row">
+          <label>{t('外文书籍读薄语言')}</label>
+          <Select
+            value={notesLanguage}
+            onChange={(value) => setNotesLanguage(value as NotesLanguage)}
+            ariaLabel={t('外文书籍读薄语言')}
+            options={[
+              { value: 'zh', label: t('简体中文（默认）') },
+              { value: 'source', label: t('跟随原文') },
+            ]}
+          />
+          <p className="field-hint">
+            {t('外文书籍默认把读薄稿和知识点翻成中文；选「跟随原文」则保持原语言。引用证据始终保留原文。')}
+          </p>
+        </div>
+
+        <div className="form-row">
+          <label>{t('图片理解')}</label>
+          <Select
+            value={visionMode}
+            onChange={(value) => setVisionMode(value as VisionMode)}
+            ariaLabel={t('图片理解')}
+            options={[
+              { value: 'auto', label: t('自动（仅视觉模型）') },
+              { value: 'always', label: t('总是发送图片') },
+              { value: 'off', label: t('关闭') },
+            ]}
+          />
+          <p className="field-hint">
+            {t('读薄和卡片会把章节里的图表、流程图发送给你配置的模型服务商；自动模式只对已知支持视觉的模型发送。图注和 alt 始终作为文字参考。')}
+          </p>
         </div>
 
         <div className="form-row">
@@ -512,25 +742,44 @@ export function SettingsDialog({
                 />
                 <Select
                   className="filter-select"
-                  value=""
-                  onChange={(value) => {
-                    if (value) setModel(value)
-                  }}
-                  ariaLabel={t('选择推荐模型')}
-                  options={[
-                    { value: '', label: t('推荐模型…') },
-                    ...[...new Set([model, ...(preset?.suggestedModels ?? [])].filter(Boolean))].map((id) => ({
-                      value: id,
-                      label: id,
-                    })),
-                  ]}
+                  value={model}
+                  onChange={setModel}
+                  ariaLabel={t('选择模型')}
+                  placeholder={t('选择模型…')}
+                  searchable
+                  options={modelOptions.map((id) => ({ value: id, label: id }))}
                 />
               </div>
               <datalist id="model-suggestions">
-                {[...new Set([model, ...(preset?.suggestedModels ?? [])].filter(Boolean))].map((id) => (
+                {modelOptions.map((id) => (
                   <option key={id} value={id} />
                 ))}
               </datalist>
+              <div className="model-list-tools">
+                <button
+                  type="button"
+                  className="text-button"
+                  onClick={() => void refreshModels(true)}
+                  disabled={modelListLoading}
+                >
+                  {modelListLoading ? t('正在读取模型…') : t('从服务刷新模型列表')}
+                </button>
+                <button
+                  type="button"
+                  className="text-button"
+                  onClick={() => void detectLocalModels()}
+                  disabled={detectingLocal}
+                >
+                  {detectingLocal ? t('正在检测…') : t('检测本机模型')}
+                </button>
+                <span className="field-hint">
+                  {modelListError
+                    ? modelListError
+                    : availableModels.length > 0
+                      ? `${t('已读取')} ${availableModels.length} ${t('个模型；也可以直接输入任意模型 ID。')}`
+                      : t('可以直接输入模型 ID；配置 Key 后可读取完整列表。')}
+                </span>
+              </div>
             </div>
 
             <div className="form-row">
@@ -546,7 +795,7 @@ export function SettingsDialog({
                 {t('保存在本机，使用系统钥匙串加密。')}{preset?.keyUrl ? `${t('获取地址')}：${preset.keyUrl}` : ''}
               </p>
             </div>
-            <div className="form-row">
+            <div className="form-row settings-advanced">
               <label>{t('任务模型覆盖')}</label>
               <div className="task-model-grid">
                 <input value={notesModel} onChange={(event) => setNotesModel(event.target.value)} placeholder={t('读薄模型（留空用默认）')} list="model-suggestions" spellCheck={false} />
@@ -555,6 +804,48 @@ export function SettingsDialog({
               </div>
               <p className="field-hint">{t('只覆盖模型 ID，Base URL 和 Key 继续使用上面的服务商。')}</p>
             </div>
+            {priceModels.length > 0 ? (
+              <div className="form-row settings-advanced">
+                <label>{t('模型价格（只用于本地估算）')}</label>
+                <div className="price-grid">
+                  {priceModels.map((id) => (
+                    <div className="price-row" key={id}>
+                      <span className="price-model">{id}</span>
+                      <input
+                        value={aiPricing[id]?.input ?? ''}
+                        onChange={(event) => {
+                          const value = event.target.value
+                          setAiPricing((current) => ({
+                            ...current,
+                            [id]: { input: value, output: current[id]?.output ?? '' },
+                          }))
+                        }}
+                        inputMode="decimal"
+                        placeholder={t('输入 ¥/百万 token')}
+                        aria-label={`${id} ${t('输入价格')}`}
+                      />
+                      <input
+                        value={aiPricing[id]?.output ?? ''}
+                        onChange={(event) => {
+                          const value = event.target.value
+                          setAiPricing((current) => ({
+                            ...current,
+                            [id]: { input: current[id]?.input ?? '', output: value },
+                          }))
+                        }}
+                        inputMode="decimal"
+                        placeholder={t('输出 ¥/百万 token')}
+                        aria-label={`${id} ${t('输出价格')}`}
+                      />
+                    </div>
+                  ))}
+                </div>
+                <p className="field-hint">
+                  {t('已内置参考价（更新于')} {AI_PRICING_REFERENCE_DATE}
+                  {t('，美元按 1 USD ≈ 6.73 CNY 折算）；可直接改，最终以厂商账单为准。')}
+                </p>
+              </div>
+            ) : null}
           </>
         ) : (
           <div className="demo-note">
@@ -585,7 +876,7 @@ export function SettingsDialog({
           ) : null}
         </div>
 
-        <div className="form-row">
+        <div className="form-row settings-advanced">
           <label>{t('千问 TTS（阿里云百炼）')}</label>
           <input
             value={qwenTtsBaseUrl}
@@ -674,7 +965,7 @@ export function SettingsDialog({
 
         <div className="settings-divider" />
 
-        <div className="form-row">
+        <div className="form-row settings-advanced">
           <label>{t('应用锁')}</label>
           <input
             type="password"
@@ -704,7 +995,7 @@ export function SettingsDialog({
 
         <div className="settings-divider" />
 
-        <div className="form-row">
+        <div className="form-row settings-advanced">
           <label>{t('数据备份')}</label>
           <div className="backup-actions">
             <button type="button" className="ghost-button small" onClick={() => void makeBackup()} disabled={backupBusy !== null}>

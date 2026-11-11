@@ -4,6 +4,29 @@ import { DEFAULT_READER_STYLE, type ReaderStyle } from '../../shared/types.js'
 
 const THEME_KEY = 'reading-notes-theme'
 
+/** 旧版默认排版偏松；只迁移没有手动改过这几项的书。 */
+const LEGACY_DEFAULT_TYPOGRAPHY = {
+  fontSize: 17,
+  lineHeight: 1.98,
+  paragraphSpacing: 1.15,
+  maxWidth: 760,
+}
+
+export function withMigratedTypography(style: ReaderStyle): ReaderStyle {
+  const isLegacyDefault =
+    style.fontSize === LEGACY_DEFAULT_TYPOGRAPHY.fontSize &&
+    style.lineHeight === LEGACY_DEFAULT_TYPOGRAPHY.lineHeight &&
+    style.paragraphSpacing === LEGACY_DEFAULT_TYPOGRAPHY.paragraphSpacing &&
+    style.maxWidth === LEGACY_DEFAULT_TYPOGRAPHY.maxWidth
+  if (!isLegacyDefault) return style
+  return {
+    ...style,
+    lineHeight: DEFAULT_READER_STYLE.lineHeight,
+    paragraphSpacing: DEFAULT_READER_STYLE.paragraphSpacing,
+    maxWidth: DEFAULT_READER_STYLE.maxWidth,
+  }
+}
+
 function loadStoredTheme(): ReaderStyle['theme'] {
   try {
     const stored = localStorage.getItem(THEME_KEY)

@@ -16,9 +16,10 @@ interface LabViewProps {
   onSaveReport(title: string, markdown: string, bookId: string, chapterId: string): Promise<void>
   initialToolId?: LabToolId
   onListen?(title: string, text: string): void
+  demo?: boolean
 }
 
-export function LabView({ books, onBack, onSaveReport, initialToolId, onListen }: LabViewProps): JSX.Element {
+export function LabView({ books, onBack, onSaveReport, initialToolId, onListen, demo = false }: LabViewProps): JSX.Element {
   useLocale()
   const [toolId, setToolId] = useState<LabToolId>(initialToolId ?? 'library-research')
   const [bookIds, setBookIds] = useState<string[]>([])
@@ -228,6 +229,7 @@ export function LabView({ books, onBack, onSaveReport, initialToolId, onListen }
                         onSaveReport(title, markdown, targetBookId || bookId || books[0]?.id || '', targetChapterId)
                       }
                       onListen={onListen}
+                      demo={demo}
                     />
                   ) : item.kind === 'pdf' ? (
                     <LabPdfPage books={books} />

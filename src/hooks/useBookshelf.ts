@@ -8,6 +8,7 @@ import { DEFAULT_READER_STYLE, type BookSummary,
 } from '../../shared/types.js'
 import { messageOf } from '../lib/errors.js'
 import { t } from '../lib/i18n.js'
+import { withMigratedTypography } from './useReaderStyle.js'
 
 import type { ToastState } from './useToast.js'
 
@@ -106,7 +107,7 @@ export function useBookshelf(actions: MutableRefObject<BookshelfActions>): Books
         setBook(opened.book)
         setChapters(opened.chapters)
         helpers.refreshBookmarks(opened.book.id)
-        helpers.setStyle({ ...DEFAULT_READER_STYLE, ...opened.style, theme: helpers.appTheme })
+        helpers.setStyle({ ...DEFAULT_READER_STYLE, ...withMigratedTypography(opened.style), theme: helpers.appTheme })
         helpers.resetBookView()
         if (opened.chapters.length > 0 && opened.chapters.every((item) => item.classifiedBy === null)) {
           helpers.notify({
@@ -182,6 +183,7 @@ export function useBookshelf(actions: MutableRefObject<BookshelfActions>): Books
           clearBook()
           helpers.resetNotes()
         }
+        helpers.notify({ kind: 'info', text: t('已移入书籍回收站，30 天内可在书架「最近删除」恢复。') })
       } catch (err) {
         helpers.notify({ kind: 'error', text: messageOf(err) })
       }

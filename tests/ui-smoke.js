@@ -12,6 +12,19 @@
     }
     throw new Error(`等待超时：${message}`)
   }
+  const topNav = async (...labels) => {
+    for (const label of labels) {
+      const button = [...document.querySelectorAll('.topbar button')].find((item) => item.textContent.trim() === label)
+      if (button) return button
+    }
+    const more = [...document.querySelectorAll('.topbar button')].find((item) => item.textContent.trim() === '更多')
+    if (!more) return null
+    more.click()
+    return waitFor(
+      () => [...document.querySelectorAll('.topbar-more-menu button')].find((item) => labels.includes(item.textContent.trim())),
+      `顶栏菜单 ${labels.join('/')}`,
+    )
+  }
   const setInput = (field, value) => {
     const prototype = field instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype
     const setter = Object.getOwnPropertyDescriptor(prototype, 'value').set
@@ -41,6 +54,19 @@
     range.selectNodeContents(button)
     assert(range.getClientRects().length <= 1, `书架按钮文字换行：${button.textContent.trim()}`)
   }
+
+  const moreNav = [...document.querySelectorAll('.topbar button')].find(
+    (button) => button.textContent.trim() === '更多',
+  )
+  assert(moreNav, '顶栏没有「更多」入口')
+  moreNav.click()
+  const moreMenu = await waitFor(() => document.querySelector('.topbar-more-menu'), '打开顶栏「更多」菜单')
+  const moreRect = moreMenu.getBoundingClientRect()
+  assert(moreRect.height > 0, '顶栏「更多」菜单没有高度')
+  const menuHit = document.elementFromPoint(moreRect.left + 20, moreRect.top + 20)
+  assert(menuHit?.closest('.topbar-more-menu'), '顶栏「更多」菜单被页面内容遮挡')
+  moreNav.click()
+  await waitFor(() => !document.querySelector('.topbar-more-menu'), '关闭顶栏「更多」菜单')
 
   const books = await window.api.listBooks()
   const book = books[0]
@@ -191,12 +217,19 @@
     '设置弹窗',
   )
   await waitFor(() => settingsModal.contains(document.activeElement), '设置弹窗获得焦点')
+  const advancedToggle = [...settingsModal.querySelectorAll('button')].find(
+    (button) => button.textContent.trim() === '显示高级设置',
+  )
+  assert(advancedToggle, '设置里没有高级设置开关')
+  advancedToggle.click()
+  await delay(100)
   assert(settingsModal.textContent.includes('千问 TTS（阿里云百炼）'), '设置里没有千问 TTS 配置')
   assert(settingsModal.textContent.includes('英文音色'), '设置里没有英文音色配置')
   assert(settingsModal.textContent.includes('加入音色库'), '设置里没有音色库入口')
   assert(settingsModal.textContent.includes('导出整库'), '设置里没有整库导出入口')
   assert(settingsModal.textContent.includes('导入整库'), '设置里没有整库导入入口')
   assert(settingsModal.textContent.includes('应用锁'), '设置里没有应用锁配置')
+  assert(settingsModal.textContent.includes('外文书籍读薄语言'), '设置里没有外文读薄语言选项')
   assert(settingsModal.textContent.includes('Readwise API Token'), '演示模式下设置里没有 Readwise 配置')
   const unnamedButtons = [...document.querySelectorAll('button')].filter(
     (button) => !button.textContent.trim() && !button.getAttribute('aria-label') && !button.getAttribute('title'),
@@ -249,6 +282,16 @@
   const opened = await window.api.openBook(book.id)
   const currentChapterId = opened.book.currentChapterId
   assert(currentChapterId, '阅读进度没有记录当前章')
+  const settingsAfterOpen = await window.api.getSettings()
+  assert(settingsAfterOpen.notesLanguage === 'zh', '外文读薄语言默认值应为简体中文')
+  const aiJobs = await window.api.listAiJobs()
+  assert(Array.isArray(aiJobs), '后台 AI 任务列表接口不可用')
+  const chapterAiJobs = await window.api.getChapterAiJobs(currentChapterId)
+  assert(chapterAiJobs && 'notes' in chapterAiJobs && 'format' in chapterAiJobs, '章节 AI 任务状态接口不可用')
+  const bookAiJobs = await window.api.getBookAiJobs(book.id)
+  assert(bookAiJobs && 'compose' in bookAiJobs, '成书 AI 任务状态接口不可用')
+  assert(typeof window.api.translateChapter === 'function', '章节翻译接口不可用')
+  assert(chapterAiJobs && 'translate' in chapterAiJobs, '章节翻译任务状态接口不可用')
   const readerMarks = await window.api.listChapterMarks(currentChapterId)
   assert(readerMarks.length > 0, '划词高亮没有写入数据库')
 
@@ -430,7 +473,7 @@
   closeXhs.click()
   await waitFor(() => !document.querySelector('.xhs-modal'), '关闭小红书图文')
 
-  const mapButton = [...document.querySelectorAll('button')].find((button) => button.textContent.trim() === '地图')
+  const mapButton = await topNav('知识地图', '地图')
   assert(mapButton, '找不到地图按钮')
   mapButton.click()
   await waitFor(() => document.querySelector('.map-view'), '打开知识地图')
@@ -465,6 +508,19 @@
   assert(composeButton, '找不到成书按钮')
   composeButton.click()
   await waitFor(() => document.querySelector('.compose-view'), '打开成书页')
+  // 切到别的视图再回来，成书页应保持挂载，不能丢失生成/合并状态。
+  const notesNav = await topNav('笔记库', '笔记')
+  assert(notesNav, '顶栏找不到笔记入口')
+  notesNav.click()
+  await waitFor(
+    () => document.querySelector('.compose-shell') && !document.querySelector('.compose-shell.is-active'),
+    '切走成书页',
+  )
+  assert(document.querySelector('.compose-view'), '切走后成书页被卸载了')
+  const composeNav = [...document.querySelectorAll('.topbar button')].find((button) => button.textContent.trim() === '成书')
+  assert(composeNav, '顶栏找不到成书入口')
+  composeNav.click()
+  await waitFor(() => document.querySelector('.compose-shell.is-active .compose-view'), '切回成书页')
   const mergeButton = await waitFor(
     () => [...document.querySelectorAll('button')].find((button) => button.textContent.trim() === '合并整本书' && !button.disabled),
     '成书页没有可用的合并按钮',
@@ -530,7 +586,7 @@
   assert(afterImport.some((item) => item.title === 'UI 导入测试'), `UI 导入没有写入书籍：${afterImport.map((item) => item.title).join(' / ')}`)
   await waitFor(() => document.body.innerText.includes('UI 导入测试'), '导入后打开新书', 8000)
 
-  const notesButton = [...document.querySelectorAll('button')].find((button) => button.textContent.trim() === '笔记')
+  const notesButton = await topNav('笔记库', '笔记')
   assert(notesButton, '找不到笔记库按钮')
   notesButton.click()
   await waitFor(() => document.querySelector('.notes-library'), '打开笔记库')
@@ -552,7 +608,7 @@
   closeTrash.click()
   await waitFor(() => !document.querySelector('.trash-modal'), '关闭笔记回收站')
 
-  const contentButton = [...document.querySelectorAll('button')].find((button) => button.textContent.trim() === '内容库')
+  const contentButton = await topNav('AI 内容库', '内容库')
   assert(contentButton, '找不到内容库按钮')
   contentButton.click()
   await waitFor(() => document.querySelector('.content-view'), '打开内容库')
@@ -593,7 +649,7 @@
   confirmPurge.click()
   await waitFor(() => document.querySelectorAll('.content-row').length === 0, '彻底删除后列表更新')
 
-  const labButton = [...document.querySelectorAll('button')].find((button) => button.textContent.trim() === '工作台')
+  const labButton = await topNav('AI 工具', '工作台')
   assert(labButton, '找不到工作台按钮')
   labButton.click()
   await waitFor(() => document.querySelector('.lab-view'), '打开工作台')
@@ -651,6 +707,7 @@
     settingsFocusTrap: true,
     selectEscape: true,
     readerMarks: readerMarks.length,
+    aiJobs: aiJobs.length,
     streaming: true,
     noteEdited: true,
     mapNodes,

@@ -178,6 +178,8 @@ export const noteReportSchema = z.object({
     .object({ inputTokens: z.number(), outputTokens: z.number(), totalTokens: z.number() })
     .optional(),
   promptVersion: z.string().optional(),
+  images: z.number().optional(),
+  visionUsed: z.boolean().optional(),
   degraded: z
     .array(
       z.object({

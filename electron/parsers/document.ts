@@ -2,7 +2,7 @@ import * as cheerio from 'cheerio'
 import { unzipSync } from 'fflate'
 
 import type { NewChapter } from '../db.js'
-import { chaptersFromHtml, splitTextIntoChapters } from './text-book.js'
+import { chaptersFromHtml, splitTextIntoChapters, type ChapterSplitOptions } from './text-book.js'
 
 export interface ParsedDocument {
   title: string
@@ -25,7 +25,7 @@ function isHeadingStyle(style: string): boolean {
 }
 
 /** 从 DOCX 的 WordprocessingML 中抽取段落；标题样式转成 Markdown 标题。 */
-export function parseDocx(buffer: Buffer, sourceName: string): ParsedDocument {
+export function parseDocx(buffer: Buffer, sourceName: string, options: ChapterSplitOptions = {}): ParsedDocument {
   const files = unzipSync(new Uint8Array(buffer))
   const documentXml = files['word/document.xml']
   if (!documentXml) throw new Error('DOCX 文件缺少正文，可能已损坏。')
@@ -51,10 +51,14 @@ export function parseDocx(buffer: Buffer, sourceName: string): ParsedDocument {
   const fallback = sourceName.replace(/\.docx$/i, '')
   const title = coreField(core, 'title') || fallback
   const author = coreField(core, 'creator')
-  return { title, author, chapters: splitTextIntoChapters(body, title) }
+  return { title, author, chapters: splitTextIntoChapters(body, title, options) }
 }
 
-export function parseHtmlDocument(html: string, sourceName: string): ParsedDocument {
+export function parseHtmlDocument(
+  html: string,
+  sourceName: string,
+  options: ChapterSplitOptions = {},
+): ParsedDocument {
   const $ = cheerio.load(html)
   const title =
     $('meta[property="og:title"]').attr('content')?.trim() ||
@@ -64,18 +68,22 @@ export function parseHtmlDocument(html: string, sourceName: string): ParsedDocum
   const author =
     $('meta[name="author"]').attr('content')?.trim() ||
     $('[rel="author"]').first().text().replace(/\s+/g, ' ').trim()
-  const chapters = chaptersFromHtml($('body').html() ?? html, title)
+  const chapters = chaptersFromHtml($('body').html() ?? html, title, options)
   if (chapters.length === 0) throw new Error('没有从 HTML 中读出正文。')
   return { title, author, chapters }
 }
 
-export function parseMarkdownDocument(text: string, sourceName: string): ParsedDocument {
+export function parseMarkdownDocument(
+  text: string,
+  sourceName: string,
+  options: ChapterSplitOptions = {},
+): ParsedDocument {
   const clean = text.replace(/\r\n?/g, '\n').replace(/^﻿/, '')
   if (clean.trim().length < 20) throw new Error('文件正文太短，无法导入。')
   const firstHeading = clean.match(/^#\s+(.+)$/m)?.[1]?.trim()
   const title = firstHeading || sourceName.replace(/\.(?:md|markdown|txt)$/i, '')
   const author = clean.match(/^(?:作者|Author)[:：]\s*(.+)$/im)?.[1]?.trim() ?? ''
-  const chapters = splitTextIntoChapters(clean, title)
+  const chapters = splitTextIntoChapters(clean, title, options)
   if (chapters.length === 0) throw new Error('没有从文件中读出可阅读的章节。')
   return { title, author, chapters }
 }

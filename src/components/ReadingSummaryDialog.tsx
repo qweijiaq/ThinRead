@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type JSX } from 'react'
+import { useCallback, useEffect, useRef, useState, type JSX } from 'react'
 
 import type { SessionSummary } from '../../shared/types.js'
 import { t } from '../lib/i18n.js'
@@ -29,24 +29,45 @@ export function ReadingSummaryDialog({
   const [saved, setSaved] = useState(false)
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const requestRef = useRef(0)
+  const startedRef = useRef(false)
+  const cancelTimerRef = useRef<number | null>(null)
 
   const load = useCallback(async () => {
+    const token = ++requestRef.current
     setLoading(true)
     setError(null)
     setSaved(false)
     try {
-      setSummary(await window.api.generateSessionSummary({ chapterId, minutes }))
+      const next = await window.api.generateSessionSummary({ chapterId, minutes })
+      if (token !== requestRef.current) return
+      setSummary(next)
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      if (token !== requestRef.current) return
+      const message = err instanceof Error ? err.message : String(err)
+      // 重新生成会中止上一请求；旧请求的 AbortError 不应盖住新结果。
+      if (/abort|cancel/i.test(message)) return
+      setError(message)
     } finally {
-      setLoading(false)
+      if (token === requestRef.current) setLoading(false)
     }
   }, [chapterId, minutes])
 
   useEffect(() => {
-    void load()
+    if (cancelTimerRef.current !== null) {
+      window.clearTimeout(cancelTimerRef.current)
+      cancelTimerRef.current = null
+    }
+    // StrictMode 会执行一次“卸载再挂载”；避免第一次请求被自己取消。
+    if (!startedRef.current) {
+      startedRef.current = true
+      void load()
+    }
     return () => {
-      void window.api.cancelSessionSummary()
+      cancelTimerRef.current = window.setTimeout(() => {
+        cancelTimerRef.current = null
+        void window.api.cancelSessionSummary()
+      }, 0)
     }
   }, [load])
 

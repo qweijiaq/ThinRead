@@ -138,18 +138,25 @@ export function SearchDialog({ open, hasBook = false, onClose, onOpen, onCommand
         .finally(() => {
           if (!cancelled) setLoading(false)
         })
-      void window.api
-        .searchSemantic(term)
-        .then((extra) => {
-          if (!cancelled && extra.length > 0) {
-            setResults((current) => mergeResults(current, extra))
-          }
-        })
-        .catch(() => undefined)
     }, 160)
+    // 语义搜索要跑本地向量，比全文索引重得多；单独防抖，避免每敲一个字都重算。
+    const semanticTimer =
+      term.length >= 4
+        ? window.setTimeout(() => {
+            void window.api
+              .searchSemantic(term)
+              .then((extra) => {
+                if (!cancelled && extra.length > 0) {
+                  setResults((current) => mergeResults(current, extra))
+                }
+              })
+              .catch(() => undefined)
+          }, 520)
+        : undefined
     return () => {
       cancelled = true
       window.clearTimeout(timer)
+      if (semanticTimer) window.clearTimeout(semanticTimer)
     }
   }, [query, open])
 
@@ -226,7 +233,10 @@ export function SearchDialog({ open, hasBook = false, onClose, onOpen, onCommand
       >
         <div className="search-input-row">
           <span className="search-icon" aria-hidden="true">
-            ⌕
+            <svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+              <circle cx="8.8" cy="8.8" r="5.4" />
+              <path d="M12.8 12.8l3.7 3.7" />
+            </svg>
           </span>
           <input
             ref={inputRef}

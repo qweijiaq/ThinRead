@@ -1,10 +1,15 @@
-import { generateText, Output, streamText } from 'ai'
+import { Output, streamText } from 'ai'
 
 import type { ChatAnswer, ChatCitation, ChatMode, ChatTurn, FeynmanResult } from '../../shared/types.js'
 import { chatOutputSchema, feynmanResultSchema } from '../../shared/schemas.js'
 import { normalizeForMatch } from '../html.js'
 import type { ModelConfig } from './provider.js'
 import { createLanguageModel } from './provider.js'
+import { queryTerms, retrievePassages, scoreText } from './context.js'
+import { tracedGenerateText, traceStreamUsage } from './trace.js'
+
+const TUTOR_PROMPT_VERSION = 'tutor-v2'
+const MAX_ANSWER_TOKENS = 1_200
 
 export interface TutorContext {
   bookTitle: string
@@ -58,9 +63,9 @@ export async function askChapter(
   }
 
   const model = createLanguageModel(args.config)
-  const history = args.history.slice(-8).map((turn) => `${turn.role === 'user' ? '读者' : '助手'}：${turn.content}`)
+  const history = conversationDigest(args.history)
   const prompt = [
-    contextBlock(args.context),
+    contextBlock(args.context, question),
     history.length > 0 ? `对话记录：\n${history.join('\n')}` : '',
     `读者的问题：${question}`,
     args.mode === 'socratic'
@@ -69,15 +74,23 @@ export async function askChapter(
   ]
     .filter(Boolean)
     .join('\n\n')
+  const traceMeta = {
+    step: 'tutor-ask',
+    provider: args.config.provider,
+    model: args.config.model,
+    promptVersion: TUTOR_PROMPT_VERSION,
+  }
 
   if (onDelta) {
     let emitted = false
+    const startedAt = Date.now()
     try {
       const stream = streamText({
         model,
         system: args.mode === 'socratic' ? SOCRATIC_SYSTEM : ANSWER_SYSTEM,
         prompt,
         temperature: args.mode === 'socratic' ? 0.7 : 0.3,
+        maxOutputTokens: MAX_ANSWER_TOKENS,
         maxRetries: 1,
         abortSignal: AbortSignal.timeout(90_000),
         output: Output.object({ schema: chatOutputSchema }),
@@ -92,18 +105,21 @@ export async function askChapter(
         }
       }
       const final = await stream.output
+      traceStreamUsage(traceMeta, startedAt, await stream.usage)
       return { answer: final.answer.trim(), citations: normalizeCitations(final.citations, args.context.chapterText) }
     } catch (error) {
+      traceStreamUsage(traceMeta, startedAt, undefined, error)
       // 某些 OpenAI-compatible 服务不支持结构化流式输出；尚未产生增量时回退到普通请求。
       if (emitted) throw error
     }
   }
 
-  const response = await generateText({
+  const response = await tracedGenerateText(traceMeta, {
     model,
     system: args.mode === 'socratic' ? SOCRATIC_SYSTEM : ANSWER_SYSTEM,
     prompt,
     temperature: args.mode === 'socratic' ? 0.7 : 0.3,
+    maxOutputTokens: MAX_ANSWER_TOKENS,
     maxRetries: 1,
     abortSignal: AbortSignal.timeout(90_000),
   })
@@ -135,19 +151,27 @@ export async function evaluateExplanation(
 
   const model = createLanguageModel(args.config)
   const prompt = [
-    contextBlock(args.context),
-    `读者的解释：\n${explanation.slice(0, 4000)}`,
+    contextBlock(args.context, explanation.slice(0, 4_000)),
+    `读者的解释：\n${explanation.slice(0, 4_000)}`,
     '请检查这段解释。',
   ].join('\n\n')
+  const traceMeta = {
+    step: 'tutor-feynman',
+    provider: args.config.provider,
+    model: args.config.model,
+    promptVersion: TUTOR_PROMPT_VERSION,
+  }
 
   if (onDelta) {
     let emitted = false
+    const startedAt = Date.now()
     try {
       const stream = streamText({
         model,
         system: FEYNMAN_SYSTEM,
         prompt,
         temperature: 0.2,
+        maxOutputTokens: MAX_ANSWER_TOKENS,
         maxRetries: 1,
         abortSignal: AbortSignal.timeout(90_000),
         output: Output.object({ schema: feynmanResultSchema }),
@@ -161,17 +185,21 @@ export async function evaluateExplanation(
           onDelta(text)
         }
       }
-      return await stream.output
+      const output = await stream.output
+      traceStreamUsage(traceMeta, startedAt, await stream.usage)
+      return output
     } catch (error) {
+      traceStreamUsage(traceMeta, startedAt, undefined, error)
       if (emitted) throw error
     }
   }
 
-  const response = await generateText({
+  const response = await tracedGenerateText(traceMeta, {
     model,
     system: FEYNMAN_SYSTEM,
     prompt,
     temperature: 0.2,
+    maxOutputTokens: MAX_ANSWER_TOKENS,
     maxRetries: 1,
     abortSignal: AbortSignal.timeout(90_000),
   })
@@ -185,21 +213,56 @@ export async function evaluateExplanation(
   }
 }
 
-function contextBlock(context: TutorContext): string {
-  const cards = context.cards
-    .slice(0, 20)
+function contextBlock(context: TutorContext, query: string): string {
+  // 卡片和原文都按问题检索，避免多轮对话每次都重送整章。
+  const cards = relevantCards(context.cards, query, 12)
     .map((card) => `- ${card.title}：${card.content}${card.role ? `（作用：${card.role}）` : ''}`)
     .join('\n')
-  // 有读薄稿时原文只作为引文核对和上下文补充，不必每轮重送整章。
-  const rawLimit = context.condensed ? 5_000 : 14_000
+  const rawLimit = context.condensed ? 4_000 : 9_000
+  const excerpt = retrievePassages(context.chapterText, query, rawLimit)
   return [
     `书名《${context.bookTitle}》，当前章节「${context.chapterTitle}」。`,
-    context.condensed ? `读薄稿：\n${context.condensed.slice(0, 6000)}` : '',
+    context.condensed ? `读薄稿：\n${context.condensed.slice(0, 5_000)}` : '',
     cards ? `核心卡片：\n${cards}` : '',
-    `章节原文（节选）：\n${context.chapterText.slice(0, rawLimit)}`,
+    excerpt ? `章节原文（与问题相关的节选）：\n${excerpt}` : '',
   ]
     .filter(Boolean)
     .join('\n\n')
+}
+
+/** 多轮只保留最近 4 轮原文，更早的压成一句摘要，避免上下文随对话线性增长。 */
+function conversationDigest(history: ChatTurn[]): string[] {
+  if (history.length === 0) return []
+  const recent = history.slice(-4)
+  const older = history.slice(0, -4)
+  const lines: string[] = []
+  if (older.length > 0) {
+    lines.push(
+      `更早对话摘要：${older
+        .map((turn) => `${turn.role === 'user' ? '读者' : '助手'}：${turn.content.replace(/\s+/g, ' ').slice(0, 90)}`)
+        .join(' | ')}`,
+    )
+  }
+  for (const turn of recent) {
+    lines.push(`${turn.role === 'user' ? '读者' : '助手'}：${turn.content.slice(0, 900)}`)
+  }
+  return lines
+}
+
+function relevantCards(
+  cards: TutorContext['cards'],
+  query: string,
+  limit: number,
+): TutorContext['cards'] {
+  const terms = queryTerms(query)
+  return cards
+    .map((card) => ({
+      card,
+      score: scoreText(`${card.title} ${card.content} ${card.role ?? ''}`, terms),
+    }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map((row) => row.card)
 }
 
 function normalizeCitations(raw: unknown, chapterText: string): ChatCitation[] {

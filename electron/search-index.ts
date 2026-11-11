@@ -5,23 +5,28 @@ import { promisify } from 'node:util'
 import { gzip, gunzipSync } from 'node:zlib'
 
 import type { SearchResult } from '../shared/types.js'
-import type { SearchDocument } from './db.js'
-import { searchDocuments, searchIndexSignature } from './db.js'
+import type { SearchDocument } from './search.js'
+import { searchDocuments, searchIndexSignature } from './search.js'
 
 interface IndexCache {
   signature: string
   documents: SearchDocument[]
-  inverted: Map<string, number[]>
+  byId: Map<string, SearchDocument>
+  /** token -> 文档 id（type:id），不再依赖数组下标，便于增量更新。 */
+  inverted: Map<string, string[]>
+  /** 每个文档的 token，删除或更新时只处理它自己的倒排项。 */
+  tokensById: Map<string, string[]>
 }
 
 interface SerializedIndex {
   version: number
   signature: string
   documents: SearchDocument[]
-  inverted: Record<string, number[]>
+  inverted: Record<string, string[]>
+  tokens: Record<string, string[]>
 }
 
-const INDEX_VERSION = 1
+const INDEX_VERSION = 2
 const gzipAsync = promisify(gzip)
 let cache: IndexCache | null = null
 let building: Promise<IndexCache> | null = null
@@ -37,18 +42,58 @@ function cacheFile(): string | null {
   return cacheDir ? path.join(cacheDir, 'search-index.json.gz') : null
 }
 
-function loadPersisted(signature: string): IndexCache | null {
+function documentKey(document: SearchDocument): string {
+  return `${document.type}:${document.id}`
+}
+
+function sameDocument(left: SearchDocument, right: SearchDocument): boolean {
+  return (
+    left.title === right.title &&
+    left.text === right.text &&
+    left.updatedAt === right.updatedAt &&
+    left.bookId === right.bookId &&
+    left.chapterId === right.chapterId &&
+    left.meta === right.meta
+  )
+}
+
+function makeCache(
+  signature: string,
+  documents: SearchDocument[],
+  inverted: Map<string, string[]>,
+  tokensById: Map<string, string[]>,
+): IndexCache {
+  return {
+    signature,
+    documents,
+    byId: new Map(documents.map((document) => [documentKey(document), document])),
+    inverted,
+    tokensById,
+  }
+}
+
+function loadPersisted(): IndexCache | null {
   const file = cacheFile()
   if (!file || !fs.existsSync(file)) return null
   try {
     const parsed = JSON.parse(gunzipSync(fs.readFileSync(file)).toString('utf8')) as SerializedIndex
-    if (parsed.version !== INDEX_VERSION || parsed.signature !== signature) return null
-    if (!Array.isArray(parsed.documents) || !parsed.inverted || typeof parsed.inverted !== 'object') return null
-    return {
-      signature,
-      documents: parsed.documents,
-      inverted: new Map(Object.entries(parsed.inverted).filter((entry): entry is [string, number[]] => Array.isArray(entry[1]))),
-    }
+    if (parsed.version !== INDEX_VERSION) return null
+    if (!Array.isArray(parsed.documents) || !parsed.inverted || !parsed.tokens) return null
+    const inverted = new Map(
+      Object.entries(parsed.inverted).filter(
+        (entry): entry is [string, string[]] =>
+          Array.isArray(entry[1]) && entry[1].every((item) => typeof item === 'string'),
+      ),
+    )
+    const tokensById = new Map(
+      Object.entries(parsed.tokens).filter(
+        (entry): entry is [string, string[]] =>
+          Array.isArray(entry[1]) && entry[1].every((item) => typeof item === 'string'),
+      ),
+    )
+    if (parsed.documents.length > 0 && (inverted.size === 0 || tokensById.size === 0)) return null
+    if (tokensById.size > 0 && tokensById.size !== parsed.documents.length) return null
+    return makeCache(parsed.signature, parsed.documents, inverted, tokensById)
   } catch {
     return null
   }
@@ -64,6 +109,7 @@ function persist(next: IndexCache): void {
         signature: next.signature,
         documents: next.documents,
         inverted: Object.fromEntries(next.inverted),
+        tokens: Object.fromEntries(next.tokensById),
       }
       const compressed = await gzipAsync(Buffer.from(JSON.stringify(serialized), 'utf8'))
       await fsp.mkdir(path.dirname(file), { recursive: true })
@@ -76,13 +122,7 @@ function persist(next: IndexCache): void {
   })()
 }
 
-function addToMap(map: Map<string, Set<number>>, token: string, documentIndex: number): void {
-  const list = map.get(token) ?? new Set<number>()
-  list.add(documentIndex)
-  map.set(token, list)
-}
-
-/** 中文按单字 + 二元组切分，英文按词切分；不依赖 SQLite FTS5。 */
+/** 中文按二元组切分，英文按词切分；不依赖 SQLite FTS5。 */
 export function tokenize(text: string): string[] {
   const normalized = text.normalize('NFKC').toLowerCase()
   const tokens = new Set<string>()
@@ -106,25 +146,107 @@ export function tokenize(text: string): string[] {
   return [...tokens]
 }
 
+function documentTokens(document: SearchDocument): string[] {
+  return tokenize(`${document.title}\n${document.title}\n${document.text}`)
+}
+
+function addDocument(
+  document: SearchDocument,
+  inverted: Map<string, string[]>,
+  tokensById: Map<string, string[]>,
+): void {
+  const key = documentKey(document)
+  const tokens = documentTokens(document)
+  tokensById.set(key, tokens)
+  for (const token of tokens) {
+    const list = inverted.get(token)
+    if (list) list.push(key)
+    else inverted.set(token, [key])
+  }
+}
+
+function removeDocument(
+  key: string,
+  inverted: Map<string, string[]>,
+  tokensById: Map<string, string[]>,
+): void {
+  const tokens = tokensById.get(key)
+  if (!tokens) return
+  for (const token of tokens) {
+    const list = inverted.get(token)
+    if (!list) continue
+    const index = list.indexOf(key)
+    if (index >= 0) list.splice(index, 1)
+    if (list.length === 0) inverted.delete(token)
+  }
+  tokensById.delete(key)
+}
+
+/**
+ * 增量更新：只重新切分新增/变化的文档，未变化的文档复用倒排项。
+ * searchDocuments() 仍会扫描数据库，但省掉了全库重新 tokenize 和重建 postings 的成本。
+ */
+function reindexDocuments(
+  documents: SearchDocument[],
+  signature: string,
+  base: IndexCache | null,
+): IndexCache {
+  const nextById = new Map(documents.map((document) => [documentKey(document), document]))
+  const inverted = new Map<string, string[]>()
+  const tokensById = new Map<string, string[]>()
+  if (base) {
+    for (const [token, list] of base.inverted) inverted.set(token, [...list])
+    for (const [key, tokens] of base.tokensById) tokensById.set(key, tokens)
+  }
+
+  if (base) {
+    for (const key of base.byId.keys()) {
+      if (!nextById.has(key)) removeDocument(key, inverted, tokensById)
+    }
+  }
+  for (const document of documents) {
+    const key = documentKey(document)
+    const previous = base?.byId.get(key)
+    if (previous && sameDocument(previous, document)) continue
+    if (previous) removeDocument(key, inverted, tokensById)
+    addDocument(document, inverted, tokensById)
+  }
+  return makeCache(signature, documents, inverted, tokensById)
+}
+
+async function buildFromScratchAsync(documents: SearchDocument[], signature: string): Promise<IndexCache> {
+  const inverted = new Map<string, string[]>()
+  const tokensById = new Map<string, string[]>()
+  for (let index = 0; index < documents.length; index++) {
+    const document = documents[index]!
+    const key = documentKey(document)
+    const tokens = documentTokens(document)
+    tokensById.set(key, tokens)
+    for (const token of tokens) {
+      const list = inverted.get(token)
+      if (list) list.push(key)
+      else inverted.set(token, [key])
+    }
+    if (index % 40 === 39) {
+      await new Promise<void>((resolve) => setImmediate(resolve))
+    }
+  }
+  return makeCache(signature, documents, inverted, tokensById)
+}
+
 function buildCache(): IndexCache {
   const signature = searchIndexSignature()
   if (cache && cache.signature === signature) return cache
-  const persisted = loadPersisted(signature)
-  if (persisted) {
+  const persisted = loadPersisted()
+  if (persisted?.signature === signature) {
     cache = persisted
     return persisted
   }
   const documents = searchDocuments()
-  const temp = new Map<string, Set<number>>()
-  documents.forEach((document, documentIndex) => {
-    const tokens = new Set(tokenize(`${document.title}\n${document.title}\n${document.text}`))
-    for (const token of tokens) addToMap(temp, token, documentIndex)
-  })
-  const inverted = new Map<string, number[]>()
-  for (const [token, list] of temp) inverted.set(token, [...list])
-  cache = { signature, documents, inverted }
-  persist(cache)
-  return cache
+  const next = reindexDocuments(documents, signature, cache ?? persisted)
+  cache = next
+  persist(next)
+  return next
 }
 
 /** 分块建索引，避免大书库首次搜索时长时间占住主进程。 */
@@ -133,24 +255,16 @@ async function buildCacheAsync(): Promise<IndexCache> {
   building = (async () => {
     const signature = searchIndexSignature()
     if (cache && cache.signature === signature) return cache
-    const persisted = loadPersisted(signature)
-    if (persisted) {
+    const persisted = loadPersisted()
+    if (persisted?.signature === signature) {
       cache = persisted
       return persisted
     }
     const documents = searchDocuments()
-    const temp = new Map<string, Set<number>>()
-    for (let documentIndex = 0; documentIndex < documents.length; documentIndex++) {
-      const document = documents[documentIndex]!
-      const tokens = new Set(tokenize(`${document.title}\n${document.title}\n${document.text}`))
-      for (const token of tokens) addToMap(temp, token, documentIndex)
-      if (documentIndex % 40 === 39) {
-        await new Promise<void>((resolve) => setImmediate(resolve))
-      }
-    }
-    const inverted = new Map<string, number[]>()
-    for (const [token, list] of temp) inverted.set(token, [...list])
-    const next = { signature, documents, inverted }
+    const base = cache ?? persisted
+    const next = base
+      ? reindexDocuments(documents, signature, base)
+      : await buildFromScratchAsync(documents, signature)
     cache = next
     persist(next)
     return next
@@ -203,25 +317,29 @@ function scoreDocument(document: SearchDocument, query: string, tokens: string[]
   return score
 }
 
-function runSearch(index: IndexCache, query: string, limit: number): SearchResult[] {
-  const queryTokens = [...new Set(tokenize(query))]
-  let candidates: Set<number> | null = null
+function candidateIds(index: IndexCache, queryTokens: string[]): Set<string> | null {
+  let candidates: Set<string> | null = null
   for (const token of queryTokens) {
     const list = index.inverted.get(token)
-    if (!list || list.length === 0) return []
+    if (!list || list.length === 0) return null
     const current = new Set(list)
     if (candidates === null) candidates = current
     else for (const item of [...candidates]) if (!current.has(item)) candidates.delete(item)
-    if (candidates.size === 0) return []
+    if (candidates.size === 0) return null
   }
-  if (!candidates) return []
+  return candidates
+}
 
+function runSearch(index: IndexCache, query: string, limit: number): SearchResult[] {
+  const queryTokens = [...new Set(tokenize(query))]
+  const candidates = candidateIds(index, queryTokens)
+  if (!candidates) return []
   const scored = [...candidates]
-    .map((documentIndex) => {
-      const document = index.documents[documentIndex]!
-      return { document, score: scoreDocument(document, query, queryTokens) }
+    .map((key) => {
+      const document = index.byId.get(key)
+      return document ? { document, score: scoreDocument(document, query, queryTokens) } : null
     })
-    .filter((item) => item.score > 0)
+    .filter((item): item is { document: SearchDocument; score: number } => Boolean(item && item.score > 0))
     .sort((a, b) => b.score - a.score)
     .slice(0, Math.min(Math.max(limit, 1), 80))
 
@@ -244,7 +362,7 @@ function prepareQuery(rawQuery: string): string | null {
   return tokenize(query).length === 0 ? null : query
 }
 
-/** 本地全文索引；签名不变时复用。返回 null 表示当前查询不适合索引。 */
+/** 本地全文索引；签名不变时复用，变化时只重算变更文档。 */
 export function searchIndex(rawQuery: string, limit = 40): SearchResult[] | null {
   const query = prepareQuery(rawQuery)
   if (!query) return null
@@ -281,22 +399,17 @@ export async function searchIndexIds(
     await warmSearchIndex()
     const index = cache!
     const queryTokens = [...new Set(tokenize(query))]
-    let candidates: Set<number> | null = null
-    for (const token of queryTokens) {
-      const list = index.inverted.get(token)
-      if (!list || list.length === 0) return []
-      const current = new Set(list)
-      if (candidates === null) candidates = current
-      else for (const item of [...candidates]) if (!current.has(item)) candidates.delete(item)
-      if (candidates.size === 0) return []
-    }
+    const candidates = candidateIds(index, queryTokens)
     if (!candidates) return []
     return [...candidates]
-      .map((documentIndex) => {
-        const document = index.documents[documentIndex]!
-        return { document, score: scoreDocument(document, query, queryTokens) }
+      .map((key) => {
+        const document = index.byId.get(key)
+        return document ? { document, score: scoreDocument(document, query, queryTokens) } : null
       })
-      .filter((item) => item.document.type === type && item.score > 0)
+      .filter(
+        (item): item is { document: SearchDocument; score: number } =>
+          Boolean(item && item.document.type === type && item.score > 0),
+      )
       .sort((a, b) => b.score - a.score)
       .slice(0, Math.min(Math.max(limit, 1), 2000))
       .map((item) => item.document.id)

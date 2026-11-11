@@ -3,10 +3,18 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 
+import { detectBookLanguage } from './book-language.js'
+import { htmlToText } from './html.js'
+import { closeDatabase, getDatabase, setDatabase } from './database.js'
+import { markInterruptedBackgroundTasksPaused, pruneBackgroundTasks } from './tasks.js'
+export { closeDatabase }
+export * from './tasks.js'
+
 import type {
   BookFormat,
   BookGenre,
   BookSummary,
+  BookTranslationInfo,
   ChapterContent,
   ChapterFlag,
   ChapterFlagSource,
@@ -29,17 +37,14 @@ import type {
   ReaderStyle,
   RelatedNote,
   RemovedPart,
-  SearchResult,
-  SearchResultType,
   LibraryFilter,
   LibraryNote,
   LibraryNoteAudit,
   LabArtifact,
   PageResult,
   TagCount,
-  BackgroundTaskRecord,
-  BackgroundTaskTarget,
   TrashedChapter,
+  TrashedBook,
   TrashedNote,
   ContentApplyAction,
   ContentApplyResult,
@@ -63,7 +68,6 @@ import {
 } from '../shared/schemas.js'
 import { normalizeReaderStyle, parseStyleJson } from './reader-style.js'
 
-let db: DatabaseSync | null = null
 
 export interface NewBook {
   title: string
@@ -133,6 +137,9 @@ interface ChapterRow {
   format_removed: string | null
   format_updated_at: string | null
   note_report: string | null
+  translated_text: string | null
+  translated_html: string | null
+  translated_at: string | null
 }
 
 interface ChapterMarkRow {
@@ -195,8 +202,9 @@ interface NoteRow {
 
 export function initDatabase(dataDir: string): void {
   fs.mkdirSync(dataDir, { recursive: true })
-  db = new DatabaseSync(path.join(dataDir, 'reading-notes.db'))
-  db.exec(`
+  const conn = new DatabaseSync(path.join(dataDir, 'reading-notes.db'))
+  setDatabase(conn)
+  conn.exec(`
     PRAGMA journal_mode = WAL;
     PRAGMA foreign_keys = ON;
     PRAGMA busy_timeout = 5000;
@@ -232,6 +240,9 @@ export function initDatabase(dataDir: string): void {
       format_removed TEXT,
       format_updated_at TEXT,
       note_report TEXT,
+      translated_text TEXT,
+      translated_html TEXT,
+      translated_at TEXT,
       UNIQUE(book_id, idx)
     );
 
@@ -401,7 +412,7 @@ export function initDatabase(dataDir: string): void {
       value TEXT NOT NULL
     );
   `)
-  runMigrations(db)
+  runMigrations(conn)
   migrateWeeklyReviewNotes()
   pruneNoteTrash()
   pruneChapterTrash()
@@ -411,7 +422,7 @@ export function initDatabase(dataDir: string): void {
   optimizeDatabase()
 }
 
-export const SCHEMA_VERSION = 4
+export const SCHEMA_VERSION = 7
 
 interface SchemaMigration {
   version: number
@@ -475,6 +486,43 @@ const MIGRATIONS: SchemaMigration[] = [
         CREATE INDEX IF NOT EXISTS idx_note_trash_deleted ON note_trash(deleted_at);
         CREATE INDEX IF NOT EXISTS idx_chapter_trash_deleted ON chapter_trash(deleted_at);
         CREATE INDEX IF NOT EXISTS idx_tasks_status_updated ON background_tasks(status, updated_at);
+      `)
+    },
+  },
+  {
+    version: 5,
+    // 整章 AI 译文，用于在原文和译文之间切换。
+    run(conn) {
+      const columns = new Set(
+        (conn.prepare('PRAGMA table_info(chapters)').all() as unknown as Array<{ name: string }>).map((row) => row.name),
+      )
+      if (!columns.has('translated_text')) conn.exec('ALTER TABLE chapters ADD COLUMN translated_text TEXT')
+      if (!columns.has('translated_html')) conn.exec('ALTER TABLE chapters ADD COLUMN translated_html TEXT')
+      if (!columns.has('translated_at')) conn.exec('ALTER TABLE chapters ADD COLUMN translated_at TEXT')
+    },
+  },
+  {
+    version: 6,
+    // 翻译保留 HTML 结构，避免标题和表格在纯文本回退时丢失。
+    run(conn) {
+      const columns = new Set(
+        (conn.prepare('PRAGMA table_info(chapters)').all() as unknown as Array<{ name: string }>).map((row) => row.name),
+      )
+      if (!columns.has('translated_html')) conn.exec('ALTER TABLE chapters ADD COLUMN translated_html TEXT')
+    },
+  },
+  {
+    version: 7,
+    // 书籍级回收站：删除整本书时保留 30 天，避免只能回滚整库备份。
+    run(conn) {
+      conn.exec(`
+        CREATE TABLE IF NOT EXISTS book_trash (
+          id TEXT PRIMARY KEY,
+          payload TEXT NOT NULL,
+          file_dir TEXT NOT NULL,
+          deleted_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_book_trash_deleted ON book_trash(deleted_at);
       `)
     },
   },
@@ -659,21 +707,16 @@ function migrateChapters(conn: DatabaseSync): void {
     ['format_removed', 'TEXT'],
     ['format_updated_at', 'TEXT'],
     ['note_report', 'TEXT'],
+    ['translated_text', 'TEXT'],
+    ['translated_html', 'TEXT'],
+    ['translated_at', 'TEXT'],
   ]
   for (const [name, ddl] of additions) {
     if (!columns.has(name)) conn.exec(`ALTER TABLE chapters ADD COLUMN ${name} ${ddl}`)
   }
 }
 
-function database(): DatabaseSync {
-  if (!db) throw new Error('数据库尚未初始化')
-  return db
-}
-
-export function closeDatabase(): void {
-  db?.close()
-  db = null
-}
+const database = getDatabase
 
 /** 用 SQLite 自己的 VACUUM INTO 做一致性快照，避免直接复制 WAL 中的半写状态。 */
 export function backupDatabaseTo(filePath: string): void {
@@ -821,17 +864,40 @@ export function splitBook(
   return split
 }
 
-const BOOK_SELECT = `SELECT b.*,
-  (SELECT COUNT(*) FROM chapters c WHERE c.book_id = b.id AND c.hidden = 0) AS chapter_count,
-  (SELECT COUNT(*) FROM chapters c WHERE c.book_id = b.id AND c.hidden = 1) AS hidden_chapter_count,
-  (SELECT COUNT(*) FROM chapters c WHERE c.book_id = b.id AND c.hidden = 0
-     AND c.idx <= COALESCE((SELECT cc.idx FROM chapters cc WHERE cc.id = b.current_chapter_id), -1)) AS read_count,
-  (SELECT COUNT(*) FROM notes n WHERE n.book_id = b.id) AS note_count,
-  (SELECT COALESCE(SUM(c.chars), 0) FROM chapters c WHERE c.book_id = b.id AND c.hidden = 0) AS total_chars,
-  (SELECT COALESCE(SUM(c.chars), 0) FROM chapters c WHERE c.book_id = b.id AND c.hidden = 0
-     AND c.idx <= COALESCE((SELECT cc.idx FROM chapters cc WHERE cc.id = b.current_chapter_id), -1)) AS read_chars,
-  (SELECT c.idx FROM chapters c WHERE c.id = b.current_chapter_id) AS current_chapter_idx
- FROM books b`
+const BOOK_SELECT = `WITH chapter_stats AS (
+    SELECT book_id,
+      SUM(CASE WHEN hidden = 0 THEN 1 ELSE 0 END) AS chapter_count,
+      SUM(CASE WHEN hidden = 1 THEN 1 ELSE 0 END) AS hidden_chapter_count,
+      SUM(CASE WHEN hidden = 0 THEN chars ELSE 0 END) AS total_chars
+    FROM chapters GROUP BY book_id
+  ),
+  note_stats AS (
+    SELECT book_id, COUNT(*) AS note_count FROM notes GROUP BY book_id
+  ),
+  current_pos AS (
+    SELECT b.id AS book_id, COALESCE(c.idx, -1) AS current_idx
+    FROM books b LEFT JOIN chapters c ON c.id = b.current_chapter_id
+  ),
+  read_stats AS (
+    SELECT c.book_id,
+      SUM(CASE WHEN c.hidden = 0 AND c.idx <= cp.current_idx THEN 1 ELSE 0 END) AS read_count,
+      SUM(CASE WHEN c.hidden = 0 AND c.idx <= cp.current_idx THEN c.chars ELSE 0 END) AS read_chars
+    FROM chapters c JOIN current_pos cp ON cp.book_id = c.book_id
+    GROUP BY c.book_id
+  )
+  SELECT b.*,
+    COALESCE(cs.chapter_count, 0) AS chapter_count,
+    COALESCE(cs.hidden_chapter_count, 0) AS hidden_chapter_count,
+    COALESCE(rs.read_count, 0) AS read_count,
+    COALESCE(ns.note_count, 0) AS note_count,
+    COALESCE(cs.total_chars, 0) AS total_chars,
+    COALESCE(rs.read_chars, 0) AS read_chars,
+    cp.current_idx AS current_chapter_idx
+  FROM books b
+  LEFT JOIN chapter_stats cs ON cs.book_id = b.id
+  LEFT JOIN note_stats ns ON ns.book_id = b.id
+  LEFT JOIN current_pos cp ON cp.book_id = b.id
+  LEFT JOIN read_stats rs ON rs.book_id = b.id`
 
 export function listBooks(): BookSummary[] {
   const rows = database()
@@ -847,15 +913,44 @@ export function getBookSummary(bookId: string): BookSummary | null {
   return row ? mapBook(row) : null
 }
 
+/** 判断整本书是否以可见正文中的外文为主，并统计已有译文的章节数。 */
+export function getBookTranslationInfo(bookId: string): BookTranslationInfo {
+  const rows = database()
+    .prepare(
+      `SELECT id, text, translated_html
+       FROM chapters
+       WHERE book_id = ?
+         AND hidden = 0
+         AND kind IN ('content', 'front', 'unknown')
+       ORDER BY idx`,
+    )
+    .all(bookId) as unknown as Array<{
+    id: string
+    text: string
+    translated_html: string | null
+  }>
+  const language = detectBookLanguage(rows.map((row) => row.text))
+  return {
+    foreign: language.foreign,
+    language: language.language,
+    ratio: language.ratio,
+    total: rows.length,
+    translated: rows.filter((row) => Boolean(row.translated_html?.trim())).length,
+  }
+}
+
+const bookCoverCache = new Map<string, { mtimeMs: number; size: number; dataUrl: string }>()
+
 export function updateBookCover(bookId: string, coverPath: string): void {
   database().prepare('UPDATE books SET cover_path = ? WHERE id = ?').run(coverPath, bookId)
+  bookCoverCache.delete(bookId)
 }
 
 export function getBookCover(bookId: string): string | null {
   const row = database().prepare('SELECT cover_path FROM books WHERE id = ?').get(bookId) as
     | { cover_path: string | null }
     | undefined
-  if (!row?.cover_path || !fs.existsSync(row.cover_path)) return null
+  if (!row?.cover_path) return null
   const extension = path.extname(row.cover_path).toLowerCase()
   const mime =
     extension === '.png' ? 'image/png'
@@ -864,8 +959,19 @@ export function getBookCover(bookId: string): string | null {
           : extension === '.svg' ? 'image/svg+xml'
             : 'image/jpeg'
   try {
-    return `data:${mime};base64,${fs.readFileSync(row.cover_path).toString('base64')}`
+    const stat = fs.statSync(row.cover_path)
+    const cached = bookCoverCache.get(bookId)
+    if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) return cached.dataUrl
+    const dataUrl = `data:${mime};base64,${fs.readFileSync(row.cover_path).toString('base64')}`
+    bookCoverCache.set(bookId, { mtimeMs: stat.mtimeMs, size: stat.size, dataUrl })
+    while (bookCoverCache.size > 80) {
+      const oldest = bookCoverCache.keys().next().value
+      if (typeof oldest !== 'string') break
+      bookCoverCache.delete(oldest)
+    }
+    return dataUrl
   } catch {
+    bookCoverCache.delete(bookId)
     return null
   }
 }
@@ -1784,136 +1890,6 @@ export function emptyChapterTrash(): number {
   }
 }
 
-interface DurableTaskRow {
-  id: string
-  kind: string
-  book_id: string
-  payload: string
-  status: string
-  done: number
-  total: number
-  failures: string
-  created_at: string
-  updated_at: string
-}
-
-function mapDurableTask(row: DurableTaskRow): BackgroundTaskRecord {
-  let targets: BackgroundTaskTarget[] = []
-  let failures: BackgroundTaskRecord['failures'] = []
-  try {
-    const payload = JSON.parse(row.payload) as { targets?: BackgroundTaskTarget[] }
-    if (Array.isArray(payload.targets)) targets = payload.targets.filter((item) => item && typeof item.id === 'string')
-  } catch {
-    // 旧任务数据损坏时仍然允许清理。
-  }
-  try {
-    const parsed = JSON.parse(row.failures) as BackgroundTaskRecord['failures']
-    if (Array.isArray(parsed)) failures = parsed
-  } catch {
-    // 忽略损坏的失败记录。
-  }
-  return {
-    id: row.id,
-    kind: row.kind === 'format' ? 'format' : 'notes',
-    bookId: row.book_id,
-    targets,
-    status:
-      row.status === 'paused' || row.status === 'done' || row.status === 'error' || row.status === 'cancelled'
-        ? row.status
-        : 'paused',
-    done: Number(row.done) || 0,
-    total: Number(row.total) || targets.length,
-    failures,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  }
-}
-
-export function upsertBackgroundTask(input: {
-  id: string
-  kind: 'notes' | 'format'
-  bookId: string
-  targets: BackgroundTaskTarget[]
-  status: BackgroundTaskRecord['status']
-  done?: number
-  failures?: BackgroundTaskRecord['failures']
-}): void {
-  const now = new Date().toISOString()
-  database()
-    .prepare(
-      `INSERT INTO background_tasks
-       (id, kind, book_id, payload, status, done, total, failures, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET
-         kind = excluded.kind,
-         book_id = excluded.book_id,
-         payload = excluded.payload,
-         status = excluded.status,
-         done = excluded.done,
-         total = excluded.total,
-         failures = excluded.failures,
-         updated_at = excluded.updated_at`,
-    )
-    .run(
-      input.id,
-      input.kind,
-      input.bookId,
-      JSON.stringify({ targets: input.targets }),
-      input.status,
-      input.done ?? 0,
-      input.targets.length,
-      JSON.stringify(input.failures ?? []),
-      now,
-      now,
-    )
-}
-
-export function updateBackgroundTask(
-  id: string,
-  patch: { status?: BackgroundTaskRecord['status']; done?: number; failures?: BackgroundTaskRecord['failures'] },
-): void {
-  const row = database().prepare('SELECT * FROM background_tasks WHERE id = ?').get(id) as
-    | DurableTaskRow
-    | undefined
-  if (!row) return
-  let failures = patch.failures
-  if (!failures) {
-    try {
-      const parsed = JSON.parse(row.failures || '[]') as BackgroundTaskRecord['failures']
-      failures = Array.isArray(parsed) ? parsed : []
-    } catch {
-      failures = []
-    }
-  }
-  database()
-    .prepare('UPDATE background_tasks SET status = ?, done = ?, failures = ?, updated_at = ? WHERE id = ?')
-    .run(
-      patch.status ?? row.status,
-      patch.done ?? row.done,
-      JSON.stringify(failures),
-      new Date().toISOString(),
-      id,
-    )
-}
-
-export function listBackgroundTasks(): BackgroundTaskRecord[] {
-  const rows = database()
-    .prepare('SELECT * FROM background_tasks ORDER BY updated_at DESC LIMIT 20')
-    .all() as unknown as DurableTaskRow[]
-  return rows.map(mapDurableTask)
-}
-
-/** 进程异常退出后，上次仍在 running 的任务改为 paused，等待用户继续。 */
-export function markInterruptedBackgroundTasksPaused(): void {
-  database().prepare("UPDATE background_tasks SET status = 'paused' WHERE status = 'running'").run()
-}
-
-export function pruneBackgroundTasks(days = 7): void {
-  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
-  database()
-    .prepare("DELETE FROM background_tasks WHERE status IN ('done', 'error', 'cancelled') AND updated_at < ?")
-    .run(cutoff)
-}
 
 export function restoreTrashedChapter(chapterId: string): ChapterContent | null {
   const row = database().prepare('SELECT payload, book_id FROM chapter_trash WHERE id = ?').get(chapterId) as
@@ -2100,6 +2076,9 @@ export function getChapter(chapterId: string): ChapterContent {
     formattedHtml: row.formatted_html,
     removed: parseRemoved(row.format_removed),
     noteReport: parseNoteReport(row.note_report),
+    translatedText: row.translated_text,
+    translatedHtml: row.translated_html,
+    translatedAt: row.translated_at,
   }
 }
 
@@ -2133,16 +2112,43 @@ function parseRemoved(raw: string | null): RemovedPart[] {
   }
 }
 
-export function saveChapterFormat(chapterId: string, html: string, removed: RemovedPart[]): void {
+/** 排版后同步更新 chars，书架总字数和阅读进度才会反映实际正文。 */
+export function saveChapterFormat(chapterId: string, html: string, removed: RemovedPart[]): number {
+  const chars = htmlToText(html).length
   database()
-    .prepare('UPDATE chapters SET formatted_html = ?, format_removed = ?, format_updated_at = ? WHERE id = ?')
-    .run(html, JSON.stringify(removed), new Date().toISOString(), chapterId)
+    .prepare('UPDATE chapters SET formatted_html = ?, format_removed = ?, format_updated_at = ?, chars = ? WHERE id = ?')
+    .run(html, JSON.stringify(removed), new Date().toISOString(), chars, chapterId)
+  return chars
 }
 
-export function resetChapterFormat(chapterId: string): void {
+export function saveChapterContent(chapterId: string, html: string): number {
+  const chars = htmlToText(html).length
   database()
-    .prepare('UPDATE chapters SET formatted_html = NULL, format_removed = NULL, format_updated_at = NULL WHERE id = ?')
+    .prepare('UPDATE chapters SET formatted_html = ?, format_removed = NULL, format_updated_at = ?, chars = ? WHERE id = ?')
+    .run(html, new Date().toISOString(), chars, chapterId)
+  return chars
+}
+
+export function saveChapterTranslation(
+  chapterId: string,
+  html: string,
+  text: string,
+): { translatedAt: string } {
+  const translatedAt = new Date().toISOString()
+  database()
+    .prepare('UPDATE chapters SET translated_text = ?, translated_html = ?, translated_at = ? WHERE id = ?')
+    .run(text, html, translatedAt, chapterId)
+  return { translatedAt }
+}
+
+export function resetChapterFormat(chapterId: string): number {
+  database()
+    .prepare(
+      'UPDATE chapters SET formatted_html = NULL, format_removed = NULL, format_updated_at = NULL, chars = LENGTH(text) WHERE id = ?',
+    )
     .run(chapterId)
+  const row = database().prepare('SELECT chars FROM chapters WHERE id = ?').get(chapterId) as { chars?: number } | undefined
+  return Number(row?.chars ?? 0)
 }
 
 export function getBookStyle(bookId: string): ReaderStyle {
@@ -2296,6 +2302,119 @@ export function appendChapter(bookId: string, chapter: NewChapter): string {
     )
   database().prepare('UPDATE books SET last_opened_at = ? WHERE id = ?').run(new Date().toISOString(), bookId)
   return id
+}
+
+/** 删除前抓取整本书、章节和笔记的完整行，供书籍回收站恢复。 */
+export function snapshotBookForTrash(bookId: string): string | null {
+  const conn = database()
+  const book = conn.prepare('SELECT * FROM books WHERE id = ?').get(bookId) as
+    | Record<string, unknown>
+    | undefined
+  if (!book) return null
+  const chapters = conn.prepare('SELECT * FROM chapters WHERE book_id = ? ORDER BY idx').all(bookId)
+  const notes = conn.prepare('SELECT * FROM notes WHERE book_id = ?').all(bookId)
+  return JSON.stringify({ book, chapters, notes })
+}
+
+export function saveBookTrash(bookId: string, payload: string, fileDir: string): void {
+  database()
+    .prepare('INSERT OR REPLACE INTO book_trash (id, payload, file_dir, deleted_at) VALUES (?, ?, ?, ?)')
+    .run(bookId, payload, fileDir, new Date().toISOString())
+}
+
+export const BOOK_TRASH_RETENTION_DAYS = 30
+
+export function listTrashedBooks(): TrashedBook[] {
+  const rows = database()
+    .prepare('SELECT id, payload, deleted_at FROM book_trash ORDER BY deleted_at DESC')
+    .all() as unknown as Array<{ id: string; payload: string; deleted_at: string }>
+  return rows.flatMap((row) => {
+    try {
+      const parsed = JSON.parse(row.payload) as {
+        book?: Record<string, unknown>
+        chapters?: unknown[]
+        notes?: unknown[]
+      }
+      const book = parsed.book ?? {}
+      return [
+        {
+          id: row.id,
+          title: typeof book.title === 'string' ? book.title : '未命名',
+          author: typeof book.author === 'string' ? book.author : '',
+          format: (book.format as BookFormat) ?? 'text',
+          chapterCount: Array.isArray(parsed.chapters) ? parsed.chapters.length : 0,
+          noteCount: Array.isArray(parsed.notes) ? parsed.notes.length : 0,
+          deletedAt: row.deleted_at,
+        },
+      ]
+    } catch {
+      return []
+    }
+  })
+}
+
+function insertRow(conn: DatabaseSync, table: string, row: Record<string, unknown>): void {
+  const keys = Object.keys(row)
+  if (keys.length === 0) return
+  const columns = keys.map((key) => `"${key.replace(/"/g, '""')}"`).join(', ')
+  const placeholders = keys.map(() => '?').join(', ')
+  conn.prepare(`INSERT INTO ${table} (${columns}) VALUES (${placeholders})`).run(
+    ...keys.map((key) => row[key] as never),
+  )
+}
+
+export function restoreTrashedBook(bookId: string): BookSummary | null {
+  const row = database()
+    .prepare('SELECT payload FROM book_trash WHERE id = ?')
+    .get(bookId) as { payload: string } | undefined
+  if (!row) return null
+  let payload: { book?: Record<string, unknown>; chapters?: Array<Record<string, unknown>>; notes?: Array<Record<string, unknown>> }
+  try {
+    payload = JSON.parse(row.payload) as typeof payload
+  } catch {
+    return null
+  }
+  if (!payload.book || typeof payload.book !== 'object') return null
+  const conn = database()
+  if (conn.prepare('SELECT 1 FROM books WHERE id = ?').get(bookId)) return null
+  conn.exec('BEGIN IMMEDIATE')
+  try {
+    insertRow(conn, 'books', payload.book)
+    for (const chapter of payload.chapters ?? []) insertRow(conn, 'chapters', chapter)
+    for (const note of payload.notes ?? []) insertRow(conn, 'notes', note)
+    conn.prepare('DELETE FROM book_trash WHERE id = ?').run(bookId)
+    conn.exec('COMMIT')
+  } catch (error) {
+    conn.exec('ROLLBACK')
+    throw error
+  }
+  return getBookSummary(bookId)
+}
+
+export function purgeTrashedBook(bookId: string): string | null {
+  const row = database().prepare('SELECT file_dir FROM book_trash WHERE id = ?').get(bookId) as
+    | { file_dir: string }
+    | undefined
+  database().prepare('DELETE FROM book_trash WHERE id = ?').run(bookId)
+  return row?.file_dir ?? null
+}
+
+export function emptyBookTrash(): string[] {
+  const rows = database().prepare('SELECT file_dir FROM book_trash').all() as unknown as Array<{
+    file_dir: string
+  }>
+  database().prepare('DELETE FROM book_trash').run()
+  return rows.map((row) => row.file_dir)
+}
+
+/** 返回需要一起删除的书籍目录；调用方负责删除磁盘文件。 */
+export function pruneBookTrash(days = BOOK_TRASH_RETENTION_DAYS): string[] {
+  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
+  const rows = database()
+    .prepare('SELECT file_dir FROM book_trash WHERE deleted_at < ?')
+    .all(cutoff) as unknown as Array<{ file_dir: string }>
+  database().prepare('DELETE FROM book_trash WHERE deleted_at < ?').run(cutoff)
+  return rows.map((row) => row.file_dir)
 }
 
 export function deleteBook(bookId: string): string | null {
@@ -2454,9 +2573,11 @@ export function deleteChapterMark(id: string): void {
   database().prepare('DELETE FROM reader_marks WHERE id = ?').run(id)
 }
 
-export function listRelatedNotes(bookId: string, tags: string[], limit = 6): RelatedNote[] {
+export function listRelatedNotes(bookId: string, tags: string[], limit = 6, options: { excludeKinds?: NoteKind[] } = {}): RelatedNote[] {
   const wanted = tags.map((tag) => tag.trim().toLowerCase()).filter((tag) => tag.length >= 2)
   if (wanted.length === 0) return []
+  const excluded = [...new Set(['condensed', 'summary', 'question', ...(options.excludeKinds ?? [])])]
+  const placeholders = excluded.map(() => '?').join(', ')
 
   const rows = database()
     .prepare(
@@ -2465,9 +2586,11 @@ export function listRelatedNotes(bookId: string, tags: string[], limit = 6): Rel
        FROM notes n
        JOIN books b ON b.id = n.book_id
        LEFT JOIN chapters c ON c.id = n.chapter_id
-       WHERE n.book_id != ?`,
+       WHERE n.book_id != ?
+         AND n.kind NOT IN (${placeholders})
+         AND TRIM(n.content) != ''`,
     )
-    .all(bookId) as unknown as Array<{
+    .all(bookId, ...excluded) as unknown as Array<{
     id: string
     book_id: string
     book_title: string
@@ -2493,7 +2616,9 @@ export function listRelatedNotes(bookId: string, tags: string[], limit = 6): Rel
       if (lowered.includes(tag)) score += 2
       else if (row.content.toLowerCase().includes(tag)) score += 1
     }
-    if (score <= 0) continue
+    // 只命中一个弱关键词不算关联；至少一个精确标签或两个内容命中。
+    if (score < 2) continue
+    if (row.content.trim().length < 8) continue
     scored.push({
       id: row.id,
       bookId: row.book_id,
@@ -2510,341 +2635,6 @@ export function listRelatedNotes(bookId: string, tags: string[], limit = 6): Rel
   return scored.sort((a, b) => b.score - a.score).slice(0, limit)
 }
 
-export interface SearchDocument {
-  type: SearchResultType
-  id: string
-  bookId: string
-  bookTitle: string
-  chapterId: string | null
-  chapterTitle: string | null
-  title: string
-  text: string
-  updatedAt: string | null
-  meta?: string
-}
-
-/** 供本地全文索引使用；和搜索结果共享同一套来源字段。 */
-export function searchDocuments(): SearchDocument[] {
-  const conn = database()
-  const docs: SearchDocument[] = []
-  const books = conn
-    .prepare(
-      `SELECT b.id, b.title, b.author, b.created_at, b.last_opened_at,
-              (SELECT COUNT(*) FROM chapters c WHERE c.book_id = b.id AND c.hidden = 0) AS chapter_count,
-              (SELECT COUNT(*) FROM notes n WHERE n.book_id = b.id) AS note_count
-       FROM books b`,
-    )
-    .all() as unknown as Array<{
-    id: string
-    title: string
-    author: string
-    created_at: string
-    last_opened_at: string | null
-    chapter_count: number
-    note_count: number
-  }>
-  for (const book of books) {
-    docs.push({
-      type: 'book',
-      id: book.id,
-      bookId: book.id,
-      bookTitle: book.title,
-      chapterId: null,
-      chapterTitle: null,
-      title: book.title,
-      text: `${book.title} ${book.author}`,
-      updatedAt: book.last_opened_at ?? book.created_at,
-      meta: `${book.author || '未知作者'} · ${Number(book.chapter_count)} 章 · ${Number(book.note_count)} 条笔记`,
-    })
-  }
-
-  const chapters = conn
-    .prepare(
-      `SELECT c.id, c.book_id, b.title AS book_title, c.title, c.text
-       FROM chapters c JOIN books b ON b.id = c.book_id
-       WHERE c.hidden = 0`,
-    )
-    .all() as unknown as Array<{
-    id: string
-    book_id: string
-    book_title: string
-    title: string
-    text: string
-  }>
-  for (const chapter of chapters) {
-    docs.push({
-      type: 'chapter',
-      id: chapter.id,
-      bookId: chapter.book_id,
-      bookTitle: chapter.book_title,
-      chapterId: chapter.id,
-      chapterTitle: chapter.title,
-      title: chapter.title,
-      text: `${chapter.title}\n${chapter.text}`,
-      updatedAt: null,
-    })
-  }
-
-  const notes = conn
-    .prepare(
-      `SELECT n.id, n.book_id, b.title AS book_title, n.chapter_id, c.title AS chapter_title,
-              n.title, n.content, n.tags, n.updated_at
-       FROM notes n
-       JOIN books b ON b.id = n.book_id
-       LEFT JOIN chapters c ON c.id = n.chapter_id`,
-    )
-    .all() as unknown as Array<{
-    id: string
-    book_id: string
-    book_title: string
-    chapter_id: string | null
-    chapter_title: string | null
-    title: string
-    content: string
-    tags: string
-    updated_at: string
-  }>
-  for (const note of notes) {
-    docs.push({
-      type: 'note',
-      id: note.id,
-      bookId: note.book_id,
-      bookTitle: note.book_title,
-      chapterId: note.chapter_id,
-      chapterTitle: note.chapter_title,
-      title: note.title,
-      text: `${note.title}\n${note.content}\n${parseTags(note.tags).join(' ')}`,
-      updatedAt: note.updated_at,
-    })
-  }
-
-  const artifacts = conn
-    .prepare(
-      `SELECT a.id, a.title, a.content, a.updated_at,
-              COALESCE(a.book_id, c.book_id) AS book_id,
-              COALESCE(b.title, cb.title) AS book_title,
-              a.chapter_id, c.title AS chapter_title
-       FROM lab_artifact_versions a
-       LEFT JOIN chapters c ON c.id = a.chapter_id
-       LEFT JOIN books b ON b.id = a.book_id
-       LEFT JOIN books cb ON cb.id = c.book_id
-       WHERE a.status != 'deleted'`,
-    )
-    .all() as unknown as Array<{
-    id: string
-    title: string
-    content: string
-    updated_at: string
-    book_id: string | null
-    book_title: string | null
-    chapter_id: string | null
-    chapter_title: string | null
-  }>
-  for (const artifact of artifacts) {
-    docs.push({
-      type: 'content',
-      id: artifact.id,
-      bookId: artifact.book_id ?? '',
-      bookTitle: artifact.book_title ?? '生成内容',
-      chapterId: artifact.chapter_id,
-      chapterTitle: artifact.chapter_title,
-      title: artifact.title,
-      text: `${artifact.title}\n${readableArtifactContent('', artifact.content)}`,
-      updatedAt: artifact.updated_at,
-    })
-  }
-  return docs
-}
-
-export function searchIndexSignature(): string {
-  const row = database()
-    .prepare(
-      `SELECT
-        (SELECT GROUP_CONCAT(title || char(31) || author, char(30)) FROM books) AS books,
-        (SELECT GROUP_CONCAT(title, char(30)) FROM chapters WHERE hidden = 0) AS chapters,
-        (SELECT COUNT(*) FROM chapters WHERE hidden = 0) AS chapter_count,
-        (SELECT COALESCE(SUM(LENGTH(text)), 0) FROM chapters WHERE hidden = 0) AS chapter_chars,
-        (SELECT COUNT(*) FROM notes) AS note_count,
-        (SELECT COALESCE(MAX(updated_at), '') FROM notes) AS note_updated,
-        (SELECT COALESCE(SUM(LENGTH(title) + LENGTH(content) + LENGTH(tags)), 0) FROM notes) AS note_chars,
-        (SELECT COUNT(*) FROM lab_artifact_versions WHERE status != 'deleted') AS content_count,
-        (SELECT COALESCE(MAX(updated_at), '') FROM lab_artifact_versions) AS content_updated,
-        (SELECT COALESCE(SUM(LENGTH(title) + LENGTH(content)), 0) FROM lab_artifact_versions WHERE status != 'deleted') AS content_chars`,
-    )
-    .get() as
-    | {
-        books: string | null
-        chapters: string | null
-        chapter_count: number
-        chapter_chars: number
-        note_count: number
-        note_updated: string
-        note_chars: number
-        content_count: number
-        content_updated: string
-        content_chars: number
-      }
-    | undefined
-  return JSON.stringify(row ?? null)
-}
-
-export function searchLibrary(rawQuery: string, limit = 40): SearchResult[] {
-  const query = rawQuery.replace(/\s+/g, ' ').trim()
-  if (!query) return []
-  const escaped = query.replace(/[\\%_]/g, (char) => `\\${char}`)
-  const like = `%${escaped}%`
-  const conn = database()
-  const results: SearchResult[] = []
-
-  const books = conn
-    .prepare(
-      `SELECT b.id, b.title, b.author, b.last_opened_at, b.created_at,
-              (SELECT COUNT(*) FROM chapters c WHERE c.book_id = b.id AND c.hidden = 0) AS chapter_count,
-              (SELECT COUNT(*) FROM notes n WHERE n.book_id = b.id) AS note_count
-       FROM books b
-       WHERE b.title LIKE ? ESCAPE '\\' OR b.author LIKE ? ESCAPE '\\'
-       ORDER BY b.last_opened_at DESC, b.created_at DESC
-       LIMIT 6`,
-    )
-    .all(like, like) as unknown as Array<{
-    id: string
-    title: string
-    author: string
-    last_opened_at: string | null
-    created_at: string
-    chapter_count: number
-    note_count: number
-  }>
-  for (const row of books) {
-    results.push({
-      type: 'book',
-      id: row.id,
-      bookId: row.id,
-      bookTitle: row.title,
-      chapterId: null,
-      chapterTitle: null,
-      title: row.title,
-      snippet: `${row.author || '未知作者'} · ${Number(row.chapter_count)} 章 · ${Number(row.note_count)} 条笔记`,
-      updatedAt: row.last_opened_at ?? row.created_at,
-    })
-  }
-
-  const chapters = conn
-    .prepare(
-      `SELECT c.id, c.book_id, b.title AS book_title, c.title, c.text, c.idx
-       FROM chapters c
-       JOIN books b ON b.id = c.book_id
-       WHERE c.hidden = 0 AND (c.title LIKE ? ESCAPE '\\' OR c.text LIKE ? ESCAPE '\\')
-       ORDER BY CASE WHEN c.title LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END, b.title, c.idx
-       LIMIT 14`,
-    )
-    .all(like, like, like) as unknown as Array<{
-    id: string
-    book_id: string
-    book_title: string
-    title: string
-    text: string
-    idx: number
-  }>
-  for (const row of chapters) {
-    results.push({
-      type: 'chapter',
-      id: row.id,
-      bookId: row.book_id,
-      bookTitle: row.book_title,
-      chapterId: row.id,
-      chapterTitle: row.title,
-      title: row.title,
-      snippet: makeSnippet(row.text, query),
-      updatedAt: null,
-    })
-  }
-
-  const notes = conn
-    .prepare(
-      `SELECT n.id, n.book_id, b.title AS book_title, n.chapter_id, c.title AS chapter_title,
-              n.title, n.content, n.updated_at
-       FROM notes n
-       JOIN books b ON b.id = n.book_id
-       LEFT JOIN chapters c ON c.id = n.chapter_id
-       WHERE n.title LIKE ? ESCAPE '\\' OR n.content LIKE ? ESCAPE '\\' OR n.tags LIKE ? ESCAPE '\\'
-       ORDER BY CASE WHEN n.title LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END, n.updated_at DESC
-       LIMIT 20`,
-    )
-    .all(like, like, like, like) as unknown as Array<{
-    id: string
-    book_id: string
-    book_title: string
-    chapter_id: string | null
-    chapter_title: string | null
-    title: string
-    content: string
-    updated_at: string
-  }>
-  for (const row of notes) {
-    results.push({
-      type: 'note',
-      id: row.id,
-      bookId: row.book_id,
-      bookTitle: row.book_title,
-      chapterId: row.chapter_id,
-      chapterTitle: row.chapter_title,
-      title: row.title,
-      snippet: makeSnippet(row.content, query),
-      updatedAt: row.updated_at,
-    })
-  }
-
-  const contents = conn
-    .prepare(
-      `SELECT a.id, a.tool, a.title, a.content, a.updated_at,
-              COALESCE(a.book_id, c.book_id) AS book_id, COALESCE(b.title, cb.title) AS book_title,
-              a.chapter_id, c.title AS chapter_title
-       FROM lab_artifact_versions a
-       LEFT JOIN chapters c ON c.id = a.chapter_id
-       LEFT JOIN books b ON b.id = a.book_id
-       LEFT JOIN books cb ON cb.id = c.book_id
-       WHERE a.status != 'deleted'
-         AND (a.title LIKE ? ESCAPE '\\' OR a.content LIKE ? ESCAPE '\\')
-       ORDER BY CASE WHEN a.title LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END, a.updated_at DESC
-       LIMIT 12`,
-    )
-    .all(like, like, like) as unknown as Array<{
-    id: string
-    tool: string
-    title: string
-    content: string
-    updated_at: string
-    book_id: string | null
-    book_title: string | null
-    chapter_id: string | null
-    chapter_title: string | null
-  }>
-  for (const row of contents) {
-    results.push({
-      type: 'content',
-      id: row.id,
-      bookId: row.book_id ?? '',
-      bookTitle: row.book_title ?? '生成内容',
-      chapterId: row.chapter_id,
-      chapterTitle: row.chapter_title,
-      title: row.title,
-      snippet: makeSnippet(readableArtifactContent(row.tool, row.content), query),
-      updatedAt: row.updated_at,
-    })
-  }
-
-  return results.slice(0, limit)
-}
-
-function makeSnippet(text: string, query: string): string {
-  const flat = text.replace(/\s+/g, ' ').trim()
-  const index = flat.toLowerCase().indexOf(query.toLowerCase())
-  if (index < 0) return flat.length > 120 ? `${flat.slice(0, 120)}…` : flat
-  const start = Math.max(0, index - 48)
-  const end = Math.min(flat.length, index + query.length + 56)
-  return `${start > 0 ? '…' : ''}${flat.slice(start, end)}${end < flat.length ? '…' : ''}`
-}
 
 
 interface LibraryRow extends NoteRow {
@@ -3357,28 +3147,6 @@ export function purgeDeletedContent(): number {
   return Number(result.changes) || 0
 }
 
-function readableArtifactContent(tool: string, content: string): string {
-  const kind = contentKindForTool(tool)
-  return contentAsMarkdown({
-    id: '',
-    tool,
-    scope: '',
-    title: '',
-    content,
-    meta: null,
-    createdAt: '',
-    kind,
-    bookId: null,
-    chapterId: null,
-    bookTitle: null,
-    chapterTitle: null,
-    favorite: false,
-    status: 'draft',
-    updatedAt: '',
-    appliedNoteId: null,
-  })
-}
-
 export function contentAsMarkdown(item: ContentItem): string {
   if (item.kind === 'chat') {
     try {
@@ -3811,18 +3579,8 @@ export function listNotesForEmbedding(model: string): NoteForEmbedding[] {
   }))
 }
 
-export function listSemanticCandidates(bookId: string): SemanticNote[] {
-  const rows = database()
-    .prepare(
-      `SELECT n.id, n.book_id, b.title AS book_title, n.chapter_id, c.title AS chapter_title,
-              n.title, n.content, n.tags, e.vector, e.model
-       FROM notes n
-       JOIN books b ON b.id = n.book_id
-       LEFT JOIN chapters c ON c.id = n.chapter_id
-       LEFT JOIN note_embeddings e ON e.note_id = n.id
-       WHERE n.book_id != ?`,
-    )
-    .all(bookId) as unknown as Array<{
+function mapSemanticRows(
+  rows: Array<{
     id: string
     book_id: string
     book_title: string
@@ -3833,7 +3591,8 @@ export function listSemanticCandidates(bookId: string): SemanticNote[] {
     tags: string
     vector: string | null
     model: string | null
-  }>
+  }>,
+): SemanticNote[] {
   return rows.map((row) => ({
     id: row.id,
     bookId: row.book_id,
@@ -3846,6 +3605,47 @@ export function listSemanticCandidates(bookId: string): SemanticNote[] {
     vector: parseVector(row.vector),
     model: row.model,
   }))
+}
+
+export function listSemanticCandidates(
+  bookId: string,
+  options: { excludeKinds?: NoteKind[] } = {},
+): SemanticNote[] {
+  const excluded = [...new Set(options.excludeKinds ?? [])]
+  const kindFilter = excluded.length > 0 ? `AND n.kind NOT IN (${excluded.map(() => '?').join(', ')})` : ''
+  const rows = database()
+    .prepare(
+      `SELECT n.id, n.book_id, b.title AS book_title, n.chapter_id, c.title AS chapter_title,
+              n.title, n.content, n.tags, e.vector, e.model
+       FROM notes n
+       JOIN books b ON b.id = n.book_id
+       LEFT JOIN chapters c ON c.id = n.chapter_id
+       LEFT JOIN note_embeddings e ON e.note_id = n.id
+       WHERE n.book_id != ?
+         ${kindFilter}
+         AND TRIM(n.content) != ''`,
+    )
+    .all(bookId, ...excluded) as unknown as Parameters<typeof mapSemanticRows>[0]
+  return mapSemanticRows(rows)
+}
+
+/** 全局语义搜索用：不排除当前书，检索所有带向量的笔记。 */
+export function listSemanticCandidatesAll(options: { excludeKinds?: NoteKind[] } = {}): SemanticNote[] {
+  const excluded = [...new Set(options.excludeKinds ?? [])]
+  const kindFilter = excluded.length > 0 ? `AND n.kind NOT IN (${excluded.map(() => '?').join(', ')})` : ''
+  const rows = database()
+    .prepare(
+      `SELECT n.id, n.book_id, b.title AS book_title, n.chapter_id, c.title AS chapter_title,
+              n.title, n.content, n.tags, e.vector, e.model
+       FROM notes n
+       JOIN books b ON b.id = n.book_id
+       LEFT JOIN chapters c ON c.id = n.chapter_id
+       LEFT JOIN note_embeddings e ON e.note_id = n.id
+       WHERE TRIM(n.content) != ''
+         ${kindFilter}`,
+    )
+    .all(...excluded) as unknown as Parameters<typeof mapSemanticRows>[0]
+  return mapSemanticRows(rows)
 }
 
 export function saveNoteEmbedding(noteId: string, model: string, vector: number[]): void {
@@ -4038,6 +3838,8 @@ function parseNoteReport(raw: string | null): NoteReport | null {
       ...(mode ? { mode } : {}),
       ...(usage ? { usage } : {}),
       ...(typeof record.promptVersion === 'string' ? { promptVersion: record.promptVersion } : {}),
+      ...(typeof record.images === 'number' ? { images: record.images } : {}),
+      ...(typeof record.visionUsed === 'boolean' ? { visionUsed: record.visionUsed } : {}),
       ...(degraded && degraded.length > 0 ? { degraded } : {}),
       model: typeof record.model === 'string' ? record.model : '',
       createdAt: typeof record.createdAt === 'string' ? record.createdAt : '',

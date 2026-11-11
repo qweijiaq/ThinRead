@@ -1,6 +1,3 @@
-import { createHash } from 'node:crypto'
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
-import path from 'node:path'
 
 import type { ModelMessage } from 'ai'
 
@@ -16,108 +13,51 @@ import type {
   GenerationStage,
   NoteDivergence,
   NoteReport,
+  NotesLanguage,
   TokenUsage,
+  VisionMode,
 } from '../../shared/types.js'
 import { generatedNoteListSchema } from '../../shared/schemas.js'
 import { deriveTitle } from '../db.js'
 import { genreRule } from './genre.js'
-import { createLanguageModel } from './provider.js'
+import { createLanguageModel, nonThinkingProviderOptions } from './provider.js'
 import { traceAiStep, tracedGenerateText } from './trace.js'
 import type { ModelConfig } from './provider.js'
+import {
+  imagePromptBlock,
+  imageSignature,
+  isDecorativeImage,
+  isVisionError,
+  prepareNoteImages,
+  type NoteImage,
+} from './note-images.js'
+import { NOTES_SYSTEM, condensePrompt, detectSourceLanguage, languageDirective, looksLikeList } from './notes-prompts.js'
+export { detectSourceLanguage, languageDirective, looksLikeList, condensePrompt }
+import {
+  chunkCacheKey,
+  notesCacheKey,
+  NOTES_PROMPT_VERSION,
+  readNotesCache,
+  readNotesCheckpoint,
+  writeNotesCache,
+  writeNotesCheckpoint,
+} from './notes-cache.js'
+export {
+  chunkCacheKey,
+  notesCacheKey,
+  NOTES_PROMPT_VERSION,
+  readNotesCache,
+  readNotesCheckpoint,
+  writeNotesCache,
+  writeNotesCheckpoint,
+}
 
 const MAX_CHAPTER_CHARS = 60_000
 const MAX_SECTION_CHARS = 6_000
 const MAX_OMITTED = 30
 const CONCURRENCY = 4
 const MAX_DIVERGENCES = 3
-const NOTES_PROMPT_VERSION = 'notes-v7'
 const EVIDENCE_SOURCE_CHARS = 12_000
-
-const NOTES_CACHE_VERSION = 1
-const NOTES_CACHE_TTL_MS = 14 * 24 * 60 * 60 * 1000
-
-interface NotesCacheEntry {
-  version: number
-  createdAt: string
-  notes: GeneratedNote[]
-  report: NoteReport
-  cards: Card[]
-  relatedHash: string
-}
-
-export function notesCacheKey(args: GenerateArgs): string {
-  return createHash('sha256')
-    .update(
-      JSON.stringify({
-        prompt: NOTES_PROMPT_VERSION,
-        provider: args.config.provider,
-        baseUrl: args.config.baseUrl,
-        model: args.config.model,
-        mode: args.mode ?? 'standard',
-        genre: args.genre ?? null,
-        book: args.bookTitle,
-        chapter: args.chapterTitle,
-        text: args.chapterText,
-        html: args.chapterHtml,
-      }),
-    )
-    .digest('hex')
-}
-
-function relatedHash(args: GenerateArgs, cards: Card[]): string {
-  const concepts = [...new Set(cards.flatMap((card) => card.concepts))]
-  const related = args.lookupRelatedNotes?.(concepts) ?? []
-  return createHash('sha256').update(JSON.stringify(related)).digest('hex')
-}
-
-export async function readNotesCache(args: GenerateArgs, signal: AbortSignal): Promise<GenerateResult | null> {
-  if (!args.cacheDir || args.demo || args.fresh || signal.aborted) return null
-  try {
-    const file = path.join(args.cacheDir, 'notes', `${notesCacheKey(args)}.json`)
-    const entry = JSON.parse(await readFile(file, 'utf8')) as NotesCacheEntry
-    if (entry.version !== NOTES_CACHE_VERSION) return null
-    if (Date.now() - Date.parse(entry.createdAt) > NOTES_CACHE_TTL_MS) return null
-    if (!Array.isArray(entry.notes) || !Array.isArray(entry.cards) || !entry.report) return null
-    if (relatedHash(args, entry.cards) !== entry.relatedHash) return null
-    const notes = generatedNoteListSchema.safeParse(entry.notes)
-    if (!notes.success) return null
-    return {
-      notes: notes.data,
-      report: {
-        ...entry.report,
-        cached: true,
-        cachedTokens: entry.report.usage?.totalTokens ?? 0,
-        durationMs: 0,
-        usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
-        createdAt: new Date().toISOString(),
-      },
-    }
-  } catch {
-    return null
-  }
-}
-
-export async function writeNotesCache(args: GenerateArgs, result: GenerateResult, cards: Card[]): Promise<void> {
-  if (!args.cacheDir || args.demo) return
-  try {
-    const dir = path.join(args.cacheDir, 'notes')
-    await mkdir(dir, { recursive: true })
-    const file = path.join(dir, `${notesCacheKey(args)}.json`)
-    const temp = `${file}.${process.pid}.tmp`
-    const entry: NotesCacheEntry = {
-      version: NOTES_CACHE_VERSION,
-      createdAt: new Date().toISOString(),
-      notes: result.notes,
-      report: result.report,
-      cards,
-      relatedHash: relatedHash(args, cards),
-    }
-    await writeFile(temp, JSON.stringify(entry), 'utf8')
-    await rename(temp, file)
-  } catch {
-    // 缓存写入失败不影响生成结果。
-  }
-}
 
 function recordUsage(target: TokenUsage | undefined, usage: unknown): void {
   if (!target || !usage || typeof usage !== 'object') return
@@ -127,14 +67,23 @@ function recordUsage(target: TokenUsage | undefined, usage: unknown): void {
   target.totalTokens += Number(value.totalTokens) || 0
 }
 
-const NOTES_SYSTEM = '你是中文非虚构图书的阅读助手。严格依据用户给出的内容工作，不编造原文没有的事实；只输出请求的 JSON。'
-
 /**
  * 把「固定说明 + 章节原文」做成可缓存前缀：
  * - Anthropic 显式标 cache_control；
  * - OpenAI-compatible 端点会按相同前缀自动命中缓存；
  * - 不启用缓存时退回单条 prompt，避免 Anthropic 只写不读还多付 25%。
  */
+function imageParts(images: NoteImage[] | undefined, args: GenerateArgs) {
+  if (args.visionDisabled) return []
+  return (images ?? [])
+    .filter((image) => Boolean(image.data && image.mediaType))
+    .map((image) => ({
+      type: 'image' as const,
+      image: image.data!,
+      mediaType: image.mediaType!,
+    }))
+}
+
 function chapterRequest(
   args: GenerateArgs,
   task: string,
@@ -143,16 +92,31 @@ function chapterRequest(
 ): { prompt: string } | { system: string; messages: ModelMessage[] } {
   const context = [
     `书名《${args.bookTitle}》，本章「${args.chapterTitle}」。`,
+    ...(args.chapterImages && args.chapterImages.length > 0
+      ? [imagePromptBlock(args.chapterImages)]
+      : []),
     '原文片段：',
     args.chapterText.slice(0, contextChars),
   ].join('\n')
-  if (!cache) return { prompt: [NOTES_SYSTEM, context, task].join('\n\n') }
+  const images = imageParts(args.chapterImages, args)
+  if (!cache) {
+    if (images.length === 0) return { prompt: [NOTES_SYSTEM, context, task].join('\n\n') }
+    return {
+      system: NOTES_SYSTEM,
+      messages: [
+        {
+          role: 'user',
+          content: [{ type: 'text', text: [context, task].join('\n\n') }, ...images],
+        },
+      ] as ModelMessage[],
+    }
+  }
   return {
     system: NOTES_SYSTEM,
     messages: [
       {
         role: 'user',
-        content: context,
+        content: images.length > 0 ? [{ type: 'text', text: context }, ...images] : context,
         providerOptions: { anthropic: { cacheControl: { type: 'ephemeral' } } },
       },
       { role: 'user', content: task },
@@ -165,17 +129,79 @@ function requestTimeout(parent: AbortSignal, ms: number): AbortSignal {
   return anySignal ? anySignal([parent, AbortSignal.timeout(ms)]) : parent
 }
 
+/** 失败步骤的短暂退避；不拖慢正常生成，只在高并发或服务商抖动时多给一次机会。 */
+function retryDelay(attempt: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 600 * (attempt + 1)))
+}
+
+function isTimeoutError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return /超时|timed?\s*out|timeout|aborted due to timeout/i.test(message)
+}
+
+function splitParagraphs(text: string): string[] {
+  const groups: string[] = []
+  let current: string[] = []
+  let inFence = false
+  const flush = (): void => {
+    const paragraph = current.join('\n').trim()
+    if (paragraph) groups.push(paragraph)
+    current = []
+  }
+  for (const line of text.split('\n')) {
+    if (/^\s*```/.test(line)) inFence = !inFence
+    if (!inFence && line.trim() === '') flush()
+    else current.push(line)
+  }
+  flush()
+  return groups
+}
+
+/** 把失败的大块按段落拆成两半，避免一个超长请求反复失败拖垮整章。 */
+function splitTextForRetry(text: string): [string, string] | null {
+  const paragraphs = splitParagraphs(text)
+  if (paragraphs.length < 2) return null
+  const total = text.length
+  let acc = 0
+  let splitAt = 0
+  let best = Number.POSITIVE_INFINITY
+  for (let index = 0; index < paragraphs.length - 1; index++) {
+    acc += paragraphs[index]!.length + 2
+    const distance = Math.abs(acc - total / 2)
+    if (distance < best) {
+      best = distance
+      splitAt = index
+    }
+  }
+  const first = paragraphs.slice(0, splitAt + 1).join('\n\n').trim()
+  const second = paragraphs.slice(splitAt + 1).join('\n\n').trim()
+  if (first.length < 80 || second.length < 80) return null
+  return [first, second]
+}
+
+function splitChunkForRetry(chunk: Chunk): [Chunk, Chunk] | null {
+  const halves = splitTextForRetry(chunk.text)
+  return halves
+    ? [
+        { ...chunk, text: halves[0] },
+        { ...chunk, text: halves[1] },
+      ]
+    : null
+}
+
 
 interface Section {
   index: number
   title: string
   text: string
+  images: NoteImage[]
 }
 
-interface Chunk {
+export interface Chunk {
   sectionIndex: number
   title: string
   text: string
+  images: NoteImage[]
 }
 
 interface Omitted {
@@ -183,7 +209,7 @@ interface Omitted {
   reason: string
 }
 
-interface CondenseOutput {
+export interface CondenseOutput {
   compressed: string
   omitted: Omitted[]
 }
@@ -220,6 +246,16 @@ export interface GenerateArgs {
   demo: boolean
   genre?: BookGenre
   mode?: GenerationMode
+  /** 外文书籍的输出语言；默认简体中文。 */
+  notesLanguage?: NotesLanguage
+  /** 图片理解模式；默认 auto。 */
+  visionMode?: VisionMode
+  /** 章节 HTML 里图片内容的签名，用于缓存失效。 */
+  imageSignature?: string
+  /** 本次准备的章节图片；由 generateChapterNotesInner 填充。 */
+  chapterImages?: NoteImage[]
+  /** 视觉输入失败后自动降级，避免整章重新生成。 */
+  visionDisabled?: boolean
   usage?: TokenUsage
   lookupRelatedNotes?: (concepts: string[]) => RelatedContext[]
   /** 仅评测用：拿到模型原始响应，便于定位解析失败。 */
@@ -232,7 +268,7 @@ export interface GenerateArgs {
    * 内部使用：某个生成步骤失败时记录，让降级结果和完整结果可区分。
    * 不参与持久化，由 generateChapterNotesInner 注入。
    */
-  onStageError?: (stage: GenerationStage, error: unknown) => void
+  onStageError?: (stage: GenerationStage, error: unknown, total?: number, failed?: number) => void
 }
 
 export interface GenerateResult {
@@ -248,6 +284,7 @@ export async function generateChapterNotes(
   const startedAt = Date.now()
   const scope = `${args.bookTitle} / ${args.chapterTitle}`
   try {
+    args.imageSignature ??= chapterImageSignature(args.chapterHtml)
     const cached = await readNotesCache(args, signal)
     if (cached) {
       onPartial({ progress: { phase: 'cards', done: 1, total: 1, cards: cached.report.cards } })
@@ -257,23 +294,21 @@ export async function generateChapterNotes(
         model: cached.report.model,
         promptVersion: cached.report.promptVersion,
         durationMs: Date.now() - startedAt,
-        inputTokens: 0,
-        outputTokens: 0,
-        totalTokens: 0,
+        cached: true,
+        cachedTokens: cached.report.cachedTokens ?? cached.report.usage?.totalTokens ?? 0,
         ok: true,
       })
       return cached
     }
     const result = await generateChapterNotesInner(args, onPartial, signal)
+    // 子步骤（condense / cards / audit）已经记录了 token；这里只留一条汇总行，避免双计。
     traceAiStep({
       step: 'chapter-notes',
       scope,
       model: result.report.model,
       promptVersion: result.report.promptVersion,
       durationMs: Date.now() - startedAt,
-      inputTokens: result.report.usage?.inputTokens,
-      outputTokens: result.report.usage?.outputTokens,
-      totalTokens: result.report.usage?.totalTokens,
+      aggregate: true,
       ok: true,
     })
     return result
@@ -283,6 +318,7 @@ export async function generateChapterNotes(
       scope,
       model: args.config.model,
       durationMs: Date.now() - startedAt,
+      aggregate: true,
       ok: false,
       error: error instanceof Error ? error.message : String(error),
     })
@@ -296,7 +332,7 @@ async function generateChapterNotesInner(
   signal: AbortSignal,
 ): Promise<GenerateResult> {
   if (args.demo) return demoGeneration(args, onPartial, signal)
-  if (!args.config.apiKey && args.config.provider !== 'ollama') {
+  if (!args.config.apiKey && args.config.provider !== 'ollama' && args.config.provider !== 'lmstudio') {
     throw new Error('还没有配置 API Key，无法生成读书笔记。')
   }
 
@@ -305,9 +341,17 @@ async function generateChapterNotesInner(
   const model = createLanguageModel(args.config)
   const usage: TokenUsage = args.usage ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 }
   args.usage = usage
-  const sections = buildSections(args.chapterHtml, args.chapterText)
-  if (sections.length === 0) throw new Error('这一章没有可读的正文。')
+  const rawSections = buildSections(args.chapterHtml, args.chapterText)
+  if (rawSections.length === 0) throw new Error('这一章没有可读的正文。')
+  const sections = await prepareSectionsImages(rawSections, args, signal)
   const chunks = splitSections(sections)
+  const checkpoint = await readNotesCheckpoint(args)
+  let checkpointWrite: Promise<void> = Promise.resolve()
+  const persistCheckpoint = (): void => {
+    checkpointWrite = checkpointWrite
+      .then(() => writeNotesCheckpoint(args, checkpoint))
+      .catch(() => undefined)
+  }
 
   // 记录失败步骤：只要 reduced 里有内容，这次结果就是降级的，不能当成完整生成展示。
   const degraded: DegradedStep[] = []
@@ -321,7 +365,7 @@ async function generateChapterNotesInner(
       degraded.push({ stage, failed, total, message: message.slice(0, 300) })
     }
   }
-  args.onStageError = (stage, error) => recordStageError(stage, error)
+  args.onStageError = (stage, error, total, failed) => recordStageError(stage, error, total, failed)
 
   // 阶段一：各小节并行读薄；阶段顺序不变，只是同一阶段内并发
   const condensedParts: CondenseOutput[] = chunks.map(() => ({ compressed: '', omitted: [] }))
@@ -335,19 +379,61 @@ async function generateChapterNotesInner(
       if (index >= chunks.length) return
       if (signal.aborted) throw new Error('生成已取消')
       const chunk = chunks[index]!
-      try {
-        condensedParts[index] = await condenseChunk(model, args, chunk, signal)
-      } catch (error) {
-        if (signal.aborted) throw error
+      const chunkKey = chunkCacheKey(chunk)
+      const cachedChunk = checkpoint.get(chunkKey)
+      if (cachedChunk?.compressed) {
+        condensedParts[index] = cachedChunk
+        condensedDone++
+        onPartial({
+          progress: { phase: 'condense', done: condensedDone, total: chunks.length, cards: 0 },
+        })
+        continue
+      }
+      let lastError: unknown = null
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (signal.aborted) throw new Error('生成已取消')
         try {
-          // 长章节偶尔会卡在单次请求超时；先重试一次，再退回原文，避免整章直接失败。
-          condensedParts[index] = await condenseChunk(model, args, chunk, signal)
-        } catch (retryError) {
-          if (signal.aborted) throw retryError
-          condenseFailed++
-          firstCondenseError ??= retryError
-          condensedParts[index] = { compressed: chunk.text, omitted: [] }
+          const result = await condenseChunk(model, args, chunk, signal)
+          condensedParts[index] = result
+          checkpoint.set(chunkKey, result)
+          persistCheckpoint()
+          lastError = null
+          break
+        } catch (error) {
+          if (signal.aborted) throw error
+          lastError = error
+          // 超时通常说明请求本身太大；继续原样重试大概率还是超时，直接拆块。
+          if (isTimeoutError(error)) break
+          if (attempt < 2) await retryDelay(attempt)
         }
+      }
+      if (lastError) {
+        // 整块失败时再拆成两半各试一次；比直接把原文当成读薄稿更接近目标。
+        const halves = splitChunkForRetry(chunk)
+        if (halves) {
+          const recovered: CondenseOutput[] = []
+          try {
+            for (const half of halves) {
+              recovered.push(await condenseChunk(model, args, half, signal))
+            }
+            const recoveredOutput: CondenseOutput = {
+              compressed: recovered.map((item) => item.compressed).join('\n\n'),
+              omitted: recovered.flatMap((item) => item.omitted),
+            }
+            condensedParts[index] = recoveredOutput
+            checkpoint.set(chunkKey, recoveredOutput)
+            persistCheckpoint()
+            lastError = null
+          } catch (error) {
+            if (signal.aborted) throw error
+            lastError = error
+          }
+        }
+      }
+      if (lastError) {
+        condenseFailed++
+        firstCondenseError ??= lastError
+        condensedParts[index] = { compressed: chunk.text, omitted: [] }
       }
       condensedDone++
       onPartial({
@@ -358,6 +444,7 @@ async function generateChapterNotesInner(
   await Promise.all(
     Array.from({ length: Math.min(CONCURRENCY, chunks.length) }, condenseWorker),
   )
+  await checkpointWrite
 
   // 全部小节都失败时，继续写库只会把原文伪装成“读薄稿”，用户还以为成功了。
   if (condenseFailed >= chunks.length) {
@@ -449,6 +536,10 @@ async function generateChapterNotesInner(
     mode,
     usage: { ...usage },
     promptVersion: NOTES_PROMPT_VERSION,
+    images: args.chapterImages?.length ?? 0,
+    visionUsed: Boolean(
+      !args.visionDisabled && args.chapterImages?.some((image) => Boolean(image.data)),
+    ),
     ...(degraded.length > 0 ? { degraded } : {}),
     model: args.config.model,
     createdAt: new Date().toISOString(),
@@ -465,6 +556,37 @@ function validatedNotes(notes: GeneratedNote[]): GeneratedNote[] {
   throw new Error(`生成结果格式异常${issue ? `：${issue.path.join('.') || 'notes'} ${issue.message}` : ''}`)
 }
 
+function chapterImageSignature(html: string): string {
+  const tags = [...html.matchAll(/<img\b[^>]*>/gi)]
+    .map((match) => match[0] ?? '')
+    .filter((tag) => /src\s*=\s*["']data:image\//i.test(tag))
+  return imageSignature(tags.join('\n'))
+}
+
+async function prepareSectionsImages(
+  sections: Section[],
+  args: GenerateArgs,
+  signal: AbortSignal,
+): Promise<Section[]> {
+  if (args.demo) return sections
+  let remaining = 8
+  const result: Section[] = []
+  for (const section of sections) {
+    const selected = section.images.slice(0, 3)
+    const prepared = await prepareNoteImages(
+      selected,
+      args.config,
+      args.visionMode,
+      signal,
+      remaining,
+    )
+    remaining -= prepared.filter((image) => Boolean(image.data)).length
+    result.push({ ...section, images: prepared })
+  }
+  args.chapterImages = result.flatMap((section) => section.images).slice(0, 8)
+  return result
+}
+
 function buildSections(chapterHtml: string, chapterText: string): Section[] {
   const sections: Section[] = []
 
@@ -472,19 +594,47 @@ function buildSections(chapterHtml: string, chapterText: string): Section[] {
     const $ = cheerio.load(chapterHtml)
     let title = ''
     let blocks: string[] = []
+    let images: NoteImage[] = []
+    let imageSeq = 0
     const push = (): void => {
-      const text = blocks.join('\n\n').trim()
-      if (text.length >= 20) sections.push({ index: sections.length, title, text })
+      const body = blocks.join('\n\n').trim()
+      const imageText = images
+        .map((image, index) => `[图${index + 1}] ${image.caption || image.alt || '插图'}`)
+        .join('\n')
+      const text = [body, body.length >= 20 ? '' : imageText].filter(Boolean).join('\n\n').trim()
+      if (text.length >= 20 || images.length > 0) {
+        sections.push({ index: sections.length, title, text, images })
+      }
       blocks = []
+      images = []
     }
 
-    $('h1, h2, h3, h4, h5, h6, p, li, blockquote, pre, figcaption').each((_, element) => {
+    $('h1, h2, h3, h4, h5, h6, p, li, blockquote, pre, figcaption, img').each((_, element) => {
       const node = $(element)
       const tag = String(
         (element as { tagName?: string; name?: string }).tagName ??
           (element as { name?: string }).name ??
           '',
       ).toLowerCase()
+      if (tag === 'img') {
+        const dataUrl = node.attr('src')?.trim() ?? ''
+        if (!dataUrl.startsWith('data:image/')) return
+        const alt = node.attr('alt')?.trim() ?? ''
+        const caption =
+          node.closest('figure').find('figcaption').first().text().replace(/\s+/g, ' ').trim() ||
+          node.attr('title')?.trim() ||
+          ''
+        if (isDecorativeImage(alt, caption)) return
+        images.push({
+          id: `img-${++imageSeq}`,
+          alt,
+          caption,
+          context: blocks[blocks.length - 1]?.slice(-180) ?? title,
+          dataUrl,
+          signature: imageSignature(dataUrl),
+        })
+        return
+      }
       const text = node.text().replace(/\s+/g, ' ').trim()
       if (/^h[1-6]$/.test(tag)) {
         if (text) {
@@ -494,7 +644,10 @@ function buildSections(chapterHtml: string, chapterText: string): Section[] {
         return
       }
       if ((tag === 'li' || tag === 'blockquote') && node.find('p').length > 0) return
-      if (text.length >= 10) blocks.push(text)
+      if (text.length >= 10) {
+        // 用代码围栏标出 pre，避免模型把代码当普通段落复述。
+        blocks.push(tag === 'pre' ? `\`\`\`\n${node.text().trim()}\n\`\`\`` : text)
+      }
     })
     push()
   }
@@ -504,7 +657,7 @@ function buildSections(chapterHtml: string, chapterText: string): Section[] {
     let blocks: string[] = []
     const push = (): void => {
       const text = blocks.join('\n\n').trim()
-      if (text.length >= 20) sections.push({ index: sections.length, title, text })
+      if (text.length >= 20) sections.push({ index: sections.length, title, text, images: [] })
       blocks = []
     }
     chapterText
@@ -530,19 +683,27 @@ function splitSections(sections: Section[]): Chunk[] {
   const chunks: Chunk[] = []
   for (const section of sections) {
     if (section.text.length <= MAX_SECTION_CHARS) {
-      chunks.push({ sectionIndex: section.index, title: section.title, text: section.text })
+      chunks.push({
+        sectionIndex: section.index,
+        title: section.title,
+        text: section.text,
+        images: section.images,
+      })
       continue
     }
-    const paragraphs = section.text.split(/\n{2,}/)
+    const paragraphs = splitParagraphs(section.text)
     let current: string[] = []
     let length = 0
+    let imagesAssigned = false
     const flush = (): void => {
       if (current.length === 0) return
       chunks.push({
         sectionIndex: section.index,
         title: section.title,
         text: current.join('\n\n'),
+        images: imagesAssigned ? [] : section.images,
       })
+      imagesAssigned = true
       current = []
       length = 0
     }
@@ -556,43 +717,6 @@ function splitSections(sections: Section[]): Chunk[] {
   return chunks
 }
 
-// ─── 阶段一：压缩重写 ─────────────────────────────────────────────────────
-
-function condensePrompt(args: GenerateArgs, chunk: Chunk): string {
-  const numbered = chunk.text
-    .split(/\n{2,}/)
-    .map((paragraph, index) => `[§${index + 1}] ${paragraph.trim()}`)
-    .join('\n\n')
-  const hint = genreRule(args.genre)
-
-  return [
-    `你在把一本书读薄，目标是写成一篇可以直接发博客的读薄稿。书名《${args.bookTitle}》，本章「${args.chapterTitle}」，小节「${chunk.title || '正文'}」。`,
-    ...(hint ? [hint] : []),
-    '',
-    '请完成：',
-    '1. 只保留作者的断言（观点、定义、机制、方法、数据结论、边界条件）；删掉铺垫、过渡、寒暄、重复强调、解释性从句和例子铺垫。',
-    '2. 按断言重新组织，把分散的同一论点合并；不要按原文段落顺序复制，也不要保留原句，必须用自己的话重写。',
-    '3. 写成博客：小标题 + 短段落；并列项改成列表；定义写成「术语：一句话」；例子压成半句或列表项。',
-    '4. 每一句话都必须有信息量。删掉这句话后读者仍然能理解作者，就删掉它。',
-    '5. 压缩幅度由你根据内容密度决定：论证密集可保留约 1/3，例子多可到 1/5，重复多可到 1/10；目标是不超过原文的一半，能更短就继续删。比例只是参考，断言优先。',
-    '6. 不要写「作者认为」「本章」「接下来」这类元话；不要加入原文没有的观点；不要在正文里保留（源：§n）或段落编号。',
-    '7. 删除的内容放进 omitted，给出原文片段和原因。',
-    '',
-    '示例：',
-    '原文：要理解这个问题，需要先看 X 的历史；X 由内到外至少有三层：A、B、C。',
-    '读薄稿：',
-    '## X 的三层结构',
-    '- A：……',
-    '- B：……',
-    '- C：……',
-    '',
-    '只输出一个 JSON 对象：{"compressed":"Markdown 读薄稿","omitted":[{"text":"...","reason":"..."}]}。不要输出 Markdown 代码块或额外解释。',
-    '',
-    '原文：',
-    numbered,
-  ].join('\n')
-}
-
 async function condenseChunk(
   model: ReturnType<typeof createLanguageModel>,
   args: GenerateArgs,
@@ -600,28 +724,55 @@ async function condenseChunk(
   signal: AbortSignal,
 ): Promise<CondenseOutput> {
   const prompt = condensePrompt(args, chunk)
-  const target = Math.max(120, Math.round(chunk.text.length / 3))
+  const target = Math.max(160, Math.round(chunk.text.length * 0.55))
+  const providerOptions = nonThinkingProviderOptions(args.config)
   let last: CondenseOutput | null = null
 
   for (let attempt = 0; attempt < 2; attempt++) {
     if (signal.aborted) throw new Error('生成已取消')
-    const response = await tracedGenerateText({ step: 'condense', model: args.config.model, promptVersion: NOTES_PROMPT_VERSION }, {
-      model,
-      prompt:
-        attempt === 0
-          ? prompt
-          : `${prompt}\n\n上一次的读薄稿仍然太厚，或者没有按 JSON 返回。请改成博客可直接发布的版本：只保留断言，删掉所有铺垫、解释性从句和重复，把并列项改成列表，目标不超过原文的 1/3（约 ${target} 字）。不要加入原文没有的观点，不要保留段落编号。`,
-      temperature: 0.3,
-      maxRetries: 1,
-      abortSignal: requestTimeout(signal, 180_000),
-    })
+    const requestPrompt =
+      attempt === 0
+        ? prompt
+        : `${prompt}\n\n上一次的读薄稿不合格：可能仍然太厚，可能写成了要点清单，也可能没有按 JSON 返回。请改成连贯的散文段落：保留论证链和必要上下文，删掉重复与铺垫，不要使用任何列表符号或编号，目标约 ${target} 字。阅读体验优先于极限压缩。不要加入原文没有的观点，不要保留段落编号。`
+    const images = imageParts(chunk.images, args)
+    const request =
+      images.length > 0
+        ? {
+            system: NOTES_SYSTEM,
+            messages: [
+              {
+                role: 'user',
+                content: [{ type: 'text', text: requestPrompt }, ...images],
+              },
+            ] as ModelMessage[],
+          }
+        : { prompt: requestPrompt }
+    let response: Awaited<ReturnType<typeof tracedGenerateText>>
+    try {
+      response = await tracedGenerateText({ step: 'condense', provider: args.config.provider, model: args.config.model, promptVersion: NOTES_PROMPT_VERSION, timeoutMs: 120_000 }, {
+        model,
+        ...request,
+        temperature: 0.4,
+        maxOutputTokens: Math.min(16_000, Math.max(4_000, Math.ceil(target * 2.2))),
+        ...(providerOptions ? { providerOptions } : {}),
+        maxRetries: 1,
+        abortSignal: requestTimeout(signal, 180_000),
+      })
+    } catch (error) {
+      if (images.length > 0 && !args.visionDisabled && isVisionError(error)) {
+        args.visionDisabled = true
+        continue
+      }
+      throw error
+    }
     recordUsage(args.usage, response.usage)
     const parsed = normalizeCondense(response.text, chunk.title)
     if (!parsed.compressed) continue
     last = parsed
     const tooLong =
       chunk.text.length >= 300 && countChars(parsed.compressed) > chunk.text.length * 0.6
-    if (tooLong && attempt === 0) continue
+    const listy = looksLikeList(parsed.compressed)
+    if ((tooLong || listy) && attempt === 0) continue
     return parsed
   }
 
@@ -734,6 +885,7 @@ async function auditDetails(
   const task = [
     '下面是本章的读薄稿。请只做第二轮细节回查，找标准回查容易漏掉的内容：',
     '定义之间的细微区别、限定条件、作者举出的反例、人物/事件的因果、以及被压缩后失去的语境。',
+    languageDirective(args),
     hint,
     '结合上面的原文片段回查；不要重复泛泛的主旨，不要把重复内容或纯铺垫算作缺失；没有就返回空数组。',
     '只输出 JSON 对象：{"missing":[{"section":"...","point":"..."}]}。不要输出 Markdown 代码块。',
@@ -743,31 +895,45 @@ async function auditDetails(
   ]
     .filter(Boolean)
     .join('\n')
-  const request = chapterRequest(args, task, cacheContext, 24_000)
+  const providerOptions = nonThinkingProviderOptions(args.config)
 
-  try {
-    const response = await tracedGenerateText({ step: 'audit-details', model: args.config.model, promptVersion: NOTES_PROMPT_VERSION }, {
-      model,
-      ...request,
-      temperature: 0.25,
-      maxRetries: 1,
-      abortSignal: requestTimeout(signal, 180_000),
-    })
-    recordUsage(args.usage, response.usage)
-    return normalizeAudit(parseJsonFromText(response.text)).slice(0, 8)
-  } catch (error) {
-    if (signal.aborted) throw error
-    args.onStageError?.('audit-details', error)
-    return []
+  let lastError: unknown = null
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (signal.aborted) throw new Error('生成已取消')
+    const request = chapterRequest(args, task, cacheContext, 24_000)
+    try {
+      const response = await tracedGenerateText({ step: 'audit-details', provider: args.config.provider, model: args.config.model, promptVersion: NOTES_PROMPT_VERSION, timeoutMs: 120_000 }, {
+        model,
+        ...request,
+        temperature: 0.25,
+        maxOutputTokens: 2_400,
+        ...(providerOptions ? { providerOptions } : {}),
+        maxRetries: 2,
+        abortSignal: requestTimeout(signal, 180_000),
+      })
+      recordUsage(args.usage, response.usage)
+      return normalizeAudit(parseJsonFromText(response.text)).slice(0, 8)
+    } catch (error) {
+      if (signal.aborted) throw error
+      if (!args.visionDisabled && args.chapterImages?.some((image) => image.data) && isVisionError(error)) {
+        args.visionDisabled = true
+        continue
+      }
+      lastError = error
+    }
+    if (attempt === 0) await retryDelay(0)
   }
+  args.onStageError?.('audit-details', lastError ?? new Error('细节回查失败'))
+  return []
 }
 
 function buildAuditBlock(missing: AuditMissing[]): string {
-  const items = missing
+  // 补遗也写成一段话，避免整篇读薄稿最后突然变成要点列表。
+  const points = missing
     .filter((item) => item.point.trim())
-    .map((item) => `- ${item.point.trim()}${item.section.trim() ? `（${item.section.trim()}）` : ''}`)
-    .join('\n')
-  return items ? `## 补遗（断言回查）\n\n${items}` : ''
+    .slice(0, 8)
+    .map((item) => item.point.trim().replace(/[。；;]+$/, ''))
+  return points.length > 0 ? `此外，回查原文时还有几点值得补充：${points.join('；')}。` : ''
 }
 
 function normalizeAudit(raw: unknown): AuditMissing[] {
@@ -813,54 +979,165 @@ async function extractCardsWithAudit(
   signal: AbortSignal,
 ): Promise<{ cards: Card[]; missing: AuditMissing[] }> {
   const hint = genreRule(args.genre)
-  const prompt = [
-    `书名《${args.bookTitle}》，本章「${args.chapterTitle}」。下面是本章的读薄稿与原文片段：`,
-    ...(hint ? [hint] : []),
-    '读薄稿：',
-    compressed.slice(0, 26_000),
-    '',
-    '任务一：从读薄稿里提炼知识点卡片，原文片段只用于填写 evidence，不要从原文新增卡片。',
-    `卡片数量：根据读薄稿字数，只保留 ${range.min}-${range.max} 张（读薄稿约 ${countChars(compressed)} 字）。`,
-    '什么样才算知识点：用一句话测试——不知道它，会影响对全文的理解吗？会，才收；不会但有意思，留在读薄稿里；原文的每个案例细节不是知识点，是索引。',
-    '每张卡片必须填满：',
-    '1. point：一句话知识点（用作者的语言或自己的话，选更准确的）。',
-    '2. role：它在全文中的作用——支撑什么结论、处于论证链的哪一环。',
-    '3. evidence：从上面原文片段中逐字复制一句能支撑 point 的话，必须与原文一致；可省略首尾标点，不要改写，找不到就留空。',
-    '4. section：所属小节。',
-    '5. concepts：术语数组。',
-    '6. importance：1-5。',
-    '如果候选超过上限，合并重复、删掉次要的；不要为了凑数保留案例细节。',
-    ...(includeAudit
-      ? [
-          '',
-          '任务二：只针对上面提供的原文片段做断言回查。读薄稿有没有漏掉作者的主张、论证链、关键例子或边界条件？被有意压缩的重复内容和铺垫不算缺失，表达差异也不算。',
-          '只输出 JSON 对象：{"cards":[...],"missing":[{"section":"...","point":"..."}]}。没有缺失就返回空数组。不要输出 Markdown 代码块。',
-        ]
-      : ['只输出 JSON 对象：{"cards":[...]}。不要输出 Markdown 代码块或额外解释。']),
-  ].join('\n')
-  const request = chapterRequest(args, prompt, cacheContext, cacheContext ? 24_000 : EVIDENCE_SOURCE_CHARS)
+  const providerOptions = nonThinkingProviderOptions(args.config)
+  const buildPrompt = (text: string, retry: boolean): string =>
+    [
+      `书名《${args.bookTitle}》，本章「${args.chapterTitle}」。下面是本章的读薄稿与原文片段：`,
+      languageDirective(args),
+      ...(hint ? [hint] : []),
+      ...(args.chapterImages && args.chapterImages.length > 0
+        ? ['章节图片会作为视觉输入附加；图注和 alt 已在原文片段中给出。只使用看得清、能确认的信息。']
+        : []),
+      '读薄稿：',
+      text.slice(0, 26_000),
+      '',
+      '任务一：从读薄稿里提炼知识点卡片，原文片段只用于填写 evidence，不要从原文新增卡片。',
+      `卡片数量：根据读薄稿字数，只保留 ${range.min}-${range.max} 张（读薄稿约 ${countChars(text)} 字）。`,
+      '什么样才算知识点：用一句话测试——不知道它，会影响对全文的理解吗？会，才收；不会但有意思，留在读薄稿里；原文的每个案例细节不是知识点，是索引。',
+      '每张卡片必须填满：',
+      '1. point：一句话知识点（用作者的语言或自己的话，选更准确的）；外文原文时用简体中文。',
+      '2. role：它在全文中的作用——支撑什么结论、处于论证链的哪一环；外文原文时用简体中文。',
+      '3. evidence：从上面原文片段中逐字复制一句能支撑 point 的话，必须与原文一致；可省略首尾标点，不要改写，找不到就留空。',
+      '4. section：所属小节。',
+      '5. concepts：术语数组。',
+      '6. importance：1-5。',
+      '7. 遇到代码、图表、流程图时，可以提炼它们明确说明的机制、对比或结论；代码不要逐行抄写，讲清作用即可。',
+      '8. evidence 必须逐字来自上面提供的原文文本或图注；不要编造图里的文字、数字或标签。',
+      '如果候选超过上限，合并重复、删掉次要的；不要为了凑数保留案例细节。',
+      ...(includeAudit
+        ? [
+            '',
+            '任务二：只针对上面提供的原文片段做断言回查。读薄稿有没有漏掉作者的主张、论证链、关键例子、图表/代码所支持的机制或边界条件？被有意压缩的重复内容和铺垫不算缺失，表达差异也不算。',
+            '只输出 JSON 对象：{"cards":[...],"missing":[{"section":"...","point":"..."}]}。没有缺失就返回空数组。不要输出 Markdown 代码块。',
+          ]
+        : ['只输出 JSON 对象：{"cards":[...]}。不要输出 Markdown 代码块或额外解释。']),
+      ...(retry
+        ? [
+            '',
+            '重要：上一次没有返回可解析的卡片 JSON。这一次请直接输出 JSON，不要思考过程、不要 Markdown 代码块、不要解释；即使信息不完整也要返回至少 3 张卡片。',
+          ]
+        : []),
+    ].join('\n')
 
-  try {
-    const response = await tracedGenerateText({ step: includeAudit ? 'extract-cards-audit' : 'extract-cards', model: args.config.model, promptVersion: NOTES_PROMPT_VERSION }, {
-      model,
-      ...request,
-      temperature: 0.2,
-      maxRetries: 1,
-      abortSignal: requestTimeout(signal, includeAudit ? 240_000 : 180_000),
-    })
-    recordUsage(args.usage, response.usage)
-    args.debugRaw?.('extract-cards', response.text)
-    const parsed = parseJsonFromText(response.text)
-    const object = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as { cards?: unknown; missing?: unknown }) : null
-    return {
-      cards: normalizeCards(object?.cards ?? parsed, args.chapterText).slice(0, range.max),
-      missing: includeAudit ? normalizeAudit(object?.missing).slice(0, 12) : [],
+  let lastError: unknown = null
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (signal.aborted) throw new Error('生成已取消')
+    const request = chapterRequest(
+      args,
+      buildPrompt(compressed, attempt > 0),
+      cacheContext,
+      cacheContext ? 24_000 : EVIDENCE_SOURCE_CHARS,
+    )
+    try {
+      const response = await tracedGenerateText(
+        {
+          step: includeAudit ? 'extract-cards-audit' : 'extract-cards',
+          provider: args.config.provider,
+          model: args.config.model,
+          promptVersion: NOTES_PROMPT_VERSION,
+          timeoutMs: includeAudit ? 150_000 : 120_000,
+        },
+        {
+          model,
+          ...request,
+          temperature: 0.2,
+          // 思考模型会把 reasoning token 也算进输出；重试时放宽上限，避免 JSON 被截断。
+          maxOutputTokens: attempt === 0 ? 8_000 : 12_000,
+          ...(providerOptions ? { providerOptions } : {}),
+          maxRetries: 2,
+          abortSignal: requestTimeout(signal, includeAudit ? 240_000 : 180_000),
+        },
+      )
+      recordUsage(args.usage, response.usage)
+      args.debugRaw?.('extract-cards', response.text)
+      const parsed = parseJsonFromText(response.text)
+      const object =
+        parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+          ? (parsed as { cards?: unknown; missing?: unknown })
+          : null
+      const cards = normalizeCards(object?.cards ?? parsed, args.chapterText).slice(0, range.max)
+      if (cards.length > 0) {
+        return {
+          cards,
+          missing: includeAudit ? normalizeAudit(object?.missing).slice(0, 12) : [],
+        }
+      }
+      lastError = new Error('模型没有返回可解析的卡片')
+    } catch (error) {
+      if (signal.aborted) throw error
+      if (!args.visionDisabled && args.chapterImages?.some((image) => image.data) && isVisionError(error)) {
+        args.visionDisabled = true
+        continue
+      }
+      lastError = error
+      // 超时多半是整章读薄稿太大；直接拆成两半，不再原样重试。
+      if (isTimeoutError(error)) break
     }
-  } catch (error) {
-    if (signal.aborted) throw error
-    args.onStageError?.('extract-cards', error)
-    return { cards: [], missing: [] }
+    if (attempt < 2) await retryDelay(attempt)
   }
+
+  // 整章读薄稿太大时，最后再拆成两半分别提炼，合并去重；避免直接退回本地兜底卡片。
+  const halves = splitTextForRetry(compressed)
+  if (halves) {
+    const splitCards: Card[] = []
+    const splitMissing: AuditMissing[] = []
+    let splitFailed = false
+    for (const half of halves) {
+      if (signal.aborted) throw new Error('生成已取消')
+      try {
+        const request = chapterRequest(
+          args,
+          buildPrompt(half, true),
+          cacheContext,
+          cacheContext ? 24_000 : EVIDENCE_SOURCE_CHARS,
+        )
+        const response = await tracedGenerateText(
+          {
+            step: 'extract-cards-split',
+            provider: args.config.provider,
+            model: args.config.model,
+            promptVersion: NOTES_PROMPT_VERSION,
+            timeoutMs: 120_000,
+          },
+          {
+            model,
+            ...request,
+            temperature: 0.2,
+            maxOutputTokens: 10_000,
+            ...(providerOptions ? { providerOptions } : {}),
+            maxRetries: 1,
+            abortSignal: requestTimeout(signal, 150_000),
+          },
+        )
+        recordUsage(args.usage, response.usage)
+        const parsed = parseJsonFromText(response.text)
+        const object =
+          parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+            ? (parsed as { cards?: unknown; missing?: unknown })
+            : null
+        splitCards.push(...normalizeCards(object?.cards ?? parsed, args.chapterText))
+        if (includeAudit) splitMissing.push(...normalizeAudit(object?.missing))
+      } catch (error) {
+        if (signal.aborted) throw error
+        if (!args.visionDisabled && args.chapterImages?.some((image) => image.data) && isVisionError(error)) {
+          args.visionDisabled = true
+          continue
+        }
+        lastError = error
+        splitFailed = true
+      }
+    }
+    const cards = dedupeCards(splitCards).slice(0, range.max)
+    if (cards.length > 0) {
+      if (splitFailed) {
+        args.onStageError?.('extract-cards', lastError ?? new Error('部分卡片提炼失败'), 2, 1)
+      }
+      return { cards, missing: dedupeAudit(splitMissing).slice(0, 12) }
+    }
+  }
+
+  args.onStageError?.('extract-cards', lastError ?? new Error('卡片提炼失败'))
+  return { cards: [], missing: [] }
 }
 
 async function refilterCards(
@@ -886,21 +1163,31 @@ async function refilterCards(
     '只输出 JSON 对象：{"cards":[...]}。不要输出 Markdown 代码块。',
   ].join('\n')
 
-  try {
-    const response = await tracedGenerateText({ step: 'refilter-cards', model: args.config.model, promptVersion: NOTES_PROMPT_VERSION }, {
-      model,
-      prompt,
-      temperature: 0.15,
-      maxRetries: 1,
-      abortSignal: requestTimeout(signal, 180_000),
-    })
-    recordUsage(args.usage, response.usage)
-    const filtered = normalizeCards(parseJsonFromText(response.text), args.chapterText).slice(0, max)
-    if (filtered.length > 0) return filtered
-  } catch (error) {
-    if (signal.aborted) throw error
-    args.onStageError?.('refilter-cards', error)
+  const providerOptions = nonThinkingProviderOptions(args.config)
+  let lastError: unknown = null
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (signal.aborted) throw new Error('生成已取消')
+    try {
+      const response = await tracedGenerateText({ step: 'refilter-cards', provider: args.config.provider, model: args.config.model, promptVersion: NOTES_PROMPT_VERSION, timeoutMs: 120_000 }, {
+        model,
+        prompt,
+        temperature: 0.15,
+        maxOutputTokens: 6_000,
+        ...(providerOptions ? { providerOptions } : {}),
+        maxRetries: 2,
+        abortSignal: requestTimeout(signal, 180_000),
+      })
+      recordUsage(args.usage, response.usage)
+      const filtered = normalizeCards(parseJsonFromText(response.text), args.chapterText).slice(0, max)
+      if (filtered.length > 0) return filtered
+      lastError = new Error('模型没有返回可解析的卡片')
+    } catch (error) {
+      if (signal.aborted) throw error
+      lastError = error
+    }
+    if (attempt === 0) await retryDelay(0)
   }
+  args.onStageError?.('refilter-cards', lastError ?? new Error('卡片筛选失败'))
 
   return [...cards].sort((a, b) => b.importance - a.importance).slice(0, max)
 }
@@ -916,6 +1203,30 @@ export function normalizeCards(raw: unknown, chapterText: string): Card[] {
     if (card) cards.push(card)
   }
   return cards
+}
+
+function dedupeCards(cards: Card[]): Card[] {
+  const seen = new Set<string>()
+  const result: Card[] = []
+  for (const card of cards) {
+    const key = normalizeForMatch(card.point)
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    result.push(card)
+  }
+  return result
+}
+
+function dedupeAudit(items: AuditMissing[]): AuditMissing[] {
+  const seen = new Set<string>()
+  const result: AuditMissing[] = []
+  for (const item of items) {
+    const key = normalizeForMatch(item.point)
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    result.push(item)
+  }
+  return result
 }
 
 function cardFromValue(value: unknown, chapterText: string): Card | null {
@@ -1012,21 +1323,30 @@ async function expandCards(
     '只输出 JSON 数组：[{"index":0,"divergences":[{"type":"boundary","text":"..."}]}]。不要输出 Markdown 代码块。',
   ].join('\n')
 
-  try {
-    const response = await tracedGenerateText({ step: 'expand-cards', model: args.config.model, promptVersion: NOTES_PROMPT_VERSION }, {
-      model,
-      prompt,
-      temperature: 0.5,
-      maxRetries: 1,
-      abortSignal: requestTimeout(signal, 180_000),
-    })
-    recordUsage(args.usage, response.usage)
-    return normalizeDivergences(parseJsonFromText(response.text), items)
-  } catch (error) {
-    if (signal.aborted) throw error
-    args.onStageError?.('expand-cards', error)
-    return new Map()
+  const providerOptions = nonThinkingProviderOptions(args.config)
+  let lastError: unknown = null
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (signal.aborted) throw new Error('生成已取消')
+    try {
+      const response = await tracedGenerateText({ step: 'expand-cards', provider: args.config.provider, model: args.config.model, promptVersion: NOTES_PROMPT_VERSION, timeoutMs: 120_000 }, {
+        model,
+        prompt,
+        temperature: 0.5,
+        maxOutputTokens: 8_000,
+        ...(providerOptions ? { providerOptions } : {}),
+        maxRetries: 2,
+        abortSignal: requestTimeout(signal, 180_000),
+      })
+      recordUsage(args.usage, response.usage)
+      return normalizeDivergences(parseJsonFromText(response.text), items)
+    } catch (error) {
+      if (signal.aborted) throw error
+      lastError = error
+    }
+    if (attempt === 0) await retryDelay(0)
   }
+  args.onStageError?.('expand-cards', lastError ?? new Error('卡片延伸失败'))
+  return new Map()
 }
 
 /** 单张卡片按需延伸。 */
@@ -1056,10 +1376,13 @@ export async function expandPoint(args: {
     .filter(Boolean)
     .join('\n')
 
-  const response = await tracedGenerateText({ step: 'expand-point', model: args.config.model, promptVersion: NOTES_PROMPT_VERSION }, {
+  const providerOptions = nonThinkingProviderOptions(args.config)
+  const response = await tracedGenerateText({ step: 'expand-point', provider: args.config.provider, model: args.config.model, promptVersion: NOTES_PROMPT_VERSION, timeoutMs: 90_000 }, {
     model,
     prompt,
     temperature: 0.6,
+    maxOutputTokens: 2_000,
+    ...(providerOptions ? { providerOptions } : {}),
     maxRetries: 1,
     abortSignal: AbortSignal.timeout(60_000),
   })

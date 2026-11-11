@@ -20,6 +20,15 @@ function duration(seconds: number): string {
   return rest > 0 ? `${hours} ${t('小时')} ${rest} ${t('分')}` : `${hours} ${t('小时')}`
 }
 
+function formatCost(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return '—'
+  return `¥${value < 0.01 ? value.toFixed(4) : value.toFixed(2)}`
+}
+
+function formatTokens(value: number): string {
+  return Math.max(0, Math.round(value)).toLocaleString()
+}
+
 function drawStatsImage(
   summary: ReturnType<typeof getReadingSummary>,
   month: ReturnType<typeof getReadingMonth>,
@@ -620,21 +629,38 @@ export function StatsView({ books, onBack, onOpenWeeklyReview, onOpenWeeklyRevie
                 <strong>{aiUsage.totalCalls.toLocaleString()}</strong>
               </div>
               <div className="stats-card">
-                <span>{t('失败')}</span>
-                <strong>{aiUsage.totalFailed.toLocaleString()}</strong>
+                <span>{t('输入 / 输出')}</span>
+                <strong>
+                  {formatTokens(aiUsage.totalInputTokens)} / {formatTokens(aiUsage.totalOutputTokens)}
+                </strong>
               </div>
               <div className="stats-card">
-                <span>Tokens</span>
-                <strong>{aiUsage.totalTokens.toLocaleString()}</strong>
+                <span>{t('估算费用')}</span>
+                <strong>{formatCost(aiUsage.totalCost)}</strong>
+              </div>
+              <div className="stats-card">
+                <span>{t('缓存命中')}</span>
+                <strong>
+                  {aiUsage.totalCacheHits.toLocaleString()} {t('次')} · {formatTokens(aiUsage.totalCacheTokens)}
+                </strong>
               </div>
             </div>
+            <p className="field-hint">
+              {t('费用按设置里的模型价格估算；没填价格时只显示 token。总失败')}{' '}
+              {aiUsage.totalFailed.toLocaleString()} {t('次。')}
+              {aiUsage.totalCacheSavings > 0 ? ` ${t('缓存约省')} ${formatCost(aiUsage.totalCacheSavings)}。` : ''}
+            </p>
             {aiUsage.models.length > 0 ? (
               <div className="stats-usage-list">
                 <span className="stats-usage-label">{t('按模型')}</span>
                 {aiUsage.models.slice(0, 6).map((item) => (
                   <div key={item.model} className="stats-usage-row">
                     <span>{item.model}</span>
-                    <span>{item.calls.toLocaleString()} {t('次')} · {item.tokens.toLocaleString()} tokens</span>
+                    <span>
+                      {item.calls.toLocaleString()} {t('次')} · {formatTokens(item.inputTokens)} /{' '}
+                      {formatTokens(item.outputTokens)} · {formatCost(item.cost)}
+                      {item.cacheHits > 0 ? ` · ${t('缓存')} ${item.cacheHits.toLocaleString()} ${t('次')}` : ''}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -642,10 +668,13 @@ export function StatsView({ books, onBack, onOpenWeeklyReview, onOpenWeeklyRevie
             {aiUsage.steps.length > 0 ? (
               <div className="stats-usage-list">
                 <span className="stats-usage-label">{t('按任务')}</span>
-                {aiUsage.steps.slice(0, 6).map((item) => (
+                {aiUsage.steps.slice(0, 8).map((item) => (
                   <div key={item.step} className="stats-usage-row">
                     <span>{item.step}</span>
-                    <span>{item.calls.toLocaleString()} {t('次')} · {item.tokens.toLocaleString()} tokens</span>
+                    <span>
+                      {item.calls.toLocaleString()} {t('次')} · {formatTokens(item.inputTokens)} /{' '}
+                      {formatTokens(item.outputTokens)} · {formatCost(item.cost)}
+                    </span>
                   </div>
                 ))}
               </div>

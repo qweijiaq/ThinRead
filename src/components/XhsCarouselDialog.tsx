@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type { ChapterMeta, Note, XhsCoverageAudit } from '../../shared/types.js'
 import { useDialogFocus } from '../lib/useDialogFocus.js'
 import { t, useLocale } from '../lib/i18n.js'
+import { confirmDialog } from './ConfirmDialog.js'
 import { Select } from './Select.js'
 import {
   planXhsCarousel,
@@ -176,6 +177,31 @@ export function XhsCarouselDialog({
 
   async function runCoverageAudit(): Promise<void> {
     if (!plan || plan.cards.length === 0 || auditBusy) return
+    const scopeChapters =
+      scope === 'chapter'
+        ? chapterOptions.filter((chapter) => chapter.id === selectedChapterId)
+        : chapterOptions
+    const chapterChars = Math.min(
+      36_000,
+      scopeChapters.reduce((sum, chapter) => sum + Math.min(10_000, chapter.chars), 0),
+    )
+    const cardChars = plan.cards.reduce((sum, card) => sum + (card.body || card.heading).length, 0)
+    const inputTokens = Math.ceil((chapterChars + Math.min(12_000, cardChars)) * 0.7)
+    const outputTokens = 2_000
+    const settings = await window.api.getSettings().catch(() => null)
+    const price = settings ? settings.aiPricing[settings.notesModel || settings.model] : null
+    const costHint = price
+      ? `，${t('估算约')} ¥${(
+          (inputTokens / 1_000_000) * price.inputPerMTokens +
+          (outputTokens / 1_000_000) * price.outputPerMTokens
+        ).toFixed(3)}`
+      : ''
+    const confirmed = await confirmDialog({
+      title: t('AI 覆盖检查'),
+      message: `${t('本次会检查')} ${scopeChapters.length || 1} ${t('章，发起 1 次模型请求；预计输入约')} ${inputTokens.toLocaleString()} token，${t('输出约 2,000 token')}${costHint}。${t('实际费用以你在设置里填写/配置的价格为准；继续？')}`,
+      confirmLabel: t('开始检查'),
+    })
+    if (!confirmed) return
     setAuditBusy(true)
     setError(null)
     setNotice(null)
@@ -488,7 +514,7 @@ export function XhsCarouselDialog({
                 </button>
               </div>
               <p className="share-hint">
-                {t('覆盖报告只统计已有卡片。开启 AI 检查会对照原章正文找出可能的漏点，补漏卡只用于本次图文，不写入笔记。')}
+                {t('覆盖报告只统计已有卡片。AI 检查按每章前 1 万字符、全书最多 3.6 万字符抽取原文找漏点；补漏卡只用于本次图文，不写入笔记。')}
               </p>
               {audit ? (
                 <div className="xhs-audit-result">

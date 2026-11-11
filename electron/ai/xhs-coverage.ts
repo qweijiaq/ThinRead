@@ -1,8 +1,7 @@
-import { generateText } from 'ai'
-
 import type { XhsCoverageAudit } from '../../shared/types.js'
 
 import { createLanguageModel, type ModelConfig } from './provider.js'
+import { tracedGenerateText } from './trace.js'
 
 export interface XhsCoverageChapter {
   id: string
@@ -16,8 +15,10 @@ export interface XhsCoverageCard {
   chapterTitle: string | null
 }
 
-const MAX_CHAPTER_CHARS = 18_000
-const MAX_TOTAL_CHARS = 70_000
+const XHS_COVERAGE_PROMPT_VERSION = 'xhs-coverage-v2'
+// 覆盖检查是辅助，不是形式化证明：默认只取每章开头和整本书的有限篇幅，避免一次烧掉近十万字符。
+const MAX_CHAPTER_CHARS = 10_000
+const MAX_TOTAL_CHARS = 36_000
 
 function cleanJson(text: string): unknown {
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1] ?? text
@@ -42,7 +43,7 @@ export async function auditXhsCoverage(args: {
   if (args.demo) {
     return { missing: [], checkedChapters: args.chapters.length, note: '演示模式不会调用模型做覆盖检查。' }
   }
-  if (!args.config.apiKey && args.config.provider !== 'ollama') {
+  if (!args.config.apiKey && args.config.provider !== 'ollama' && args.config.provider !== 'lmstudio') {
     throw new Error('还没有配置 API Key，无法检查原书覆盖。')
   }
   if (args.cards.length === 0) return { missing: [], checkedChapters: 0, note: '还没有核心卡片。' }
@@ -59,31 +60,40 @@ export async function auditXhsCoverage(args: {
   const cardLines = args.cards
     .map((card, index) => `${index + 1}. [${card.chapterTitle ?? '未分章'}] ${card.title}：${card.content}`)
     .join('\n')
-    .slice(0, 24_000)
+    .slice(0, 12_000)
   const chapterText = chapters
     .map((chapter) => `## ${chapter.title}\n${chapter.text}`)
     .join('\n\n')
   const model = createLanguageModel(args.config)
-  const result = await generateText({
-    model,
-    system:
-      '你是严谨的阅读编辑。只根据用户提供的章节正文和已有卡片，找出正文中存在、但卡片没有覆盖到的明确知识点。不要为了凑数制造观点，不要把例子、铺垫、重复表述当成新知识点。',
-    prompt: [
-      `书：${args.bookTitle}`,
-      '',
-      '已有卡片：',
-      cardLines,
-      '',
-      '章节正文：',
-      chapterText,
-      '',
-      '请输出 JSON：',
-      '{"missing":[{"chapterTitle":"章节名","point":"一句具体的漏点","evidence":"正文中的短引用"}]}',
-      '没有明显漏点时返回 {"missing":[]}。最多列出 20 条；每条 point 不超过 80 字，evidence 不超过 80 字。',
-    ].join('\n'),
-    maxRetries: 1,
-    abortSignal: AbortSignal.timeout(120_000),
-  })
+  const result = await tracedGenerateText(
+    {
+      step: 'xhs-coverage',
+      provider: args.config.provider,
+      model: args.config.model,
+      promptVersion: XHS_COVERAGE_PROMPT_VERSION,
+    },
+    {
+      model,
+      system:
+        '你是严谨的阅读编辑。只根据用户提供的章节正文和已有卡片，找出正文中存在、但卡片没有覆盖到的明确知识点。不要为了凑数制造观点，不要把例子、铺垫、重复表述当成新知识点。',
+      prompt: [
+        `书：${args.bookTitle}`,
+        '',
+        '已有卡片：',
+        cardLines,
+        '',
+        '章节正文：',
+        chapterText,
+        '',
+        '请输出 JSON：',
+        '{"missing":[{"chapterTitle":"章节名","point":"一句具体的漏点","evidence":"正文中的短引用"}]}',
+        '没有明显漏点时返回 {"missing":[]}。最多列出 20 条；每条 point 不超过 80 字，evidence 不超过 80 字。',
+      ].join('\n'),
+      maxOutputTokens: 4_000,
+      maxRetries: 1,
+      abortSignal: AbortSignal.timeout(120_000),
+    },
+  )
   const parsed = cleanJson(result.text)
   const rawMissing =
     parsed && typeof parsed === 'object' && Array.isArray((parsed as { missing?: unknown }).missing)

@@ -1,4 +1,6 @@
-import { generateText } from 'ai'
+import { createHash } from 'node:crypto'
+import { readFile, mkdir, rename, writeFile, readdir, stat, unlink } from 'node:fs/promises'
+import path from 'node:path'
 
 import type {
   BookComposeOptions,
@@ -9,14 +11,25 @@ import type {
   TokenUsage,
 } from '../../shared/types.js'
 import { genreRule } from './genre.js'
-import type { ModelConfig } from './provider.js'
-import { createLanguageModel } from './provider.js'
+import { createLanguageModel, nonThinkingProviderOptions, type ModelConfig } from './provider.js'
+import { tracedGenerateText } from './trace.js'
+
+const COMPOSE_PROMPT_VERSION = 'compose-v5'
+const COMPOSE_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000
+const COMPOSE_CACHE_MAX_FILES = 200
 
 const BATCH_CHARS = 12_000
 const SINGLE_PASS_CHARS = 24_000
-const FINAL_EDITOR_CHARS = 60_000
-const CONCURRENCY = 2
 const REQUEST_TIMEOUT_MS = 180_000
+
+/** 大稿不再整篇重写终审：超过这个长度时只补标题/导语/结尾，保留已经整理好的章节正文。 */
+function finalEditorChars(mode: GenerationMode | undefined): number {
+  return mode === 'deep' ? 60_000 : mode === 'fast' ? 24_000 : 40_000
+}
+
+function composeConcurrency(mode: GenerationMode | undefined): number {
+  return mode === 'deep' ? 2 : mode === 'fast' ? 4 : 3
+}
 
 export interface ComposeSource {
   title: string
@@ -35,6 +48,8 @@ export interface ComposeArgs {
   config: ModelConfig
   demo: boolean
   signal: AbortSignal
+  /** 成稿缓存目录；不传则不缓存。 */
+  cacheDir?: string
   onProgress: (progress: BookComposeProgress) => void
 }
 
@@ -60,6 +75,60 @@ function recordUsage(target: TokenUsage | undefined, usage: unknown): void {
   target.inputTokens += Number(value.inputTokens) || 0
   target.outputTokens += Number(value.outputTokens) || 0
   target.totalTokens += Number(value.totalTokens) || 0
+}
+
+function composeCacheKey(parts: unknown): string {
+  return createHash('sha256').update(JSON.stringify(parts)).digest('hex')
+}
+
+async function readComposeCache<T>(dir: string | undefined, key: string): Promise<T | null> {
+  if (!dir) return null
+  try {
+    const file = path.join(dir, 'compose', `${key}.json`)
+    const entry = JSON.parse(await readFile(file, 'utf8')) as { createdAt?: string; value?: T }
+    if (!entry.createdAt || Date.now() - Date.parse(entry.createdAt) > COMPOSE_CACHE_TTL_MS) return null
+    return (entry.value ?? null) as T | null
+  } catch {
+    return null
+  }
+}
+
+async function writeComposeCache(dir: string | undefined, key: string, value: unknown): Promise<void> {
+  if (!dir) return
+  try {
+    const folder = path.join(dir, 'compose')
+    await mkdir(folder, { recursive: true })
+    const file = path.join(folder, `${key}.json`)
+    const temp = `${file}.${process.pid}.tmp`
+    await writeFile(temp, JSON.stringify({ createdAt: new Date().toISOString(), value }), 'utf8')
+    await rename(temp, file)
+    void pruneComposeCache(folder)
+  } catch {
+    // 缓存失败不影响生成。
+  }
+}
+
+async function pruneComposeCache(folder: string): Promise<void> {
+  try {
+    const names = (await readdir(folder)).filter((name) => name.endsWith('.json'))
+    if (names.length <= COMPOSE_CACHE_MAX_FILES) return
+    const rows = await Promise.all(
+      names.map(async (name) => {
+        const file = path.join(folder, name)
+        try {
+          return { file, mtime: (await stat(file)).mtimeMs }
+        } catch {
+          return { file, mtime: 0 }
+        }
+      }),
+    )
+    rows.sort((a, b) => a.mtime - b.mtime)
+    for (const row of rows.slice(0, rows.length - COMPOSE_CACHE_MAX_FILES)) {
+      await unlink(row.file).catch(() => undefined)
+    }
+  } catch {
+    // 清理失败不影响生成。
+  }
 }
 
 function outputTarget(sourceChars: number, length: BookComposeOptions['length']): number {
@@ -91,7 +160,7 @@ export async function composeBook(args: ComposeArgs): Promise<BookComposeResult>
     const result = demoCompose(args, sources, sourceChars, startedAt)
     return result
   }
-  if (!args.config.apiKey && args.config.provider !== 'ollama') {
+  if (!args.config.apiKey && args.config.provider !== 'ollama' && args.config.provider !== 'lmstudio') {
     throw new Error('还没有配置 API Key，无法合并整本书。')
   }
 
@@ -99,7 +168,8 @@ export async function composeBook(args: ComposeArgs): Promise<BookComposeResult>
   const usage: TokenUsage = args.usage ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 }
   args.usage = usage
   let draft = ''
-  const fastTrack = args.mode === 'fast' && sourceChars <= FINAL_EDITOR_CHARS
+  const editorChars = finalEditorChars(args.mode)
+  const fastTrack = args.mode === 'fast' && sourceChars <= editorChars
   if (sourceChars <= SINGLE_PASS_CHARS || fastTrack) {
     // 小书或快速档不拆批：直接让终审在一次请求里完成合并和压缩，省掉多轮调用。
     draft = sourceDraft(sources)
@@ -112,8 +182,15 @@ export async function composeBook(args: ComposeArgs): Promise<BookComposeResult>
   } else {
     const batches = splitBatches(sources)
     const sections: string[] = new Array(batches.length).fill('')
+    const workers = Math.min(composeConcurrency(args.mode), batches.length)
     let nextBatch = 0
     let rewritten = 0
+    args.onProgress({
+      stage: 'rewrite',
+      done: 0,
+      total: batches.length,
+      message: `正在整理 ${batches.length} 组章节（${workers} 组并发）`,
+    })
     const worker = async (): Promise<void> => {
       while (true) {
         const index = nextBatch++
@@ -136,17 +213,25 @@ export async function composeBook(args: ComposeArgs): Promise<BookComposeResult>
         })
       }
     }
-    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, batches.length) }, worker))
+    await Promise.all(Array.from({ length: workers }, worker))
     draft = sections.filter(Boolean).join('\n\n').trim()
   }
   if (!draft) throw new Error('没有可合并的正文，请重试或换一个模型。')
 
-  args.onProgress({ stage: 'polish', done: 0, total: 1, message: '正在统一语气、补过渡、去 AI 味' })
+  const useFinalEditor = draft.length <= editorChars
+  args.onProgress({
+    stage: 'polish',
+    done: 0,
+    total: 1,
+    message: useFinalEditor
+      ? '正在终审全文、统一语气并补过渡'
+      : '正文已整理好，正在补标题、导语和结尾',
+  })
   let title = ''
   let markdown = ''
   const finalTarget = outputTarget(sourceChars, args.options.length)
   try {
-    if (draft.length <= FINAL_EDITOR_CHARS) {
+    if (useFinalEditor) {
       const final = await finalEdit(model, args, draft, finalTarget)
       title = final.title
       markdown = final.markdown
@@ -174,7 +259,7 @@ export async function composeBook(args: ComposeArgs): Promise<BookComposeResult>
     outputChars: markdown.length,
     durationMs: Date.now() - startedAt,
     usage: { ...usage },
-    promptVersion: 'compose-v4',
+    promptVersion: COMPOSE_PROMPT_VERSION,
     model: args.config.model,
     createdAt: new Date().toISOString(),
     options: args.options,
@@ -219,9 +304,23 @@ async function rewriteBatch(
   batch: ComposeSource[],
 ): Promise<string> {
   const batchChars = batch.reduce((sum, source) => sum + source.content.length, 0)
-  const target = Math.max(1_000, Math.round(batchChars * (args.options.length === 'tight' ? 0.68 : 0.9)))
+  const lengthRatio =
+    args.mode === 'fast' ? 0.52 : args.options.length === 'tight' ? 0.68 : 0.9
+  const target = Math.max(1_000, Math.round(batchChars * lengthRatio))
   const maxTarget = Math.round(target * 1.15)
   const genreHint = genreRule(args.genre)
+  const cacheKey = composeCacheKey({
+    v: COMPOSE_PROMPT_VERSION,
+    kind: 'batch',
+    model: args.config.model,
+    mode: args.mode ?? 'standard',
+    book: args.bookTitle,
+    genre: args.genre ?? null,
+    options: args.options,
+    batch: batch.map((source) => ({ title: source.title, content: source.content, cards: source.cards })),
+  })
+  const cachedSection = await readComposeCache<string>(args.cacheDir, cacheKey)
+  if (cachedSection) return cachedSection
   const basePrompt = [
     `书名：《${args.bookTitle}》${args.author ? `，作者：${args.author}` : ''}`,
     ...(genreHint ? [genreHint] : []),
@@ -240,20 +339,35 @@ async function rewriteBatch(
   ].join('\n')
 
   const controller = linkedController(args.signal, REQUEST_TIMEOUT_MS)
+  const providerOptions = nonThinkingProviderOptions(args.config)
   try {
     let prompt = basePrompt
     for (let attempt = 0; attempt < 2; attempt++) {
-      const response = await generateText({
-        model,
-        system: '你是中文非虚构图书的资深编辑，擅长把笔记整理成自然、有判断、能直接发布的博客长文。',
-        prompt,
-        temperature: 0.45,
-        maxRetries: 1,
-        abortSignal: controller.signal,
-      })
+      const response = await tracedGenerateText(
+        {
+          step: 'compose-batch',
+          provider: args.config.provider,
+          model: args.config.model,
+          promptVersion: COMPOSE_PROMPT_VERSION,
+          timeoutMs: REQUEST_TIMEOUT_MS,
+        },
+        {
+          model,
+          system: '你是中文非虚构图书的资深编辑，擅长把笔记整理成自然、有判断、能直接发布的博客长文。',
+          prompt,
+          temperature: 0.45,
+          maxOutputTokens: Math.min(32_000, Math.max(1_200, Math.ceil(maxTarget * 2))),
+          maxRetries: 1,
+          ...(providerOptions ? { providerOptions } : {}),
+          abortSignal: controller.signal,
+        },
+      )
       recordUsage(args.usage, response.usage)
       const section = cleanSection(response.text)
-      if (section.length <= maxTarget || attempt === 1) return section
+      if (section.length <= maxTarget || attempt === 1) {
+        await writeComposeCache(args.cacheDir, cacheKey, section)
+        return section
+      }
       prompt = `${basePrompt}\n\n上一次输出了 ${section.length.toLocaleString()} 字，仍然太长。请再压一轮：保留全部关键判断和必要例子，删除重复、铺垫、解释性从句和次要案例，把正文控制在 ${target.toLocaleString()} 字以内。`
     }
     return ''
@@ -271,6 +385,20 @@ async function finalEdit(
 ): Promise<{ title: string; markdown: string }> {
   const sourceChars = args.sources.reduce((sum, source) => sum + source.content.length, 0)
   const genreHint = genreRule(args.genre)
+  const cacheKey = composeCacheKey({
+    v: COMPOSE_PROMPT_VERSION,
+    kind: 'final',
+    model: args.config.model,
+    mode: args.mode ?? 'standard',
+    book: args.bookTitle,
+    author: args.author,
+    genre: args.genre ?? null,
+    options: args.options,
+    targetChars,
+    draft,
+  })
+  const cached = await readComposeCache<{ title: string; markdown: string }>(args.cacheDir, cacheKey)
+  if (cached) return cached
   const prompt = [
     `书名：《${args.bookTitle}》${args.author ? `，作者：${args.author}` : ''}`,
     ...(genreHint ? [genreHint] : []),
@@ -292,20 +420,34 @@ async function finalEdit(
   ].join('\n')
 
   const controller = linkedController(args.signal, REQUEST_TIMEOUT_MS)
+  const providerOptions = nonThinkingProviderOptions(args.config)
   try {
-    const response = await generateText({
-      model,
-      system: '你是这本书的终审编辑。你的工作是让文章像一个真正读过书的人写的，而不是模型生成的摘要。',
-      prompt,
-      temperature: 0.5,
-      maxRetries: 1,
-      abortSignal: controller.signal,
-    })
+    const response = await tracedGenerateText(
+      {
+        step: 'compose-final',
+        provider: args.config.provider,
+        model: args.config.model,
+        promptVersion: COMPOSE_PROMPT_VERSION,
+        timeoutMs: REQUEST_TIMEOUT_MS,
+      },
+      {
+        model,
+        system: '你是这本书的终审编辑。你的工作是让文章像一个真正读过书的人写的，而不是模型生成的摘要。',
+        prompt,
+        temperature: 0.5,
+        maxOutputTokens: Math.min(64_000, Math.max(1_500, Math.ceil(targetChars * 1.8))),
+        maxRetries: 1,
+        ...(providerOptions ? { providerOptions } : {}),
+        abortSignal: controller.signal,
+      },
+    )
     recordUsage(args.usage, response.usage)
     let markdown = cleanArticle(response.text)
     const title = extractTitle(markdown, args.bookTitle)
     if (!/^#\s+/m.test(markdown)) markdown = `# ${title}\n\n${markdown}`
-    return { title, markdown }
+    const result = { title, markdown }
+    await writeComposeCache(args.cacheDir, cacheKey, result)
+    return result
   } finally {
     controller.dispose()
   }
@@ -320,6 +462,20 @@ async function frameLongBook(
     .map((source) => `- ${source.title}：${source.content.replace(/\s+/g, ' ').slice(0, 160)}`)
     .join('\n')
   const genreHint = genreRule(args.genre)
+  const cacheKey = composeCacheKey({
+    v: COMPOSE_PROMPT_VERSION,
+    kind: 'frame',
+    model: args.config.model,
+    mode: args.mode ?? 'standard',
+    book: args.bookTitle,
+    author: args.author,
+    genre: args.genre ?? null,
+    options: args.options,
+    outline,
+    draft,
+  })
+  const cached = await readComposeCache<{ title: string; markdown: string }>(args.cacheDir, cacheKey)
+  if (cached) return cached
   const prompt = [
     `书名：《${args.bookTitle}》${args.author ? `，作者：${args.author}` : ''}`,
     ...(genreHint ? [genreHint] : []),
@@ -342,23 +498,37 @@ async function frameLongBook(
   ].join('\n')
 
   const controller = linkedController(args.signal, REQUEST_TIMEOUT_MS)
+  const providerOptions = nonThinkingProviderOptions(args.config)
   try {
-    const response = await generateText({
-      model,
-      system: '你是这本书的终审编辑。你只为长文写开头和结尾，正文由章节编辑完成。',
-      prompt,
-      temperature: 0.5,
-      maxRetries: 1,
-      abortSignal: controller.signal,
-    })
+    const response = await tracedGenerateText(
+      {
+        step: 'compose-frame',
+        provider: args.config.provider,
+        model: args.config.model,
+        promptVersion: COMPOSE_PROMPT_VERSION,
+        timeoutMs: REQUEST_TIMEOUT_MS,
+      },
+      {
+        model,
+        system: '你是这本书的终审编辑。你只为长文写开头和结尾，正文由章节编辑完成。',
+        prompt,
+        temperature: 0.5,
+        maxOutputTokens: 6_000,
+        maxRetries: 1,
+        ...(providerOptions ? { providerOptions } : {}),
+        abortSignal: controller.signal,
+      },
+    )
     recordUsage(args.usage, response.usage)
     const raw = cleanArticle(response.text)
     const [head, tail = ''] = raw.split('<<<END>>>')
     const title = extractTitle(head ?? '', args.bookTitle)
-    return {
+    const result = {
       title,
       markdown: `${(head ?? '').trim()}\n\n${draft}\n\n${tail.trim()}`.trim(),
     }
+    await writeComposeCache(args.cacheDir, cacheKey, result)
+    return result
   } finally {
     controller.dispose()
   }

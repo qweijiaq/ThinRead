@@ -49,7 +49,7 @@ const FIXTURES: EvalFixture[] = [
 /** 真实模型固定样例评测；需要用户在设置里配置 API Key，会消耗 token。 */
 export async function runRealEval(dataDir: string): Promise<void> {
   const settings = getActiveSettings('notes')
-  if (settings.provider === 'demo' || (!settings.apiKey && settings.provider !== 'ollama')) {
+  if (settings.provider === 'demo' || (!settings.apiKey && settings.provider !== 'ollama' && settings.provider !== 'lmstudio')) {
     throw new Error('SETUP REQUIRED：请先在设置里配置真实模型和 API Key。')
   }
   const results: Array<Record<string, unknown>> = []
@@ -104,7 +104,7 @@ export async function runRealEval(dataDir: string): Promise<void> {
 /** 用真实书稿跑 N 章标准档，输出质量/成本基线；只读数据库，不写笔记。 */
 export async function runRealBookEval(limit = 5, chapterFilter?: string): Promise<void> {
   const settings = getActiveSettings('notes')
-  if (settings.provider === 'demo' || (!settings.apiKey && settings.provider !== 'ollama')) {
+  if (settings.provider === 'demo' || (!settings.apiKey && settings.provider !== 'ollama' && settings.provider !== 'lmstudio')) {
     throw new Error('SETUP REQUIRED：请先在设置里配置真实模型和 API Key。')
   }
   const book =

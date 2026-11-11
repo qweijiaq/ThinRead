@@ -1,5 +1,96 @@
+import { createHash } from 'node:crypto'
+import fs from 'node:fs'
+import path from 'node:path'
+
 import type { TtsAudio, TtsStatus, TtsSynthesisRequest, TtsVoice } from '../shared/types.js'
 import { getQwenTtsConfig, getQwenTtsVoices, QWEN_TTS_DEFAULTS } from './settings.js'
+
+const TTS_CACHE_TTL_MS = 60 * 24 * 60 * 60 * 1000
+const TTS_CACHE_MAX_FILES = 400
+let ttsCacheDir: string | null = null
+
+/** 由主进程在确定用户数据目录后初始化；未初始化时不缓存（例如单元测试）。 */
+export function initTtsCache(dataDir: string): void {
+  ttsCacheDir = path.join(dataDir, 'tts-cache')
+  pruneTtsCache()
+}
+
+function ttsCacheFile(key: string): string | null {
+  return ttsCacheDir ? path.join(ttsCacheDir, `${key}.json`) : null
+}
+
+function readTtsCache(key: string): TtsAudio | null {
+  const file = ttsCacheFile(key)
+  if (!file) return null
+  try {
+    const entry = JSON.parse(fs.readFileSync(file, 'utf8')) as {
+      createdAt?: string
+      mime?: string
+      base64?: string
+    }
+    if (!entry.createdAt || Date.now() - Date.parse(entry.createdAt) > TTS_CACHE_TTL_MS) return null
+    if (!entry.base64 || !entry.mime) return null
+    return { mime: entry.mime, base64: entry.base64 }
+  } catch {
+    return null
+  }
+}
+
+function writeTtsCache(key: string, audio: TtsAudio): void {
+  const file = ttsCacheFile(key)
+  if (!file || !ttsCacheDir) return
+  try {
+    fs.mkdirSync(ttsCacheDir, { recursive: true })
+    const temp = `${file}.${process.pid}.tmp`
+    fs.writeFileSync(temp, JSON.stringify({ createdAt: new Date().toISOString(), ...audio }), 'utf8')
+    fs.renameSync(temp, file)
+    pruneTtsCache()
+  } catch {
+    // 缓存失败不影响播放。
+  }
+}
+
+function pruneTtsCache(): void {
+  if (!ttsCacheDir) return
+  try {
+    const names = fs.readdirSync(ttsCacheDir).filter((name) => name.endsWith('.json'))
+    const now = Date.now()
+    const rows = names
+      .map((name) => {
+        const file = path.join(ttsCacheDir!, name)
+        try {
+          return { file, mtime: fs.statSync(file).mtimeMs }
+        } catch {
+          return { file, mtime: 0 }
+        }
+      })
+      .sort((a, b) => a.mtime - b.mtime)
+    const expired = rows.filter((row) => now - row.mtime > TTS_CACHE_TTL_MS)
+    for (const row of expired) {
+      try {
+        fs.unlinkSync(row.file)
+      } catch {
+        // 忽略。
+      }
+    }
+    const keep = rows.filter((row) => !expired.includes(row))
+    for (const row of keep.slice(0, Math.max(0, keep.length - TTS_CACHE_MAX_FILES))) {
+      try {
+        fs.unlinkSync(row.file)
+      } catch {
+        // 忽略。
+      }
+    }
+  } catch {
+    // 忽略。
+  }
+}
+
+function ttsCacheKey(model: string, voice: string, text: string): string {
+  return createHash('sha256')
+    .update(JSON.stringify({ model, voice, format: 'mp3', text }))
+    .digest('hex')
+}
 
 /**
  * 语音合成固定使用阿里云百炼的千问 TTS，与 english-penpal 同款：
@@ -107,5 +198,13 @@ export async function synthesizeTts(request: TtsSynthesisRequest): Promise<TtsAu
   const text = request.text.replace(/\s+/g, ' ').trim()
   if (!text) throw new Error('没有可合成的文字。')
   if (text.length > 2_000) throw new Error('单段文字太长，请分段后再听。')
-  return synthesizeQwenTts({ ...request, text }, getQwenTtsConfig())
+  const config = getQwenTtsConfig()
+  const voice = request.voice || config.voiceA
+  // 播放、整章导出和重复打开同一章都复用同一份音频，避免重复计费。
+  const key = ttsCacheKey(config.model, voice, text)
+  const cached = readTtsCache(key)
+  if (cached) return cached
+  const audio = await synthesizeQwenTts({ ...request, text, voice }, config)
+  writeTtsCache(key, audio)
+  return audio
 }

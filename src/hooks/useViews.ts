@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 export type MainView = 'reader' | 'notes' | 'map' | 'lab' | 'compose' | 'content' | 'stats' | 'weekly' | 'manual'
 
@@ -19,6 +19,8 @@ export interface ViewState {
   setMainView: React.Dispatch<React.SetStateAction<MainView>>
   labMounted: boolean
   setLabMounted: React.Dispatch<React.SetStateAction<boolean>>
+  /** 成书页一旦打开就保持挂载，切视图时不会丢失进度和结果。 */
+  composeMountedBookId: string | null
   contentFocusId: string | null
   setContentFocusId: React.Dispatch<React.SetStateAction<string | null>>
   leaveReader(): void
@@ -33,11 +35,13 @@ export function useViews(options: ViewOptions): ViewState {
   const [searchOpen, setSearchOpen] = useState(false)
   const [mainView, setMainView] = useState<MainView>('reader')
   const [labMounted, setLabMounted] = useState(false)
+  const [composeMountedBookId, setComposeMountedBookId] = useState<string | null>(null)
   const [contentFocusId, setContentFocusId] = useState<string | null>(null)
 
   const leaveReader = useCallback(() => {
     resetGeneration()
     clearBook()
+    setComposeMountedBookId(null)
     setMainView('reader')
     resetOrganize()
   }, [clearBook, resetGeneration, resetOrganize])
@@ -50,10 +54,17 @@ export function useViews(options: ViewOptions): ViewState {
   const openCompose = useCallback(
     async (targetBookId?: string) => {
       if (targetBookId && bookId !== targetBookId) await openBook(targetBookId)
+      const mounted = targetBookId ?? bookId
+      if (mounted) setComposeMountedBookId(mounted)
       setMainView('compose')
     },
     [bookId, openBook],
   )
+
+  // 通过搜索等方式切换了书，但视图仍在成书页时，直接为当前书挂载。
+  useEffect(() => {
+    if (mainView === 'compose' && bookId) setComposeMountedBookId(bookId)
+  }, [mainView, bookId])
 
   return {
     settingsOpen,
@@ -64,6 +75,7 @@ export function useViews(options: ViewOptions): ViewState {
     setMainView,
     labMounted,
     setLabMounted,
+    composeMountedBookId,
     contentFocusId,
     setContentFocusId,
     leaveReader,

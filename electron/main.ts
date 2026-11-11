@@ -8,23 +8,37 @@ import { autoUpdater } from 'electron-updater'
 import { generateChapterNotes } from './ai/notes.js'
 import { installFetchReplay } from './ai/replay.js'
 import { initAiTrace } from './ai/trace.js'
-import { closeDatabase, createNote, getChapter, getChapters, initDatabase, insertBook, listBooks, markRunningOcrJobsInterrupted, replaceAiNotes, setProgress } from './db.js'
+import { closeDatabase, createNote, getChapter, getChapters, initDatabase, insertBook, listBooks, markRunningOcrJobsInterrupted, pruneBookTrash, replaceAiNotes, setProgress } from './db.js'
 import { ensureDailyBackup, recoverCorruptDatabase, recoverInterruptedRestore } from './backup.js'
 import { buildDiagnosticsArchive } from './diagnostics.js'
 import { registerIpc } from './ipc.js'
 import { logError, logInfo, logWarn, initLogger } from './logger.js'
-import { importBookFile } from './import.js'
+import { importBookFile, importUrlBook } from './import.js'
 import { parseEpub } from './parsers/epub.js'
 import { parseMobi } from './parsers/mobi.js'
 import { initSettings } from './settings.js'
+import { initTtsCache } from './tts.js'
 import { runRealE2e, runRealNotesE2e } from './e2e-real.js'
 import { runRealBookEval, runRealEval } from './eval-real.js'
 import { initSearchIndex, warmSearchIndex } from './search-index.js'
+import { pruneNotesCache } from './ai/notes-cache.js'
 import { runSmokeTest, sampleEpubBuffer } from './smoke.js'
-import { parseDeepLink, type DeepLinkTarget } from '../shared/deep-link.js'
+import { parseCaptureLink, parseDeepLink, type CaptureLinkTarget, type DeepLinkTarget } from '../shared/deep-link.js'
 
 let mainWindow: BrowserWindow | null = null
 let pendingDeepLink: DeepLinkTarget | null = null
+let pendingCapture: CaptureLinkTarget | null = null
+
+// Windows/Linux 冷启动时自定义协议地址在 argv 里；macOS 走 open-url。
+const initialProtocolUrl = process.argv.find((arg) => arg.startsWith('thinread://'))
+if (initialProtocolUrl) {
+  const capture = parseCaptureLink(initialProtocolUrl)
+  if (capture) pendingCapture = capture
+  else {
+    const target = parseDeepLink(initialProtocolUrl)
+    if (target) pendingDeepLink = target
+  }
+}
 // 恢复备份会触发 reload；did-finish-load 会再次执行，脚本只能跑一次。
 let execRan = false
 
@@ -38,7 +52,70 @@ function deliverDeepLink(target: DeepLinkTarget, window: BrowserWindow | null = 
   window.webContents.send('app:deep-link', target)
 }
 
+function sendAppNotice(window: BrowserWindow | null, kind: 'info' | 'error', text: string): void {
+  if (!window || window.isDestroyed()) return
+  window.webContents.send('app:notice', { kind, text })
+}
+
+/** 浏览器扩展收录网页：导入 URL，并把选中文字存成一条高亮笔记。 */
+async function deliverCapture(capture: CaptureLinkTarget, window: BrowserWindow | null = mainWindow): Promise<void> {
+  if (window && !window.isDestroyed()) {
+    if (window.isMinimized()) window.restore()
+    window.show()
+    window.focus()
+    sendAppNotice(window, 'info', `正在收录：${capture.title}`)
+  }
+  try {
+    const book = await importUrlBook(capture.url, app.getPath('userData'))
+    const first = getChapters(book.id).find((chapter) => !chapter.hidden) ?? null
+    if (capture.selection && first) {
+      createNote({
+        bookId: book.id,
+        chapterId: first.id,
+        kind: 'highlight',
+        title: capture.title,
+        content: capture.selection,
+        quote: capture.selection,
+      })
+    }
+    deliverDeepLink(
+      {
+        bookId: book.id,
+        chapterId: first?.id ?? null,
+        quote: capture.selection,
+      },
+      window,
+    )
+    sendAppNotice(
+      window,
+      'info',
+      `已收录《${book.title}》${capture.selection ? '，选中段落已存为高亮' : ''}`,
+    )
+  } catch (error) {
+    logError('web-capture', error)
+    sendAppNotice(
+      window,
+      'error',
+      `网页收录失败：${error instanceof Error ? error.message : String(error)}`,
+    )
+  }
+}
+
+function queueCapture(capture: CaptureLinkTarget): void {
+  if (app.isReady() && mainWindow) {
+    void deliverCapture(capture)
+    return
+  }
+  pendingCapture = capture
+}
+
 app.on('open-url', (event, url) => {
+  const capture = parseCaptureLink(url)
+  if (capture) {
+    event.preventDefault()
+    queueCapture(capture)
+    return
+  }
   const target = parseDeepLink(url)
   if (!target) return
   event.preventDefault()
@@ -112,7 +189,9 @@ if (!hasSingleInstanceLock) app.quit()
 
 app.on('second-instance', (_event, argv) => {
   const url = argv.find((arg) => arg.startsWith('thinread://'))
-  const target = url ? parseDeepLink(url) : null
+  const capture = url ? parseCaptureLink(url) : null
+  if (capture) queueCapture(capture)
+  const target = !capture && url ? parseDeepLink(url) : null
   if (target) deliverDeepLink(target)
   if (!mainWindow || mainWindow.isDestroyed()) return
   if (mainWindow.isMinimized()) mainWindow.restore()
@@ -424,6 +503,7 @@ app.whenReady().then(async () => {
       initDatabase(dataDir)
       initSettings(dataDir)
       initAiTrace(dataDir)
+      initTtsCache(dataDir)
       await runRealBookEval(limit, process.env.THINREAD_EVAL_CHAPTER)
       console.log('[eval-real-book] PASSED')
       app.exit(0)
@@ -486,10 +566,19 @@ app.whenReady().then(async () => {
     logWarn('db', '数据库损坏，已从最近备份恢复', recovery)
     initDatabase(dataDir)
   }
+  for (const relative of pruneBookTrash()) {
+    const root = path.resolve(dataDir, 'trash', 'books')
+    const target = path.resolve(dataDir, relative)
+    if (target.startsWith(`${root}${path.sep}`)) {
+      fs.rmSync(target, { recursive: true, force: true })
+    }
+  }
   initSettings(dataDir)
   initAiTrace(dataDir)
+  initTtsCache(dataDir)
   initSearchIndex(dataDir)
   markRunningOcrJobsInterrupted()
+  void pruneNotesCache(path.join(dataDir, 'notes-cache')).catch(() => undefined)
 
   // 无头导出诊断包：用于自动化验证，也方便在打不开窗口时让用户取日志。
   if (writeDiagnosticsArg) {
@@ -520,7 +609,9 @@ app.whenReady().then(async () => {
     try {
       const sourcePath = importArg.slice('--import='.length)
       if (process.argv.includes('--store')) {
-        const book = await importBookFile(sourcePath, dataDir)
+        const book = await importBookFile(sourcePath, dataDir, {
+          deepPdf: process.argv.includes('--deep-pdf'),
+        })
         console.log(
           `[import] ${JSON.stringify({
             stored: true,
@@ -566,6 +657,11 @@ app.whenReady().then(async () => {
   }
   createWindow()
   setupAutoUpdater()
+  if (pendingCapture) {
+    const capture = pendingCapture
+    pendingCapture = null
+    void deliverCapture(capture)
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

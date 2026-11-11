@@ -17,7 +17,7 @@ interface FormatPanelProps {
   note: string | null
   messages: FormatMessage[]
   demo: boolean
-  onFormat(instruction?: string): void
+  onFormat(instruction?: string, options?: { skipReferences?: boolean }): void
   onReset(): void
   onStyleChange(patch: Partial<ReaderStyle>): void
 }
@@ -59,6 +59,7 @@ export function FormatPanel({
 }: FormatPanelProps): JSX.Element {
   useLocale()
   const [input, setInput] = useState('')
+  const [skipReferences, setSkipReferences] = useState(false)
   const messagesRef = useRef<HTMLDivElement>(null)
   // 滑杆先改本地草稿，停手 120ms 再提交；否则拖动一次会触发几十次全应用重渲染。
   const [draft, setDraft] = useState(style)
@@ -121,7 +122,7 @@ export function FormatPanel({
   function send(): void {
     const text = input.trim()
     if (!text || busy) return
-    onFormat(text)
+    onFormat(text, { skipReferences })
     setInput('')
   }
 
@@ -148,11 +149,25 @@ export function FormatPanel({
       <button
         type="button"
         className="primary-button format-run"
-        onClick={() => onFormat()}
+        onClick={() =>
+          onFormat(undefined, { skipReferences })
+        }
         disabled={busy || demo}
       >
         {busy ? t('AI 正在整理这一章…') : hasFormatted ? t('✦ 重新整理这一章') : t('✦ 整理这一章')}
       </button>
+
+      <div className="format-reference-option">
+        <Checkbox
+          className="checkbox-label"
+          checked={skipReferences}
+          onChange={setSkipReferences}
+          label={t('忽略参考文献 / 注释 / 索引')}
+        />
+        <p className="field-hint">
+          {t('勾选后，AI 会把本章末尾的参考文献、注释、索引和延伸阅读从排版结果中移除；原文仍可还原。')}
+        </p>
+      </div>
 
       {error ? <div className="inline-error" role="alert">{error}</div> : null}
 

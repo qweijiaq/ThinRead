@@ -1,4 +1,4 @@
-import type { JSX } from 'react'
+import { useEffect, useRef, useState, type JSX } from 'react'
 
 import { PROVIDER_PRESETS } from '../../shared/types.js'
 import type { BookSummary, SettingsView } from '../../shared/types.js'
@@ -25,6 +25,8 @@ interface TopBarProps {
   composeActive?: boolean
   contentActive?: boolean
   onRenameBook?: () => void
+  coreMode: boolean
+  onToggleCoreMode(value: boolean): void
 }
 
 export function TopBar({
@@ -47,9 +49,29 @@ export function TopBar({
   labActive = false,
   composeActive = false,
   contentActive = false,
+  coreMode,
+  onToggleCoreMode,
   onRenameBook,
 }: TopBarProps): JSX.Element {
   useLocale()
+  const [moreOpen, setMoreOpen] = useState(false)
+  const moreRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (!moreOpen) return
+    function onPointerDown(event: PointerEvent): void {
+      if (!moreRef.current?.contains(event.target as Node)) setMoreOpen(false)
+    }
+    function onKey(event: KeyboardEvent): void {
+      if (event.key === 'Escape') setMoreOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [moreOpen])
   const preset = PROVIDER_PRESETS.find((item) => item.id === settings?.provider)
   const modelLabel = settings?.demo ? t('演示模式') : `${preset?.label ?? settings?.provider} · ${settings?.model}`
   return (
@@ -128,14 +150,16 @@ export function TopBar({
         ) : null}
       </div>
       <div className="topbar-right">
-        <button
-          type="button"
-          className={`ghost-button small${contentActive ? ' is-active' : ''}`}
-          onClick={onContent}
-          title={t('生成内容库')}
-        >
-          {t('内容库')}
-        </button>
+        {!coreMode ? (
+          <button
+            type="button"
+            className={`ghost-button small${contentActive ? ' is-active' : ''}`}
+            onClick={onContent}
+            title={t('生成内容库')}
+          >
+            {t('AI 内容库')}
+          </button>
+        ) : null}
         {book ? (
           <button
             type="button"
@@ -152,24 +176,64 @@ export function TopBar({
           onClick={onNotes}
           title={t('全库笔记')}
         >
-          {t('笔记')}
+          {t('笔记库')}
         </button>
-        <button
-          type="button"
-          className={`ghost-button small${mapActive ? ' is-active' : ''}`}
-          onClick={onMap}
-          title={t('知识地图')}
-        >
-          {t('地图')}
-        </button>
-        <button
-          type="button"
-          className={`ghost-button small${labActive ? ' is-active' : ''}`}
-          onClick={onLab}
-          title={t('AI 工作台')}
-        >
-          {t('工作台')}
-        </button>
+        {!coreMode ? (
+          <button
+            type="button"
+            className={`ghost-button small${mapActive ? ' is-active' : ''}`}
+            onClick={onMap}
+            title={t('知识地图')}
+          >
+            {t('知识地图')}
+          </button>
+        ) : null}
+        {!coreMode ? (
+          <button
+            type="button"
+            className={`ghost-button small${labActive ? ' is-active' : ''}`}
+            onClick={onLab}
+            title={t('AI 工作台')}
+          >
+            {t('AI 工具')}
+          </button>
+        ) : null}
+        {coreMode ? (
+          <div className="topbar-more" ref={moreRef}>
+            <button
+              type="button"
+              className={`ghost-button small${moreOpen ? ' is-active' : ''}`}
+              aria-haspopup="menu"
+              aria-expanded={moreOpen}
+              onClick={() => setMoreOpen((value) => !value)}
+            >
+              {t('更多')}
+            </button>
+            {moreOpen ? (
+              <div className="topbar-more-menu" role="menu" aria-label={t('更多功能')}>
+                <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); onContent() }}>
+                  {t('AI 内容库')}
+                </button>
+                <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); onMap() }}>
+                  {t('知识地图')}
+                </button>
+                <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); onLab() }}>
+                  {t('AI 工具')}
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMoreOpen(false)
+                    onToggleCoreMode(false)
+                  }}
+                >
+                  {t('显示全部功能')}
+                </button>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
         <button type="button" className="ghost-button small" onClick={onSearch} title={t('搜索（⌘K）')}>
           {t('搜索')}
         </button>

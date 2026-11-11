@@ -50,32 +50,39 @@ export function EchoDialog({ bookTitle, chapterTitle, excerpt, echoes, onOpen, o
             <h3>{chapterTitle}</h3>
             <p className="echo-source">{bookTitle}</p>
             <div className="echo-excerpt">
-              {excerpt.trim() ? <Markdown text={excerpt} /> : <p className="muted">{t('这一章还没有读薄稿或卡片。')}</p>}
+              {excerpt.trim() ? <Markdown text={excerpt} /> : <p className="muted">{t('这一章还没有知识点卡片。')}</p>}
             </div>
           </section>
 
           <section className="echo-side">
             <div className="echo-label">{t('其他书里的回声')} · {echoes.length}</div>
             <div className="echo-list">
-              {echoes.map((echo) => (
-                <button key={echo.id} type="button" className="echo-card" onClick={() => onOpen(echo)}>
-                  <span className="echo-card-source">
-                    {echo.bookTitle}
-                    {echo.chapterTitle ? ` · ${echo.chapterTitle}` : ''}
-                  </span>
-                  <span className="echo-card-title">{echo.title}</span>
-                  <span className="echo-card-body">
-                    {echo.content.replace(/\s+/g, ' ').trim().slice(0, 180)}
-                    {echo.content.length > 180 ? '…' : ''}
-                  </span>
-                  <span className="echo-card-open">{t('打开这一章')}</span>
-                </button>
-              ))}
+              {echoes.length === 0 ? (
+                <div className="echo-empty">
+                  <p>{t('暂时没有找到足够相关的知识点。')}</p>
+                  <p className="muted">{t('回声只参考其他书里的知识点卡片；相似度不够的弱关联不会显示。')}</p>
+                </div>
+              ) : (
+                echoes.map((echo) => (
+                  <button key={echo.id} type="button" className="echo-card" onClick={() => onOpen(echo)}>
+                    <span className="echo-card-source">
+                      {echo.bookTitle}
+                      {echo.chapterTitle ? ` · ${echo.chapterTitle}` : ''}
+                    </span>
+                    <span className="echo-card-title">{echo.title}</span>
+                    <span className="echo-card-body">
+                      {echo.content.replace(/\s+/g, ' ').trim().slice(0, 180)}
+                      {echo.content.length > 180 ? '…' : ''}
+                    </span>
+                    <span className="echo-card-open">{t('打开这一章')}</span>
+                  </button>
+                ))
+              )}
             </div>
           </section>
         </div>
 
-        <p className="echo-foot">{t('回声只来自你本机的笔记；相似度由本地语义索引计算。')}</p>
+        <p className="echo-foot">{t('回声只来自你本机的知识点和笔记；相似度由本地语义索引或概念标签计算。')}</p>
       </div>
     </div>
   )

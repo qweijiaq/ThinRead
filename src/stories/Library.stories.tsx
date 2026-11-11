@@ -22,6 +22,7 @@ const meta = {
     importing: false,
     onOpen: fn(),
     onImport: fn(),
+    onOpenTrash: fn(),
     onDelete: fn(),
     onRename: fn(),
     onCompose: fn(),

@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react'
 
-import type { BookSummary, HighlightImportResult } from '../../shared/types.js'
+import type { BookSummary, HighlightImportResult, ImportBookOptions } from '../../shared/types.js'
 import type { BackgroundTask } from '../components/TaskCenter.js'
 import { messageOf } from '../lib/errors.js'
 import { t } from '../lib/i18n.js'
@@ -24,7 +24,7 @@ export interface ImportFlowState {
   setMergeOpen: React.Dispatch<React.SetStateAction<boolean>>
   splitOpen: boolean
   setSplitOpen: React.Dispatch<React.SetStateAction<boolean>>
-  importFile(): Promise<BookSummary | null>
+  importFile(options?: ImportBookOptions): Promise<BookSummary | null>
   handleImported(imported: BookSummary): Promise<void>
   handleOcrStarted(fileName: string): void
   handleHighlightsImported(result: HighlightImportResult): Promise<void>
@@ -40,10 +40,10 @@ export function useImportFlow(options: ImportFlowOptions): ImportFlowState {
   const [mergeOpen, setMergeOpen] = useState(false)
   const [splitOpen, setSplitOpen] = useState(false)
 
-  const importFile = useCallback(async (): Promise<BookSummary | null> => {
+  const importFile = useCallback(async (options?: ImportBookOptions): Promise<BookSummary | null> => {
     setImporting(true)
     try {
-      return await window.api.importBook()
+      return await window.api.importBook(options)
     } finally {
       setImporting(false)
     }

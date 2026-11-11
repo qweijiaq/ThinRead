@@ -16,6 +16,29 @@ test('keeps html images when splitting an imported article into chapters', () =>
   assert.equal(chapters[1]!.title, '第二章')
 })
 
+test('splits print pages whose chapters are nested inside sections', () => {
+  const html = [
+    '<section class="page"><h1>第一章</h1><p>第一章的正文足够长，应该被识别成一个独立章节。</p></section>',
+    '<section class="page"><h1>第二章</h1><p>第二章的正文也足够长，不应该和第一章合并成一章。</p></section>',
+  ].join('')
+  const chapters = chaptersFromHtml(html, '整书打印页')
+  assert.equal(chapters.length, 2)
+  assert.equal(chapters[0]!.title, '第一章')
+  assert.equal(chapters[1]!.title, '第二章')
+})
+
+test('skips reference sections when importing', () => {
+  const html = [
+    '<section><h1>第一章</h1><p>第一章正文足够长，应该保留在导入结果里。</p>',
+    '<h3>参考文献</h3><p>[1] 这条参考文献不应该出现在章节正文里。</p></section>',
+    '<section><h1>第二章</h1><p>第二章正文足够长，应该保留在导入结果里。</p></section>',
+  ].join('')
+  const chapters = chaptersFromHtml(html, '测试书', { skipReferences: true })
+  assert.equal(chapters.length, 2)
+  assert.doesNotMatch(chapters[0]!.text, /参考文献|不应该出现/)
+  assert.match(chapters[0]!.text, /第一章正文/)
+})
+
 test('inlines remote article images as data urls and drops oversized ones', async () => {
   const originalFetch = globalThis.fetch
   globalThis.fetch = (async (url: string | URL | Request) => {

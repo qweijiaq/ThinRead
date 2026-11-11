@@ -23,9 +23,9 @@ export interface GenerationState {
   setPartial: React.Dispatch<React.SetStateAction<GeneratePartial | null>>
   error: string | null
   setError: React.Dispatch<React.SetStateAction<string | null>>
-  generate(): Promise<void>
+  generate(fresh?: boolean): Promise<void>
   cancelGeneration(): Promise<void>
-  /** 切章前调用：取消进行中的生成并清空进度/错误。 */
+  /** 切章前调用：清空进度/错误；后台生成继续执行，回来后再接上。 */
   resetGeneration(): void
 }
 
@@ -35,13 +35,50 @@ export function useGeneration(options: GenerationOptions): GenerationState {
   const [generating, setGenerating] = useState(false)
   const [partial, setPartial] = useState<GeneratePartial | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [attachKey, setAttachKey] = useState(0)
 
   const resetGeneration = useCallback(() => {
-    void window.api.cancelGeneration()
+    // 只重置当前界面状态；后台任务继续跑，切回章节时再重新接上。
     setGenerating(false)
     setPartial(null)
     setError(null)
+    setAttachKey((value) => value + 1)
   }, [])
+
+  useEffect(() => {
+    if (!chapterId) return
+    let cancelled = false
+    void window.api
+      .getChapterAiJobs(chapterId)
+      .then((jobs) => {
+        if (cancelled) return
+        const job = jobs.notes
+        if (!job) {
+          setGenerating(false)
+          setPartial(null)
+          return
+        }
+        if (job.status === 'running') {
+          setGenerating(true)
+          setPartial(job.partial ?? null)
+          setError(null)
+          return
+        }
+        setGenerating(false)
+        setPartial(null)
+        if (
+          job.status === 'error' &&
+          job.error &&
+          Date.now() - Date.parse(job.updatedAt) < 10 * 60 * 1000
+        ) {
+          setError(job.error)
+        }
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [chapterId, attachKey])
 
   useEffect(() => {
     const offPartial = window.api.onGenerationPartial((event) => {
@@ -81,7 +118,7 @@ export function useGeneration(options: GenerationOptions): GenerationState {
       if (event.chapterId !== chapterId) return
       setChapter((current) =>
         current && current.id === event.chapterId
-          ? { ...current, formattedHtml: event.html, removed: event.removed }
+          ? { ...current, formattedHtml: event.html, removed: event.removed, chars: event.chars }
           : current,
       )
       applyStyle(event.style)
@@ -128,10 +165,10 @@ export function useGeneration(options: GenerationOptions): GenerationState {
   }, [chapterId])
 
   const cancelGeneration = useCallback(async () => {
-    await window.api.cancelGeneration()
+    if (chapterId) await window.api.cancelGeneration({ chapterId })
     setGenerating(false)
     setPartial(null)
-  }, [])
+  }, [chapterId])
 
   return {
     generating,

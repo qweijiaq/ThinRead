@@ -71,6 +71,9 @@ export function OnboardingDialog({
             <span className="manual-kicker">FIRST RUN / 3 STEPS</span>
             <h2>{t('先把一本书跑通。')}</h2>
             <p>{t('不用先配 Key。用演示模式走完一遍；看到结果后，再决定用哪家模型。')}</p>
+            <p className="onboarding-privacy">
+              {t('书和笔记保存在本机；使用真实模型时，相关正文和图片会发送给你选择的模型服务商。')}
+            </p>
           </div>
           <button type="button" className="icon-button" onClick={onClose} aria-label={t('关闭')}>
             ×
@@ -132,7 +135,9 @@ export function OnboardingDialog({
         {error ? <div className="inline-error" role="alert">{error}</div> : null}
 
         <div className="onboarding-foot">
-          <span>{t('完整说明在顶栏「?」或设置 →「使用手册」里。')}</span>
+          <span>
+            {t('读薄 = 把一章改写成可发布文章；卡片 = 核心知识点；成书 = 把整本读薄稿合成一篇长文。完整说明在顶栏「?」或设置 →「使用手册」里。')}
+          </span>
           <button type="button" className="text-button" onClick={onClose}>
             {t('跳过，先自己看看')}
           </button>

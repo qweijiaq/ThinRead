@@ -4,6 +4,7 @@ import path from 'node:path'
 import test from 'node:test'
 
 import { countUnit, getLocale, hasTranslation, setLocale } from '../src/lib/i18n.js'
+import { messageOf } from '../src/lib/errors.js'
 
 function walk(dir: string, files: string[] = []): string[] {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -34,6 +35,22 @@ test('countUnit uses singular forms in English and a single form in Chinese', ()
     assert.equal(countUnit(2, 'books', 'book'), 'books')
     setLocale('zh')
     assert.equal(countUnit(1, '本书', 'book'), '本书')
+  } finally {
+    setLocale(previous)
+  }
+})
+
+test('messageOf translates known main-process errors in English', () => {
+  const previous = getLocale()
+  try {
+    setLocale('en')
+    assert.equal(messageOf(new Error('找不到这本书。')), 'Book not found.')
+    assert.equal(
+      messageOf(new Error("Error invoking remote method 'notes:generate': Error: 生成已取消")),
+      'Generation cancelled',
+    )
+    setLocale('zh')
+    assert.equal(messageOf(new Error('找不到这本书。')), '找不到这本书。')
   } finally {
     setLocale(previous)
   }

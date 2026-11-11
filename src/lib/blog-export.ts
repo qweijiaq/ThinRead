@@ -200,15 +200,25 @@ article code {
   font-size: 0.86em;
 }
 article pre {
-  overflow-x: visible;
-  padding: 18px 20px;
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
+  margin: 1.4em 0;
+  overflow-x: auto;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
   border-radius: 10px;
-  background: #2b2720;
-  color: #f6f1e7;
+  background: #f7f5ef;
+  color: #2f2b25;
+  white-space: pre;
+  overflow-wrap: normal;
+  scrollbar-width: thin;
 }
-article pre code { padding: 0; background: none; }
+article pre code { padding: 0; background: none; color: inherit; }
+@media (prefers-color-scheme: dark) {
+  article pre {
+    border-color: #3a352d;
+    background: #1d1b18;
+    color: #e7e0d2;
+  }
+}
 article .mermaid-diagram {
   margin: 1.4em 0;
   padding: 16px;

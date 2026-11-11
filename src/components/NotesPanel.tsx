@@ -22,6 +22,9 @@ interface NotesPanelProps {
   error: string | null
   report: NoteReport | null
   generationMode: GenerationMode
+  modelLabel?: string
+  demo?: boolean
+  coreMode?: boolean
   marks: ReaderMark[]
   crossBookNotes: RelatedNote[]
   focusNoteId: string | null
@@ -144,6 +147,9 @@ function NotesPanelImpl({
   error,
   report,
   generationMode,
+  modelLabel = '',
+  demo = false,
+  coreMode = false,
   marks,
   crossBookNotes,
   focusNoteId,
@@ -179,6 +185,7 @@ function NotesPanelImpl({
   const questionNotes = notes.filter((note) => note.kind === 'question')
   const mineNotes = notes.filter((note) => note.kind === 'highlight' || note.kind === 'thought')
   const [verifyOnly, setVerifyOnly] = useState(false)
+  const [sentenceCheck, setSentenceCheck] = useState(false)
   const evidenceNotes = pointNotes.filter((note) => note.author === 'ai')
   const evidenceWithQuote = evidenceNotes.filter((note) => note.quote?.trim())
   const evidenceVerified = evidenceWithQuote.filter((note) => note.quoteVerified)
@@ -199,6 +206,7 @@ function NotesPanelImpl({
   useEffect(() => {
     setExportState('idle')
     setExportError(null)
+    setSentenceCheck(false)
   }, [chapter?.id])
 
   function markdown(): string {
@@ -260,6 +268,9 @@ function NotesPanelImpl({
         onJumpQuote={onJumpQuote}
         onOpenNote={onOpenNote}
         onWikiLink={openWikiLink}
+        sentenceCheck={sentenceCheck}
+        evidenceNotes={pointNotes}
+        demo={demo}
       />
     )
   }
@@ -325,8 +336,20 @@ function NotesPanelImpl({
 
 
       <p className="condense-hint">
-        {t('AI 会把这一章重写成可直接发博客的读薄稿：只保留断言，并列改列表，删掉铺垫；压缩幅度由内容密度决定，保留断言优先。')}
+        {t('AI 会把这一章重写成可直接发博客的读薄稿：保留断言，删掉铺垫，写成连贯行文；压缩幅度由内容密度决定。')}
       </p>
+      {modelLabel ? (
+        <p className="condense-hint">
+          {t('将使用')} <strong>{modelLabel}</strong> · {generationMode === 'fast' ? t('快速') : generationMode === 'deep' ? t('精读') : t('标准')}
+          {coreMode ? ` · ${t('推荐路径')}：${t('读')} → ${t('读薄')} → ${t('卡片')} → ${t('成书')}` : ''}
+        </p>
+      ) : null}
+      {demo ? (
+        <div className="demo-note-banner" role="status">
+          <strong>{t('演示模式')}</strong>
+          <span>{t('下面的读薄稿、卡片和引用是内置样例，不能作为真实原文依据。')}</span>
+        </div>
+      ) : null}
 
       {chapter && compareModels.length > 0 ? (
         <div className="notes-compare-line">
@@ -347,8 +370,16 @@ function NotesPanelImpl({
             <div className="degraded-banner" role="alert">
               <strong>{t('这次生成不完整')}</strong>
               <span>
-                {degradedSummary(report)} {t('失败，失败的小节可能保留了原文，卡片可能退化成了本地兜底结果。建议重试，或换一个更稳定的模型。')}
+                {degradedSummary(report)} {t('失败。已完成的小节会保留，再次生成只重试失败步骤，不会整章从头跑。')}
               </span>
+              <button
+                type="button"
+                className="ghost-button small"
+                onClick={() => onGenerate()}
+                disabled={generating}
+              >
+                {t('重试失败步骤')}
+              </button>
             </div>
           ) : null}
           <div className="condense-head">
@@ -370,6 +401,7 @@ function NotesPanelImpl({
           </div>
           <div className="condense-meta">
             {report.sections} {t('节')} · {report.cards} {t('张核心卡片')} · {report.divergences} {t('条延伸')}
+            {report.images ? ` · ${t('图片')} ${report.images} ${t('张')}${report.visionUsed ? t('（视觉）') : t('（仅图注）')}` : ''}
             {report.fidelityMissing > 0 ? ` · ${t('审计补遗')} ${report.fidelityMissing} ${t('条')}` : ''}
             {report.omitted > 0 ? ` · ${t('未采纳')} ${report.omitted} ${t('处')}` : ''}
             {report.durationMs > 0
@@ -409,7 +441,7 @@ function NotesPanelImpl({
       {!generating && notes.length === 0 ? (
         <div className="notes-empty">
           <p className="notes-empty-title">{t('这一章还没有读薄稿')}</p>
-          <p>{t('AI 会先把这一章重写成可发博客的读薄稿（只保留断言、并列改列表，压缩幅度由内容密度决定），再从稿子里用「不知道它是否影响全文理解」的标准提炼 5–25 张核心卡片，最后做最多 3 条延伸。')}</p>
+          <p>{t('AI 会先把这一章重写成可发博客的读薄稿（保留断言、写成连贯行文，压缩幅度由内容密度决定），再从稿子里用「不知道它是否影响全文理解」的标准提炼 5–25 张核心卡片，最后做最多 3 条延伸。')}</p>
           <p className="field-hint">
             {t('当前档位')}：{generationMode === 'fast' ? t('快速（跳过回查和延伸）') : generationMode === 'deep' ? t('精读（额外细节回查）') : t('标准')}{t('，可在右上角设置里调整。')}
           </p>
@@ -436,7 +468,21 @@ function NotesPanelImpl({
                 onChange={setIncludeCards}
                 label={t('附卡片')}
               />
-              <button type="button" className="text-button" onClick={() => onShare(condensedNote)}>
+              <button
+                type="button"
+                className={`text-button${sentenceCheck ? '' : ''}`}
+                aria-pressed={sentenceCheck}
+                onClick={() => setSentenceCheck((value) => !value)}
+              >
+                {sentenceCheck ? t('显示全文') : t('逐句核对')}
+              </button>
+              <button
+                type="button"
+                className="text-button"
+                onClick={() => onShare(condensedNote)}
+                disabled={demo}
+                title={demo ? t('演示结果不能分享为真实内容') : undefined}
+              >
                 {t('分享')}
               </button>
               <button type="button" className="text-button" onClick={() => onListen(condensedNote.content)}>

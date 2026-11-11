@@ -1,9 +1,23 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type JSX } from 'react'
 
-import type { ChapterContent, ReaderMark, ReaderMarkStyle, ReaderStyle, RelatedNote } from '../../shared/types.js'
+import type {
+  BookTranslationInfo,
+  BookTranslationProgress,
+  ChapterContent,
+  ReaderMark,
+  ReaderMarkStyle,
+  ReaderStyle,
+  RelatedNote,
+} from '../../shared/types.js'
 import { t, useLocale } from '../lib/i18n.js'
+import { messageOf } from '../lib/errors.js'
+import { enhanceCodeBlocks, handleCodeAssistClick, handleCodeBlockClick } from '../lib/enhance-code-blocks.js'
+import { enhanceImages, handleImageCopyClick, handleImageUnderstandClick } from '../lib/enhance-images.js'
 import { getAutoNext, getDailyGoal, setAutoNext as setAutoNextPreference, subscribePreferences } from '../lib/preferences.js'
 import { addReadingSeconds, getReadingSummary } from '../lib/reading-stats.js'
+import { focusSentenceAt, unwrapSentences, wrapSentences } from '../lib/sentence-focus.js'
+import { CitationDialog } from './CitationDialog.js'
+import { CodeReviewDialog } from './CodeReviewDialog.js'
 import { EchoDialog } from './EchoDialog.js'
 import { PdfOriginalView } from './PdfOriginalView.js'
 import { ReadingSummaryDialog } from './ReadingSummaryDialog.js'
@@ -13,9 +27,23 @@ interface ReaderProps {
   loading: boolean
   style: ReaderStyle
   bookTitle: string
+  bookAuthor: string
   scrollTarget: { quote: string; key: number } | null
   echoes: RelatedNote[]
   excerpt: string
+  translatedText: string | null
+  translatedHtml: string | null
+  hasTranslation: boolean
+  showTranslation: boolean
+  translationBusy: boolean
+  translationProgress: { done: number; total: number } | null
+  onToggleTranslation(): void
+  onRetranslateTranslation(): void
+  bookForeign: boolean
+  bookTranslation: BookTranslationInfo | null
+  bookTranslationRunning: boolean
+  bookTranslationProgress: BookTranslationProgress | null
+  onTranslateBook(): void
   marks: ReaderMark[]
   onCreateMark(style: ReaderMarkStyle, text: string): void
   onClearMarks(ids: string[]): void
@@ -47,6 +75,7 @@ interface ReaderProps {
   focusMode?: boolean
   onToggleFocus?(): void
   onSaveSummary?(title: string, markdown: string): Promise<void>
+  onNotify?(toast: { kind: 'error' | 'info'; text: string }): void
 }
 
 /** 旧版本解析出的章节会把标题重复放进正文；渲染时去掉与章节标题相同的前导标题文本。 */
@@ -117,14 +146,108 @@ function findQuoteRange(root: HTMLElement, quote: string): Range | null {
   return range
 }
 
+type MoreMenuIcon = 'pdf' | 'echo' | 'summary' | 'copy' | 'link' | 'cite' | 'focus' | 'rename' | 'translate'
+
+function MoreMenuGlyph({ kind }: { kind: MoreMenuIcon }): JSX.Element {
+  const paths: Record<MoreMenuIcon, JSX.Element> = {
+    pdf: (
+      <>
+        <path d="M5 2.75h6.5L15 6.25v11H5z" />
+        <path d="M11.5 2.75v3.5H15" />
+        <path d="M7.5 10h5M7.5 13h5" />
+      </>
+    ),
+    echo: (
+      <>
+        <path d="M4 8c2-2.5 3 2.5 5 0s3 2.5 5 0 2 2.5 2 2.5" />
+        <path d="M4 13c2-2.5 3 2.5 5 0s3 2.5 5 0 2 2.5 2 2.5" />
+      </>
+    ),
+    summary: (
+      <>
+        <path d="M5 3h10v14H5z" />
+        <path d="M8 7h4M8 10h4M8 13h2" />
+      </>
+    ),
+    copy: (
+      <>
+        <rect x="7" y="7" width="8" height="9" rx="1.5" />
+        <path d="M12 7V4.5A1.5 1.5 0 0 0 10.5 3H5.5A1.5 1.5 0 0 0 4 4.5v8A1.5 1.5 0 0 0 5.5 14H7" />
+      </>
+    ),
+    link: (
+      <>
+        <path d="M8 12l4-4" />
+        <path d="M7 14H6a3 3 0 0 1 0-6h2" />
+        <path d="M13 6h1a3 3 0 0 1 0 6h-2" />
+      </>
+    ),
+    cite: (
+      <>
+        <path d="M5 8h4v5H5zM11 8h4v5h-4z" />
+        <path d="M7 8V6.5A1.5 1.5 0 0 1 8.5 5M13 8V6.5A1.5 1.5 0 0 1 14.5 5" />
+      </>
+    ),
+    focus: (
+      <>
+        <circle cx="10" cy="10" r="5.5" />
+        <circle cx="10" cy="10" r="1.5" />
+        <path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2" />
+      </>
+    ),
+    rename: (
+      <>
+        <path d="M4 16l1-4 8-8 3 3-8 8z" />
+        <path d="M11.5 5.5l3 3" />
+      </>
+    ),
+    translate: (
+      <>
+        <circle cx="10" cy="10" r="7" />
+        <path d="M3 10h14" />
+        <path d="M10 3c2 2.5 3 4.8 3 7s-1 4.5-3 7c-2-2.5-3-4.8-3-7s1-4.5 3-7z" />
+      </>
+    ),
+  }
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      width="15"
+      height="15"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {paths[kind]}
+    </svg>
+  )
+}
+
 export function Reader({
   chapter,
   loading,
   style,
   bookTitle,
+  bookAuthor,
   scrollTarget,
   echoes,
   excerpt,
+  translatedText,
+  translatedHtml,
+  hasTranslation,
+  showTranslation,
+  translationBusy,
+  translationProgress,
+  onToggleTranslation,
+  onRetranslateTranslation,
+  bookForeign,
+  bookTranslation,
+  bookTranslationRunning,
+  bookTranslationProgress,
+  onTranslateBook,
   marks,
   onCreateMark,
   onClearMarks,
@@ -149,10 +272,15 @@ export function Reader({
   focusMode = false,
   onToggleFocus,
   onSaveSummary,
+  onNotify,
 }: ReaderProps): JSX.Element {
-  useLocale()
+  const locale = useLocale()
   const containerRef = useRef<HTMLDivElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
   const positionTimerRef = useRef<number | null>(null)
+  const progressTimerRef = useRef<number | null>(null)
+  const latestProgressRef = useRef(0)
+  const pendingRatioRef = useRef<number | null>(null)
   const restoringRef = useRef(false)
   const [selection, setSelection] = useState<string>('')
   const [toolbar, setToolbar] = useState<{ x: number; y: number } | null>(null)
@@ -173,8 +301,27 @@ export function Reader({
   const sessionSecondsRef = useRef(0)
   const sessionBookRef = useRef<string | null>(null)
   const [summaryOpen, setSummaryOpen] = useState(false)
+  const [citationOpen, setCitationOpen] = useState(false)
+  const [sentenceFocus, setSentenceFocus] = useState(false)
   const [summaryMinutes, setSummaryMinutes] = useState(1)
   const [moreOpen, setMoreOpen] = useState(false)
+  const [localHtml, setLocalHtml] = useState<string | null>(null)
+  const [understandingImages, setUnderstandingImages] = useState(false)
+  const [imageStatus, setImageStatus] = useState<string | null>(null)
+  const [imageStatusError, setImageStatusError] = useState(false)
+  const understandingRef = useRef(false)
+  const codeAssistRef = useRef(false)
+  const [editing, setEditing] = useState(false)
+  const [savingBody, setSavingBody] = useState(false)
+  const [codeReview, setCodeReview] = useState<{
+    open: boolean
+    loading: boolean
+    code: string
+    language: string
+    review: string
+    error: string | null
+    model: string
+  } | null>(null)
   const moreRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
@@ -265,9 +412,119 @@ export function Reader({
     return () => window.removeEventListener('keydown', onKey)
   }, [focusMode, helpOpen, onNextChapter, onPrevChapter, onToggleFocus])
   const html = useMemo(() => {
-    const source = chapter?.formattedHtml ?? chapter?.html
+    const source = localHtml ?? chapter?.formattedHtml ?? chapter?.html
     return source ? stripDuplicateTitle(source, chapter?.title ?? '') : null
-  }, [chapter?.formattedHtml, chapter?.html, chapter?.title])
+  }, [localHtml, chapter?.formattedHtml, chapter?.html, chapter?.title])
+
+  const imageCount = useMemo(() => (html?.match(/<img\b/gi) ?? []).length, [html])
+
+  async function understandImages(single?: string): Promise<void> {
+    const root = containerRef.current
+    if (!root || !chapter || understandingRef.current) return
+    const all = [...root.querySelectorAll('img')]
+      .filter((img) => img.dataset.imageUnderstood !== '1')
+      .map((img) => img.currentSrc || img.src)
+      .filter(Boolean)
+    const targets = single ? [single] : [...new Set(all)]
+    if (targets.length === 0) {
+      const message = t('这一章没有需要理解的图片')
+      setImageStatus(message)
+      setImageStatusError(false)
+      onNotify?.({ kind: 'info', text: message })
+      return
+    }
+    understandingRef.current = true
+    setUnderstandingImages(true)
+    setImageStatusError(false)
+    let understood = 0
+    let usedModel = ''
+    try {
+      for (let index = 0; index < targets.length; index++) {
+        setImageStatus(
+          targets.length > 1
+            ? `${t('理解图片中')} ${index + 1}/${targets.length}`
+            : t('理解图片中…'),
+        )
+        const result = await window.api.understandChapterImage(chapter.id, targets[index]!)
+        if (result.html) setLocalHtml(result.html)
+        usedModel = result.model || usedModel
+        understood += result.understood
+      }
+      const message = `${t('已理解')} ${understood} ${t('张图片')}${usedModel ? ` · ${usedModel}` : ''}`
+      setImageStatus(message)
+      if (understood > 0) onNotify?.({ kind: 'info', text: message })
+      window.setTimeout(() => setImageStatus(null), 2200)
+    } catch (error) {
+      const message = messageOf(error)
+      setImageStatus(message)
+      setImageStatusError(true)
+      onNotify?.({ kind: 'error', text: message })
+    } finally {
+      understandingRef.current = false
+      setUnderstandingImages(false)
+    }
+  }
+
+  async function runCodeAssist(input: { action: 'review' | 'explain' | 'fix'; code: string; language: string }): Promise<void> {
+    if (!chapter || codeAssistRef.current) return
+    codeAssistRef.current = true
+    if (input.action === 'review') {
+      setCodeReview({
+        open: true,
+        loading: true,
+        code: input.code,
+        language: input.language,
+        review: '',
+        error: null,
+        model: '',
+      })
+      try {
+        const result = await window.api.codeAssist(chapter.id, input.code, 'review', input.language)
+        setCodeReview((current) =>
+          current
+            ? { ...current, loading: false, review: result.text, model: result.model ?? '' }
+            : current,
+        )
+      } catch (error) {
+        const message = messageOf(error)
+        setCodeReview((current) => (current ? { ...current, loading: false, error: message } : current))
+      } finally {
+        codeAssistRef.current = false
+      }
+      return
+    }
+
+    if (input.action === 'fix') {
+      try {
+        const result = await window.api.codeAssist(chapter.id, input.code, 'fix', input.language)
+        if (result.html) setLocalHtml(result.html)
+        onNotify?.({
+          kind: 'info',
+          text: result.changed
+            ? `${t('已修复代码')}${result.model ? ` · ${result.model}` : ''}`
+            : t('代码没有需要修复的地方'),
+        })
+      } catch (error) {
+        onNotify?.({ kind: 'error', text: messageOf(error) })
+      } finally {
+        codeAssistRef.current = false
+      }
+      return
+    }
+
+    try {
+      const result = await window.api.codeAssist(chapter.id, input.code, 'explain', input.language)
+      if (result.html) setLocalHtml(result.html)
+      onNotify?.({
+        kind: 'info',
+        text: `${t('已理解代码')}${result.model ? ` · ${result.model}` : ''}`,
+      })
+    } catch (error) {
+      onNotify?.({ kind: 'error', text: messageOf(error) })
+    } finally {
+      codeAssistRef.current = false
+    }
+  }
 
   const pdfPage = useMemo(() => {
     const match = chapter?.text.match(/\[第 (\d+) 页\]/)
@@ -285,6 +542,12 @@ export function Reader({
     '--reader-paragraph-gap': `${style.paragraphSpacing}em`,
   } as CSSProperties
 
+  // 译文和原文长度不同，切换视图时字数与预计时间要跟着当前显示的内容走。
+  const displayChars =
+    showTranslation && (translatedHtml || translatedText)
+      ? (translatedText?.length ?? chapter?.chars ?? 0)
+      : (chapter?.chars ?? 0)
+
   const selectedMarks = useMemo(() => {
     const selected = selection.replace(/\s+/g, '')
     if (selected.length < 4) return []
@@ -300,6 +563,60 @@ export function Reader({
     setEchoOpen(false)
     setPdfOpen(false)
   }, [chapter?.id])
+
+  useEffect(() => {
+    setLocalHtml(null)
+    setImageStatus(null)
+    setImageStatusError(false)
+    setEditing(false)
+  }, [chapter?.id, chapter?.formattedHtml])
+
+  // 正文 HTML 是原生节点；在 DOM 层补上代码块的语言标签、折叠和复制。
+  useEffect(() => {
+    const root = containerRef.current
+    if (!root || editing) return
+    const enhance = (): void => {
+      enhanceCodeBlocks(root)
+      enhanceImages(root)
+    }
+    enhance()
+    const observer = new MutationObserver(enhance)
+    observer.observe(root, { childList: true, subtree: true })
+    const onClick = (event: MouseEvent): void => {
+      const codeAssist = handleCodeAssistClick(event, root)
+      if (codeAssist) {
+        void runCodeAssist(codeAssist)
+        return
+      }
+      if (handleCodeBlockClick(event, root)) return
+      const imageSrc = handleImageUnderstandClick(event, root)
+      if (imageSrc) {
+        void understandImages(imageSrc)
+        return
+      }
+      handleImageCopyClick(event, root)
+    }
+    root.addEventListener('click', onClick)
+    return () => {
+      observer.disconnect()
+      root.removeEventListener('click', onClick)
+    }
+  }, [chapter?.id, locale, showTranslation, editing])
+
+  // 逐句专注：把纯文本段落拆成句子，点击某句时只保留这一句。
+  useEffect(() => {
+    const root = containerRef.current
+    if (!root || !sentenceFocus || editing) return
+    wrapSentences(root)
+    const onClick = (event: MouseEvent): void => {
+      if (focusSentenceAt(event, root)) event.stopPropagation()
+    }
+    root.addEventListener('click', onClick, true)
+    return () => {
+      root.removeEventListener('click', onClick, true)
+      unwrapSentences(root)
+    }
+  }, [chapter?.id, locale, sentenceFocus, showTranslation, editing])
 
   useEffect(() => {
     const root = containerRef.current
@@ -336,15 +653,44 @@ export function Reader({
     }
   }, [chapter?.id, loading, positionTarget?.chapterId, positionTarget?.key, positionTarget?.ratio])
 
+  function toggleTranslationView(): void {
+    const root = containerRef.current
+    if (root) {
+      const max = Math.max(0, root.scrollHeight - root.clientHeight)
+      pendingRatioRef.current = max > 0 ? root.scrollTop / max : 0
+    }
+    onToggleTranslation()
+  }
+
+  useEffect(() => {
+    const ratio = pendingRatioRef.current
+    if (ratio === null) return
+    pendingRatioRef.current = null
+    const root = containerRef.current
+    if (!root) return
+    const frame = window.requestAnimationFrame(() => {
+      const max = Math.max(0, root.scrollHeight - root.clientHeight)
+      root.scrollTop = Math.max(0, Math.min(max, ratio * max))
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [showTranslation])
+
   function handleReaderScroll(): void {
-    setToolbar(null)
+    setToolbar((current) => (current ? null : current))
     const root = containerRef.current
     if (!root || !chapter || loading || restoringRef.current) return
     if (positionTimerRef.current) window.clearTimeout(positionTimerRef.current)
     const max = Math.max(0, root.scrollHeight - root.clientHeight)
     const scrollTop = root.scrollTop
     const ratio = max > 0 ? scrollTop / max : 0
-    setReadProgress(ratio)
+    // 滚动事件非常密集；进度条只需要约 10fps，避免整章反复重渲染。
+    latestProgressRef.current = ratio
+    if (progressTimerRef.current === null) {
+      progressTimerRef.current = window.setTimeout(() => {
+        progressTimerRef.current = null
+        setReadProgress(latestProgressRef.current)
+      }, 100)
+    }
     const bookId = chapter.bookId
     const chapterId = chapter.id
     positionTimerRef.current = window.setTimeout(() => {
@@ -429,6 +775,7 @@ export function Reader({
   useEffect(
     () => () => {
       if (positionTimerRef.current) window.clearTimeout(positionTimerRef.current)
+      if (progressTimerRef.current) window.clearTimeout(progressTimerRef.current)
     },
     [],
   )
@@ -455,7 +802,7 @@ export function Reader({
     return () => {
       names.forEach((name) => css.highlights!.delete(name))
     }
-  }, [marks, html, chapter?.id, loading])
+  }, [marks, html, chapter?.id, loading, sentenceFocus, showTranslation])
 
   useEffect(() => {
     setReadProgress(0)
@@ -508,7 +855,38 @@ export function Reader({
     current?.addRange(range)
   }, [scrollTarget])
 
+  async function saveBody(): Promise<void> {
+    if (!chapter || !contentRef.current || savingBody) return
+    setSavingBody(true)
+    try {
+      const result = await window.api.saveChapterContent(chapter.id, contentRef.current.innerHTML)
+      setLocalHtml(result.html)
+      setEditing(false)
+      onNotify?.({ kind: 'info', text: t('已保存正文') })
+    } catch (error) {
+      onNotify?.({ kind: 'error', text: messageOf(error) })
+    } finally {
+      setSavingBody(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!editing) return
+    function onKey(event: KeyboardEvent): void {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
+        event.preventDefault()
+        void saveBody()
+      } else if (event.key === 'Escape') {
+        event.preventDefault()
+        setEditing(false)
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [editing, savingBody, chapter?.id])
+
   function handleMouseUp(): void {
+    if (editing) return
     const current = window.getSelection()
     if (!current || current.isCollapsed) {
       setSelection('')
@@ -588,7 +966,12 @@ export function Reader({
       <div className="reader-progress" aria-hidden="true">
         <span style={{ width: `${Math.round(readProgress * 100)}%` }} />
       </div>
-      <div className="reader" ref={containerRef} onMouseUp={handleMouseUp} onScroll={handleReaderScroll}>
+      <div
+        className={`reader${sentenceFocus ? ' is-sentence-focus' : ''}`}
+        ref={containerRef}
+        onMouseUp={handleMouseUp}
+        onScroll={handleReaderScroll}
+      >
         {loading || !chapter ? (
           <div className="reader-skeleton">
             <div className="skeleton-line wide" />
@@ -605,11 +988,11 @@ export function Reader({
                 ) : null}
                 {chapter.partTitle && !chapter.isPart ? ' · ' : null}
                 {chapter.isPart ? `${t('篇首')} · ` : null}
-                {t('约')} {chapter.chars.toLocaleString()} {t('字')}
+                {t('约')} {displayChars.toLocaleString()} {t('字')}
                 {chapterIndex != null && chapterTotal != null && chapterTotal > 0
                   ? ` · ${chapterIndex + 1} / ${chapterTotal} ${t('章')}`
                   : ''}
-                {` · ${t('预计')} ${Math.max(1, Math.round(chapter.chars / 400))} ${t('分钟')}`}
+                {` · ${t('预计')} ${Math.max(1, Math.round(displayChars / 400))} ${t('分钟')}`}
               </div>
               <h1>{chapter.title}</h1>
               <div className="chapter-head-actions">
@@ -651,6 +1034,80 @@ export function Reader({
                   {t('排版')}
                 </button>
 
+                {bookForeign ? (
+                  <button
+                    type="button"
+                    className={`ghost-button small${showTranslation && translatedHtml ? ' is-active' : ''}`}
+                    onClick={() => {
+                      if (hasTranslation && !translatedHtml) onRetranslateTranslation()
+                      else toggleTranslationView()
+                    }}
+                    disabled={(translationBusy || bookTranslationRunning) && !translatedHtml}
+                    title={
+                      hasTranslation && !translatedHtml
+                        ? t('用新格式重新翻译，保留标题和表格')
+                        : hasTranslation
+                          ? showTranslation
+                            ? t('切回原文')
+                            : t('查看 AI 译文')
+                          : t('把这章原文翻译成简体中文')
+                    }
+                  >
+                    {translationBusy && !translatedHtml
+                      ? translationProgress
+                        ? `${t('翻译中')} ${translationProgress.done}/${translationProgress.total}`
+                        : t('翻译中…')
+                      : !hasTranslation
+                        ? t('翻译')
+                        : !translatedHtml
+                          ? t('重新翻译')
+                          : showTranslation
+                            ? t('原文')
+                            : t('译文')}
+                  </button>
+                ) : null}
+
+                {html ? (
+                  editing ? (
+                    <>
+                      <button
+                        type="button"
+                        className="primary-button small"
+                        onClick={() => void saveBody()}
+                        disabled={savingBody}
+                      >
+                        {savingBody ? t('保存中…') : t('保存正文')}
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost-button small"
+                        onClick={() => setEditing(false)}
+                        disabled={savingBody}
+                      >
+                        {t('取消')}
+                      </button>
+                    </>
+                  ) : (
+                    <button type="button" className="ghost-button small" onClick={() => setEditing(true)}>
+                      {t('编辑正文')}
+                    </button>
+                  )
+                ) : null}
+                {!editing && imageCount > 0 ? (
+                  <button
+                    type="button"
+                    className="ghost-button small"
+                    onClick={() => void understandImages()}
+                    disabled={understandingImages}
+                    title={t('理解本章图片，并把说明插入正文')}
+                  >
+                    {understandingImages ? t('理解图片中…') : t('理解图片')}
+                  </button>
+                ) : null}
+                {imageStatus ? (
+                  <span className={`reader-image-status${imageStatusError ? ' is-error' : ''}`} title={imageStatus}>{imageStatus}</span>
+                ) : null}
+
                 <div className="reader-more" ref={moreRef}>
                   <button
                     type="button"
@@ -672,19 +1129,59 @@ export function Reader({
                             setPdfOpen(true)
                           }}
                         >
-                          {t('原版 PDF')}
+                          <span className="reader-more-icon"><MoreMenuGlyph kind="pdf" /></span>
+                          <span>{t('原版 PDF')}</span>
                         </button>
                       ) : null}
-                      {echoes.length > 0 ? (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setMoreOpen(false)
+                          setEchoOpen(true)
+                        }}
+                      >
+                        <span className="reader-more-icon"><MoreMenuGlyph kind="echo" /></span>
+                        <span>{t('回声')}{echoes.length > 0 ? ` · ${echoes.length}` : ''}</span>
+                      </button>
+                      {bookForeign ? (
                         <button
                           type="button"
                           role="menuitem"
+                          disabled={bookTranslationRunning}
                           onClick={() => {
                             setMoreOpen(false)
-                            setEchoOpen(true)
+                            onTranslateBook()
                           }}
                         >
-                          {t('回声')} · {echoes.length}
+                          <span className="reader-more-icon"><MoreMenuGlyph kind="translate" /></span>
+                          <span>
+                            {bookTranslationRunning
+                              ? bookTranslationProgress
+                                ? `${t('翻译全书中')} ${bookTranslationProgress.done}/${bookTranslationProgress.total}`
+                                : t('翻译全书中…')
+                              : bookTranslation && bookTranslation.translated < bookTranslation.total
+                                ? `${t('翻译全书')}${
+                                    bookTranslation.translated > 0
+                                      ? ` · ${t('剩余')} ${bookTranslation.total - bookTranslation.translated} ${t('章')}`
+                                      : ''
+                                  }`
+                                : t('重新翻译全书')}
+                          </span>
+                        </button>
+                      ) : null}
+                      {bookForeign && hasTranslation ? (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          disabled={translationBusy}
+                          onClick={() => {
+                            setMoreOpen(false)
+                            onRetranslateTranslation()
+                          }}
+                        >
+                          <span className="reader-more-icon"><MoreMenuGlyph kind="translate" /></span>
+                          <span>{t('重新翻译')}</span>
                         </button>
                       ) : null}
                       {onSaveSummary && chapter ? (
@@ -697,7 +1194,8 @@ export function Reader({
                             setSummaryOpen(true)
                           }}
                         >
-                          {t('阅读小结')}
+                          <span className="reader-more-icon"><MoreMenuGlyph kind="summary" /></span>
+                          <span>{t('阅读小结')}</span>
                         </button>
                       ) : null}
                       <button
@@ -711,7 +1209,8 @@ export function Reader({
                           })
                         }}
                       >
-                        {fullCopied ? t('已复制') : t('复制全文')}
+                        <span className="reader-more-icon"><MoreMenuGlyph kind="copy" /></span>
+                        <span>{fullCopied ? t('已复制') : t('复制全文')}</span>
                       </button>
                       <button
                         type="button"
@@ -723,7 +1222,31 @@ export function Reader({
                           window.setTimeout(() => setLinkCopied(false), 1600)
                         }}
                       >
-                        {linkCopied ? t('已复制链接') : t('复制深链')}
+                        <span className="reader-more-icon"><MoreMenuGlyph kind="link" /></span>
+                        <span>{linkCopied ? t('已复制链接') : t('复制深链')}</span>
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setMoreOpen(false)
+                          setCitationOpen(true)
+                        }}
+                      >
+                        <span className="reader-more-icon"><MoreMenuGlyph kind="cite" /></span>
+                        <span>{t('导出引用')}</span>
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        aria-pressed={sentenceFocus}
+                        onClick={() => {
+                          setMoreOpen(false)
+                          setSentenceFocus((value) => !value)
+                        }}
+                      >
+                        <span className="reader-more-icon"><MoreMenuGlyph kind="focus" /></span>
+                        <span>{sentenceFocus ? t('退出逐句') : t('逐句专注')}</span>
                       </button>
                       <button
                         type="button"
@@ -733,15 +1256,39 @@ export function Reader({
                           onRenameChapter()
                         }}
                       >
-                        {t('改名')}
+                        <span className="reader-more-icon"><MoreMenuGlyph kind="rename" /></span>
+                        <span>{t('改名')}</span>
                       </button>
                     </div>
                   ) : null}
                 </div>
               </div>
             </header>
-            {html ? (
-              <div className="chapter-html" style={contentStyle} dangerouslySetInnerHTML={{ __html: html }} />
+            {showTranslation && (translatedHtml || translatedText) ? (
+              translatedHtml ? (
+                <div
+                  className="chapter-html translated-text"
+                  style={contentStyle}
+                  dangerouslySetInnerHTML={{ __html: translatedHtml }}
+                />
+              ) : (
+                <div className="chapter-plain translated-text" style={contentStyle}>
+                  {(translatedText ?? '').split(/\n{2,}/).map((paragraph, index) => (
+                    <p key={index}>{paragraph}</p>
+                  ))}
+                </div>
+              )
+            ) : html ? (
+              <div
+                key={editing ? 'editing' : 'viewing'}
+                ref={contentRef}
+                className={`chapter-html${editing ? ' is-editing' : ''}`}
+                style={contentStyle}
+                contentEditable={editing}
+                suppressContentEditableWarning
+                spellCheck={false}
+                dangerouslySetInnerHTML={{ __html: html }}
+              />
             ) : (
               <div className="chapter-plain" style={contentStyle}>
                 {chapter.text.split(/\n{2,}/).map((paragraph, index) => {
@@ -876,6 +1423,25 @@ export function Reader({
             {t('复制')}
           </button>
         </div>
+      ) : null}
+      <CodeReviewDialog
+        open={Boolean(codeReview?.open)}
+        loading={codeReview?.loading ?? false}
+        code={codeReview?.code ?? ''}
+        language={codeReview?.language ?? ''}
+        review={codeReview?.review ?? ''}
+        error={codeReview?.error ?? null}
+        model={codeReview?.model ?? ''}
+        onClose={() => setCodeReview(null)}
+      />
+
+      {citationOpen ? (
+        <CitationDialog
+          open={citationOpen}
+          title={bookTitle}
+          author={bookAuthor}
+          onClose={() => setCitationOpen(false)}
+        />
       ) : null}
       {summaryOpen && chapter && onSaveSummary ? (
         <ReadingSummaryDialog

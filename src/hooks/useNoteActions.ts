@@ -150,29 +150,30 @@ export function useNoteActions(options: NoteActionsOptions): NoteActions {
 
   const expandNote = useCallback(
     async (noteId: string) => {
+      const targetChapterId = chapter?.id ?? null
       setExpandingNoteId(noteId)
       try {
         const updated = await window.api.expandNote(noteId)
         setNotes((current) => current.map((note) => (note.id === noteId ? updated : note)))
         setAllNotes((current) => current.map((note) => (note.id === noteId ? updated : note)))
-        setChapter((current) =>
-          current && current.noteReport
-            ? {
-                ...current,
-                noteReport: {
-                  ...current.noteReport,
-                  divergences: current.noteReport.divergences + updated.divergences.length,
-                },
-              }
-            : current,
-        )
+        // 延伸可能跑在别的章节上；只刷新这条笔记所属章节的报告，避免把计数加到当前章节上。
+        if (targetChapterId) {
+          const fresh = await window.api.getChapter(targetChapterId).catch(() => null)
+          if (fresh) {
+            setChapter((current) =>
+              current && current.id === targetChapterId
+                ? { ...current, noteReport: fresh.noteReport }
+                : current,
+            )
+          }
+        }
       } catch (err) {
         notify({ kind: 'error', text: messageOf(err) })
       } finally {
         setExpandingNoteId(null)
       }
     },
-    [notify, setAllNotes, setChapter, setNotes],
+    [chapter?.id, notify, setAllNotes, setChapter, setNotes],
   )
 
   return {

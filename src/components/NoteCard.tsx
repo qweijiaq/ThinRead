@@ -7,6 +7,7 @@ import { Select } from './Select.js'
 import { TextDiffDialog } from './TextDiffDialog.js'
 import { titleRepeatsContent } from '../lib/note-display.js'
 import { Markdown } from './Markdown.js'
+import { SentenceCheck } from './SentenceCheck.js'
 
 export const KIND_LABEL: Record<NoteKind, string> = {
   condensed: '读薄稿',
@@ -38,6 +39,9 @@ interface NoteCardProps {
   onOpenNote(note: Note): void
   onWikiLink(title: string): void
   hideTitle?: boolean
+  sentenceCheck?: boolean
+  evidenceNotes?: Note[]
+  demo?: boolean
 }
 
 function titleFromContent(content: string): string {
@@ -68,6 +72,9 @@ function NoteCardImpl({
   onOpenNote,
   onWikiLink,
   hideTitle = false,
+  sentenceCheck = false,
+  evidenceNotes,
+  demo = false,
 }: NoteCardProps): JSX.Element {
   useLocale()
   const [editing, setEditing] = useState(note.author === 'user' && note.content.trim() === '')
@@ -204,7 +211,13 @@ function NoteCardImpl({
           ) : (
             <>
               {onShare ? (
-                <button type="button" className="text-button" onClick={() => onShare(note)}>
+                <button
+                  type="button"
+                  className="text-button"
+                  onClick={() => onShare(note)}
+                  disabled={demo}
+                  title={demo ? t('演示结果不能分享为真实内容') : undefined}
+                >
                   {t('分享')}
                 </button>
               ) : null}
@@ -297,7 +310,15 @@ function NoteCardImpl({
           {hideTitle || repeatsTitle ? null : <h3 className="note-title">{note.title}</h3>}
           {note.content.trim() ? (
             <div className={repeatsTitle ? 'note-statement' : undefined}>
-              <Markdown text={note.content} onWikiLink={onWikiLink} />
+              {sentenceCheck && note.kind === 'condensed' ? (
+                <SentenceCheck
+                  content={note.content}
+                  evidenceNotes={evidenceNotes ?? allNotes}
+                  onJumpQuote={onJumpQuote}
+                />
+              ) : (
+                <Markdown text={note.content} onWikiLink={onWikiLink} />
+              )}
             </div>
           ) : (
             <p className="note-empty">{t('（空笔记，点“编辑”补充）')}</p>
@@ -316,12 +337,14 @@ function NoteCardImpl({
           <span className="quote-label">{note.kind === 'point' || note.kind === 'claim' ? t('原文依据') : t('原文')}</span>
           <span className="quote-text">“{note.quote}”</span>
           {note.author === 'ai' ? (
-            <span className={`verify-chip ${note.quoteVerified ? 'ok' : 'warn'}`}>
-              {note.quoteVerified
-                ? t('已核对')
-                : note.kind === 'point' || note.kind === 'claim'
-                  ? t('位置/概述')
-                  : t('未核对')}
+            <span className={`verify-chip ${demo ? 'warn' : note.quoteVerified ? 'ok' : 'warn'}`}>
+              {demo
+                ? t('演示样例')
+                : note.quoteVerified
+                  ? t('已核对')
+                  : note.kind === 'point' || note.kind === 'claim'
+                    ? t('位置/概述')
+                    : t('未核对')}
             </span>
           ) : null}
         </button>

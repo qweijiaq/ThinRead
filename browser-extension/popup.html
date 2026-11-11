@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>收录到 ThinRead</title>
+    <style>
+      :root { color-scheme: light; }
+      * { box-sizing: border-box; }
+      body {
+        width: 320px;
+        margin: 0;
+        padding: 16px;
+        background: #f4f3ee;
+        color: #1e1e1a;
+        font: 13px/1.6 -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+      }
+      h1 { margin: 0 0 3px; font-size: 16px; letter-spacing: 0.02em; }
+      .hint { margin: 0 0 12px; color: #6f6d62; font-size: 11px; }
+      .page { margin: 0 0 12px; padding: 9px 10px; border: 1px solid #d7d4c9; border-radius: 8px; background: #fbfaf5; }
+      .page strong { display: block; overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+      .page span { display: block; overflow: hidden; margin-top: 2px; color: #6f6d62; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+      button {
+        width: 100%;
+        margin: 6px 0 0;
+        padding: 8px 10px;
+        border: 1px solid #2f4f9e;
+        border-radius: 7px;
+        background: #2f4f9e;
+        color: #fff;
+        font: inherit;
+        cursor: pointer;
+      }
+      button.secondary { border-color: #d7d4c9; background: #fbfaf5; color: #1e1e1a; }
+      button:disabled { cursor: default; opacity: 0.45; }
+      .status { min-height: 17px; margin: 10px 0 0; color: #6f6d62; font-size: 10.5px; }
+      .status.error { color: #a64232; }
+    </style>
+  </head>
+  <body>
+    <h1>收录到 ThinRead</h1>
+    <p class="hint">整页会作为一本书导入；选中段落会同时存成高亮。</p>
+    <div class="page">
+      <strong id="page-title">读取中…</strong>
+      <span id="page-url"></span>
+    </div>
+    <button id="capture-page" type="button">收录整页</button>
+    <button id="capture-selection" type="button" disabled>收录选中段落</button>
+    <button id="copy-link" class="secondary" type="button">复制收录链接</button>
+    <p id="status" class="status" role="status" aria-live="polite"></p>
+    <script src="popup.js"></script>
+  </body>
+</html>

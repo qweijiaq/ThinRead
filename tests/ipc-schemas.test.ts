@@ -2,11 +2,17 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  bookComposeArgs,
+  bookFormatArgs,
+  bookGenerateArgs,
   bookIdArgs,
+  chapterFormatArgs,
+  chapterIdsArgs,
   labArtifactArgs,
   mergeBooksArgs,
   noteDraftArgs,
   notePatchArgs,
+  notesGenerateArgs,
   saveTextArgs,
   splitBookArgs,
   textImportArgs,
@@ -56,4 +62,29 @@ test('caps generated artifact and exported file content', () => {
   )
   assert.throws(() => saveTextArgs.parse(['a.md', 'x'.repeat(20_000_001)]), /2000 万字上限/)
   assert.doesNotThrow(() => saveTextArgs.parse(['a.md', '# 标题']))
+})
+
+test('validates chapter format and book task arguments', () => {
+  assert.deepEqual(chapterFormatArgs.parse([id, '更紧凑', { skipReferences: true }]), [
+    id,
+    '更紧凑',
+    { skipReferences: true },
+  ])
+  assert.doesNotThrow(() => chapterFormatArgs.parse([id, undefined, undefined]))
+  assert.throws(() => chapterFormatArgs.parse(['not-a-uuid']))
+
+  assert.deepEqual(chapterIdsArgs.parse([[id, id2]]), [[id, id2]])
+  assert.throws(() => chapterIdsArgs.parse([[]]), /至少选择一章/)
+  assert.throws(() => chapterIdsArgs.parse([['../../x']]))
+
+  assert.doesNotThrow(() => bookFormatArgs.parse([id, { onlyMissing: true, chapterIds: [id], skipReferences: false }]))
+  assert.doesNotThrow(() => bookFormatArgs.parse([id, undefined]))
+  assert.doesNotThrow(() => bookGenerateArgs.parse([id, { chapterIds: [id2] }]))
+  assert.doesNotThrow(() => notesGenerateArgs.parse([id, { fresh: true }]))
+
+  assert.deepEqual(bookComposeArgs.parse([id, { length: 'full', voice: 'sharp' }]), [
+    id,
+    { length: 'full', voice: 'sharp' },
+  ])
+  assert.throws(() => bookComposeArgs.parse([id, { voice: 'angry' }]))
 })

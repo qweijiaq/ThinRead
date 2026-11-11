@@ -70,6 +70,13 @@ export function ListenPanel({
   const [playing, setPlaying] = useState(false)
   const [paused, setPaused] = useState(false)
   const [speed, setSpeed] = useState(1)
+  const [prefetch, setPrefetch] = useState(() => {
+    try {
+      return localStorage.getItem('reading-notes-tts-prefetch') !== 'off'
+    } catch {
+      return true
+    }
+  })
   const [sleepMinutes, setSleepMinutes] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(
@@ -208,8 +215,8 @@ export function ListenPanel({
       try {
         const url = await synthesizeSegment(index)
         if (cancelled) return
-        // 预取下一句，减少句间停顿；只预取一句，避免未听先计费。
-        if (index + 1 < segments.length) {
+        // 预取下一句，减少句间停顿；可以关闭，避免未听先计费。
+        if (prefetch && index + 1 < segments.length) {
           void synthesizeSegment(index + 1).catch(() => undefined)
         }
         const player = new Audio(url)
@@ -296,7 +303,7 @@ export function ListenPanel({
       userPausedRef.current = false
       setAudioLoading(false)
     }
-  }, [playing, index, segments, speed, voiceA, voiceB, voiceEn, scope, ttsStatus])
+  }, [playing, index, segments, speed, voiceA, voiceB, voiceEn, scope, ttsStatus, prefetch])
 
   useEffect(
     () => () => {
@@ -559,6 +566,22 @@ export function ListenPanel({
                 { value: '1.5', label: '1.5×' },
               ]}
             />
+            <label className="listen-prefetch">
+              <input
+                type="checkbox"
+                checked={prefetch}
+                onChange={(event) => {
+                  const next = event.target.checked
+                  setPrefetch(next)
+                  try {
+                    localStorage.setItem('reading-notes-tts-prefetch', next ? 'on' : 'off')
+                  } catch {
+                    // 忽略。
+                  }
+                }}
+              />
+              {t('预取下一句')}
+            </label>
             <span className="listen-timer">
               <span className="listen-timer-label">{t('定时')}</span>
               <Select

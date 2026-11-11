@@ -18,3 +18,7 @@ docs/real-book-eval*.json
 docs/raw-extract-cards.txt
 marketing/xhs-guide/*.zip
 marketing/xhs-guide/assets/raw-*.png
+
+# Local build/test scratch
+__pycache__/
+.tmp-*

@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "ThinRead 网页收录",
+  "version": "0.1.0",
+  "description": "把当前网页或选中段落收录到 ThinRead。",
+  "permissions": ["activeTab", "scripting"],
+  "action": {
+    "default_title": "收录到 ThinRead",
+    "default_popup": "popup.html"
+  },
+  "thinread": {
+    "capabilities": ["browser:capture"]
+  }
+}

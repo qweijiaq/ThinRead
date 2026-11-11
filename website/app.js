@@ -1,5 +1,5 @@
 const DOWNLOAD_URL =
-  'https://github.com/qweijiaq/ThinRead/releases/latest/download/ThinRead-0.1.5-mac-arm64.dmg'
+  'https://github.com/qweijiaq/ThinRead/releases/latest/download/ThinRead-0.2.0-mac-arm64.dmg'
 const LIKE_BASE = 'https://abacus.jasoncameron.dev'
 const LIKE_KEY = 'thinread/website-likes'
 const LIKED_STORAGE = 'thinread-website-liked'

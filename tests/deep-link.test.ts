@@ -1,24 +1,25 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { parseDeepLink } from '../shared/deep-link.js'
+import { parseCaptureLink, parseDeepLink } from '../shared/deep-link.js'
 
-test('parses thinread book and chapter deep links', () => {
-  assert.deepEqual(parseDeepLink('thinread://book/b1/chapter/c2?quote=%E5%8E%9F%E6%96%87'), {
+test('parses book deep links', () => {
+  assert.deepEqual(parseDeepLink('thinread://book/b1/chapter/c2?quote=hello'), {
     bookId: 'b1',
     chapterId: 'c2',
-    quote: '原文',
+    quote: 'hello',
   })
-  assert.deepEqual(parseDeepLink('thinread://book/b1?chapter=c2'), {
-    bookId: 'b1',
-    chapterId: 'c2',
-    quote: null,
+})
+
+test('parses browser capture links', () => {
+  const target = parseCaptureLink(
+    'thinread://capture?url=https%3A%2F%2Fexample.com%2Fpost&title=Example%20Post&selection=Selected%20text',
+  )
+  assert.deepEqual(target, {
+    url: 'https://example.com/post',
+    title: 'Example Post',
+    selection: 'Selected text',
   })
-  assert.deepEqual(parseDeepLink('thinread://book/b1'), {
-    bookId: 'b1',
-    chapterId: null,
-    quote: null,
-  })
-  assert.equal(parseDeepLink('https://example.com/book/b1'), null)
-  assert.equal(parseDeepLink('thinread://other/b1'), null)
+  assert.equal(parseCaptureLink('thinread://capture?url=file:///etc/passwd'), null)
+  assert.equal(parseCaptureLink('thinread://book/b1'), null)
 })

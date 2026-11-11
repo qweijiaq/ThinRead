@@ -1,7 +1,8 @@
-import { useState, type FormEvent, type JSX } from 'react'
+import { useEffect, useState, type FormEvent, type JSX } from 'react'
 
 import { t } from '../lib/i18n.js'
 import { useDialogFocus } from '../lib/useDialogFocus.js'
+import { confirmDialog } from './ConfirmDialog.js'
 
 interface CompareModelDialogProps {
   suggestions: string[]
@@ -20,11 +21,34 @@ export function CompareModelDialog({
 }: CompareModelDialogProps): JSX.Element {
   const dialogRef = useDialogFocus<HTMLFormElement>(true, onClose, 'input, button')
   const [model, setModel] = useState(suggestions[0] ?? '')
+  const [availableModels, setAvailableModels] = useState<string[]>(suggestions)
 
-  function submit(event: FormEvent): void {
+  useEffect(() => {
+    let cancelled = false
+    void window.api
+      .listAiModels()
+      .then((result) => {
+        if (cancelled || result.models.length === 0) return
+        setAvailableModels([...new Set([...result.models, ...suggestions])])
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [suggestions])
+
+  async function submit(event: FormEvent): Promise<void> {
     event.preventDefault()
     const value = model.trim()
     if (!value || busy) return
+    const confirmed = await confirmDialog({
+      title: t('模型对比'),
+      message: t(
+        '对比会完整重跑本章或整本，并执行读薄、回查、卡片和延伸，消耗与一次正式生成相同，不是一次短调用。结果会存到内容库，不会覆盖当前结果。继续？',
+      ),
+      confirmLabel: t('开始对比'),
+    })
+    if (!confirmed) return
     onCompare(value)
   }
 
@@ -42,7 +66,7 @@ export function CompareModelDialog({
         <div className="modal-head">
           <div>
             <h2>{t('模型对比')}</h2>
-            <p className="modal-subtitle">{t('用另一个模型重跑本章，不会覆盖当前笔记。')}</p>
+            <p className="modal-subtitle">{t('用另一个模型完整重跑，不会覆盖当前结果。')}</p>
           </div>
           <button type="button" className="icon-button" onClick={onClose} aria-label={t('关闭')}>
             ×
@@ -60,13 +84,13 @@ export function CompareModelDialog({
             autoFocus
           />
           <datalist id="compare-model-options">
-            {suggestions.map((id) => (
+            {availableModels.map((id) => (
               <option key={id} value={id} />
             ))}
           </datalist>
-          {suggestions.length > 0 ? (
+          {availableModels.length > 0 ? (
             <div className="compare-model-chips">
-              {suggestions.map((id) => (
+              {availableModels.slice(0, 8).map((id) => (
                 <button key={id} type="button" onClick={() => setModel(id)}>
                   {id}
                 </button>
@@ -74,7 +98,7 @@ export function CompareModelDialog({
             </div>
           ) : null}
           <p className="field-hint">
-            {t('对比会消耗一次模型调用；结果会存到内容库，结束后直接打开差异。')}
+            {t('对比会完整重跑本章或整本，消耗与一次正式生成相同；结果会存到内容库，结束后直接打开差异。')}
           </p>
         </div>
 

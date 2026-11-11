@@ -1,13 +1,14 @@
 import * as cheerio from 'cheerio'
-import { generateText } from 'ai'
 
 import type { ReaderStyle, RemovedPart } from '../../shared/types.js'
-import { htmlToText, normalizeForMatch, restoreDataImages, sanitizeChapterHtml, extractDataImages } from '../html.js'
+import { cleanFormatHtml, htmlToText, normalizeForMatch, restoreDataImages, sanitizeChapterHtml, extractDataImages } from '../html.js'
 import { normalizeReaderStyle } from '../reader-style.js'
-import { createLanguageModel } from './provider.js'
+import { stripReferenceSectionsFromHtml } from '../references.js'
+import { createLanguageModel, nonThinkingProviderOptions } from './provider.js'
 import type { ModelConfig } from './provider.js'
+import { tracedGenerateText } from './trace.js'
 
-const MAX_PROMPT_CHARS = 60_000
+const MAX_CHAPTER_TEXT_CHARS = 160_000
 const MAX_CONTEXT_CHARS = 4_000
 const SEGMENT_CHARS = 14_000
 const SEGMENT_CONCURRENCY = 2
@@ -22,6 +23,7 @@ export interface FormatArgs {
   currentRemoved: RemovedPart[]
   instruction?: string
   style: ReaderStyle
+  skipReferences?: boolean
   config: ModelConfig
   signal?: AbortSignal
 }
@@ -44,21 +46,34 @@ export async function formatChapter(args: FormatArgs): Promise<FormatOutput> {
   if (args.config.provider === 'demo') {
     throw new Error('演示模式不支持 AI 排版，请先在设置里配置真实模型。')
   }
-  if (!args.config.apiKey && args.config.provider !== 'ollama') {
+  if (!args.config.apiKey && args.config.provider !== 'ollama' && args.config.provider !== 'lmstudio') {
     throw new Error('还没有配置 API Key，无法使用 AI 排版。')
   }
   if (!args.html) throw new Error('这一章没有可排版的正文。')
 
-  const prepared = extractDataImages(args.html)
-  if (prepared.html.length > MAX_PROMPT_CHARS) {
-    throw new Error('这一章太长，暂时无法整体排版。可以先在「整理」里拆分章节，或换一章再试。')
+  const referenceStrip = args.skipReferences
+    ? stripReferenceSectionsFromHtml(args.html)
+    : { html: args.html, removed: [] as Array<{ text: string; reason: string }> }
+  const cleanedHtml = cleanFormatHtml(referenceStrip.html)
+  const prepared = extractDataImages(cleanedHtml)
+  const cleanedText = htmlToText(prepared.html)
+  if (args.skipReferences && !cleanedText.trim()) {
+    throw new Error('这一章除了参考文献/注释/索引，没有可排版的正文。')
   }
+  // 分段依据是正文长度，不是 HTML 标签长度；含大量标记的章节不应被误判为超长。
+  const limitText = args.skipReferences ? cleanedText : htmlToText(prepared.html)
+  if (limitText.length > MAX_CHAPTER_TEXT_CHARS) {
+    throw new Error('这一章正文超过 16 万字，暂时无法整体排版。可以先在「整理」里拆分章节，或换一章再试。')
+  }
+  const effectiveArgs: FormatArgs = args.skipReferences
+    ? { ...args, originalText: cleanedText, currentHtml: null, currentRemoved: [] }
+    : { ...args, originalText: cleanedText }
   const segments = splitFormatHtml(prepared.html, SEGMENT_CHARS)
   const model = createLanguageModel(args.config)
   const outputs = await runPool(segments.length, SEGMENT_CONCURRENCY, async (index) => {
     const segment = segments[index]!
     try {
-      return await formatSegment(model, args, segment, htmlToText(segment), prepared.images, segments.length === 1)
+      return await formatSegment(model, effectiveArgs, segment, htmlToText(segment), prepared.images, segments.length === 1)
     } catch (error) {
       // 单段超时或结构不合法时保留原文，其他段仍可完成。
       if (segments.length === 1) throw error
@@ -70,12 +85,19 @@ export async function formatChapter(args: FormatArgs): Promise<FormatOutput> {
   const successful = outputs.filter((item): item is FormatOutput => Boolean(item))
   if (successful.length === 0) throw new Error('AI 排版没有返回可用结果，请稍后重试。')
   const html = outputs.map((item, index) => item?.html ?? segments[index]).join('\n')
-  const removed = successful.flatMap((item) => item.removed)
-  verifyIntegrity(args.originalText, html, removed)
+  const referenceRemoved: RemovedPart[] = referenceStrip.removed
+    .slice(0, 20)
+    .map((item) => ({ reason: item.reason, text: item.text, verified: true }))
+  const removed = [...referenceRemoved, ...successful.flatMap((item) => item.removed)]
+  verifyIntegrity(cleanedText, html, removed)
   const style = successful.find((item) => item.style)?.style ?? args.style
   const failed = outputs.filter((item) => item === null).length
   const baseNote = successful.map((item) => item.note).filter(Boolean).join(' ').slice(0, 600) || '已整理这一章。'
-  const note = failed > 0 ? `${baseNote} 有 ${failed} 段没有完成，已保留原文。` : baseNote
+  const referenceNote =
+    referenceRemoved.length > 0 ? `已忽略 ${referenceRemoved.length} 处参考文献/注释/索引。` : ''
+  const note = [failed > 0 ? `${baseNote} 有 ${failed} 段没有完成，已保留原文。` : baseNote, referenceNote]
+    .filter(Boolean)
+    .join(' ')
 
   return {
     html,
@@ -100,30 +122,47 @@ async function formatSegment(
   includeContext: boolean,
 ): Promise<FormatOutput> {
   const prompt = buildPrompt(args, preparedHtml, includeContext)
+  // 输出基本等于输入 HTML，按段落长度给一个宽松上限，避免异常长输出。
+  const maxOutputTokens = Math.min(48_000, Math.max(6_000, Math.ceil(preparedHtml.length * 1.3)))
+  const meta = {
+    step: 'format-chapter',
+    provider: args.config.provider,
+    model: args.config.model,
+    promptVersion: 'format-v3',
+    timeoutMs: FORMAT_TIMEOUT_MS,
+  }
   // 不依赖 provider 的 structured output：DeepSeek 等 OpenAI-compatible 模型
   // 在 note/removed 长度等细节上经常超出 schema，直接从文本 JSON 归一化更稳定。
-  const response = await generateText({
+  const providerOptions = nonThinkingProviderOptions(args.config)
+  const response = await tracedGenerateText(meta, {
     model,
     prompt,
     temperature: 0.15,
+    maxOutputTokens,
+    ...(providerOptions ? { providerOptions } : {}),
     maxRetries: 1,
     abortSignal: formatSignal(args.signal),
   })
   let payload = parseFormatPayload(response.text)
   if (!payload) {
-    const retry = await generateText({
-      model,
-      prompt: `${prompt}\n\n上一次输出没有通过 JSON 解析。请只输出一个合法 JSON 对象，html、removed、style、note 都必须符合要求，不要输出解释或 Markdown 代码块。`,
-      temperature: 0.1,
-      maxRetries: 1,
-      abortSignal: formatSignal(args.signal),
-    })
+    const retry = await tracedGenerateText(
+      { ...meta, step: 'format-chapter-retry' },
+      {
+        model,
+        prompt: `${prompt}\n\n上一次输出没有通过 JSON 解析。请只输出一个合法 JSON 对象，html、removed、style、note 都必须符合要求，不要输出解释或 Markdown 代码块。`,
+        temperature: 0.1,
+        maxOutputTokens,
+        ...(providerOptions ? { providerOptions } : {}),
+        maxRetries: 1,
+        abortSignal: formatSignal(args.signal),
+      },
+    )
     payload = parseFormatPayload(retry.text)
   }
   if (!payload) throw new Error('AI 排版返回的 JSON 不完整，已保留原文。')
   const sanitized = sanitizeChapterHtml(payload.html)
   if (!sanitized.trim()) throw new Error('AI 返回了空内容，已保留原文。')
-  const withImages = restoreDataImages(sanitized, images)
+  const withImages = cleanFormatHtml(restoreDataImages(sanitized, images))
   const removed = verifyRemovals(payload.removed, args.originalText)
   verifyIntegrity(originalText, withImages, removed)
   return {
@@ -269,13 +308,15 @@ function buildPrompt(args: FormatArgs, preparedHtml: string, includeContext: boo
     '',
     '规则：',
     '1. 保留全部正文文字，不改写、不总结、不补充；只调整语义标签，并删除真正的无关内容。',
-    '2. 用 h2/h3 表示标题，p 表示段落，blockquote 表示引用，ul/ol/li 表示列表。',
-    '3. 删除广告、公众号/书单推广、页脚页码、水印、重复标题、乱码、空的图片占位和与正文无关的推荐。',
-    '4. 每删除一处，必须在 removed 中给出逐字原文片段和原因；不要删除正文。',
-    '5. 原文里的 <img data-img-id="n"> 是图片占位，保留时原样输出，不要改 id，也不要新增图片。',
-    '6. 图片和图注使用 <figure><img data-img-id="n" alt="…"><figcaption>图1-4 …</figcaption></figure>；需要居中的段落用 class="center" 或 class="caption"，不要输出 style 属性。',
-    '7. 如果用户给了指令，按指令调整结构或 style，但不要为了满足指令删正文。',
-    '8. 只返回一个 JSON 对象，字段为 html、removed、style、note。style 可选，字段：fontFamily(serif|sans)、fontSize(14-24)、lineHeight(1.4-2.6)、paragraphSpacing(0.2-2)、indent(boolean)。不要输出 Markdown 代码块或额外解释。',
+    '2. 用 h2/h3 表示标题，p 表示段落，blockquote 表示引用，ul/ol/li 表示列表；只有真正的代码、命令或配置才用 pre/code，说明文字、输出日志、旁注不要放进代码块。',
+    '3. 删除广告、公众号/书单推广、页脚页码、水印、重复标题、乱码、空的图片占位、只含项目符号/装饰线/页码的段落，以及与正文无关的推荐。',
+    '4. 每删除一处正文，必须在 removed 中给出逐字原文片段和原因；不要删除正文。',
+    '5. 原文里的 <img data-img-id="n"> 是图片占位，保留时原样输出，不要改 id，也不要新增图片。小于 80px、只有图标/logo/装饰线/空白占位、或 alt 明确是装饰的图片要删除，并在 removed 中说明；真正的图表要保留。',
+    '6. 图片和图注使用 <figure><img data-img-id="n" alt="…"><figcaption>图1-4 …</figcaption></figure>；需要居中的段落用 class="center" 或 class="caption"，不要输出 style 属性。没有图片的 figure、只有 Figure 编号没有内容的空图注要删除。',
+    '7. PDF 导入常把项目符号 ¡、•、■、◆ 当成正文。属于列表的，转成 ul/li 并去掉符号；孤立符号、只有几个标点的段落直接删除。',
+    '8. <aside class="image-understanding"> 和 <aside class="code-understanding"> 是已经生成的图片/代码说明，必须原样保留，不要删除或改写。',
+    '9. 如果用户给了指令，按指令调整结构或 style，但不要为了满足指令删正文。',
+    '10. 只返回一个 JSON 对象，字段为 html、removed、style、note。style 可选，字段：fontFamily(serif|sans)、fontSize(14-24)、lineHeight(1.4-2.6)、paragraphSpacing(0.2-2)、indent(boolean)。不要输出 Markdown 代码块或额外解释。',
   )
 
   return parts.join('\n')

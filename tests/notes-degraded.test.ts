@@ -132,6 +132,8 @@ test('降级标记会随报告一起持久化，重开章节仍能看到', () =>
       durationMs: 1200,
       mode: 'standard',
       promptVersion: 'notes-v5',
+      images: 2,
+      visionUsed: true,
       degraded: [{ stage: 'condense', failed: 1, total: 2, message: 'mock failure' }],
       model: 'mock-model',
       createdAt: new Date().toISOString(),
@@ -142,6 +144,8 @@ test('降级标记会随报告一起持久化，重开章节仍能看到', () =>
     assert.equal(reloaded?.degraded?.length, 1)
     assert.equal(reloaded?.degraded?.[0]?.stage, 'condense')
     assert.equal(reloaded?.degraded?.[0]?.total, 2)
+    assert.equal(reloaded?.images, 2)
+    assert.equal(reloaded?.visionUsed, true)
   } finally {
     closeDatabase()
     fs.rmSync(dir, { recursive: true, force: true })

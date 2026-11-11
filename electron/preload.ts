@@ -4,6 +4,8 @@ import type { IpcRendererEvent } from 'electron'
 import type { DeepLinkTarget } from '../shared/deep-link.js'
 
 import type {
+  AiJobCancelTarget,
+  AiJobSnapshot,
   AiUsageSummary,
   AppNotice,
   AppInfo,
@@ -23,6 +25,15 @@ import type {
   BookGenre,
   BookSummary,
   ChapterContent,
+  ChapterAiJobs,
+  BookAiJobs,
+  ChapterTranslatedEvent,
+  ChapterTranslationErrorEvent,
+  ChapterTranslationProgress,
+  BookTranslationDoneEvent,
+  BookTranslationInfo,
+  BookTranslationOptions,
+  BookTranslationProgress,
   ChapterFlag,
   ChapterMeta,
   ChatAnswer,
@@ -36,7 +47,14 @@ import type {
   ContentItem,
   ContentStatus,
   BackgroundTaskRecord,
+  DoclingStatus,
+  DoclingProgressEvent,
+  ImageUnderstandingResult,
+  CodeAssistResult,
+  ChapterContentSaveResult,
   TrashedChapter,
+  TrashedBook,
+  FormatChapterOptions,
   FormatResult,
   FeynmanResult,
   SessionSummary,
@@ -44,8 +62,11 @@ import type {
   GenerationDoneEvent,
   GenerationErrorEvent,
   GenerationPartialEvent,
+  AiModelListInput,
+  AiModelListResult,
   HighlightImportOptions,
   HighlightImportResult,
+  ImportBookOptions,
   KnowledgeMapData,
   LabAnswerCheck,
   LabArtifact,
@@ -57,6 +78,7 @@ import type {
   LabRequest,
   RelationGraph,
   LibraryFilter,
+  LocalModelDetection,
   LibraryNote,
   LibraryNoteAudit,
   Note,
@@ -123,11 +145,22 @@ function streamId(): string {
 
 const api: ReadingApi = {
   listBooks: () => ipcRenderer.invoke('books:list') as Promise<BookSummary[]>,
-  importBook: () => ipcRenderer.invoke('books:import') as Promise<BookSummary | null>,
+  importBook: (options?: ImportBookOptions) =>
+    ipcRenderer.invoke('books:import', options) as Promise<BookSummary | null>,
+  getDoclingStatus: () => ipcRenderer.invoke('docling:status') as Promise<DoclingStatus>,
+  understandChapterImage: (chapterId: string, imageSrc: string) =>
+    ipcRenderer.invoke('chapters:understand-image', chapterId, imageSrc) as Promise<ImageUnderstandingResult>,
+  codeAssist: (chapterId: string, code: string, mode: 'review' | 'explain' | 'fix', language?: string) =>
+    ipcRenderer.invoke('chapters:code-assist', chapterId, code, mode, language) as Promise<CodeAssistResult>,
+  saveChapterContent: (chapterId: string, html: string) =>
+    ipcRenderer.invoke('chapters:save-content', chapterId, html) as Promise<ChapterContentSaveResult>,
   importText: (input: TextImportInput) => ipcRenderer.invoke('books:import-text', input) as Promise<BookSummary>,
-  importUrl: (url: string) => ipcRenderer.invoke('books:import-url', url) as Promise<BookSummary>,
+  importUrl: (url: string, options?: ImportBookOptions) =>
+    ipcRenderer.invoke('books:import-url', url, options) as Promise<BookSummary>,
   importScannedPdf: (options?: OcrImportOptions) =>
     ipcRenderer.invoke('books:import-ocr', options) as Promise<OcrImportStarted | null>,
+  listAiModels: (input?: AiModelListInput) =>
+    ipcRenderer.invoke('ai:list-models', input) as Promise<AiModelListResult>,
   cancelOcrImport: () => ipcRenderer.invoke('books:import-ocr-cancel') as Promise<void>,
   listOcrJobs: () => ipcRenderer.invoke('ocr:jobs') as Promise<OcrJob[]>,
   resumeOcrJob: (id: string) => ipcRenderer.invoke('ocr:resume', id) as Promise<OcrImportStarted | null>,
@@ -157,18 +190,39 @@ const api: ReadingApi = {
     ipcRenderer.invoke('chapters:rename', chapterId, title) as Promise<void>,
   renamePart: (bookId: string, partIndex: number, title: string) =>
     ipcRenderer.invoke('parts:rename', bookId, partIndex, title) as Promise<void>,
-  reparseBook: (bookId) => ipcRenderer.invoke('books:reparse', bookId) as Promise<BookSummary>,
+  reparseBook: (bookId, options?: ImportBookOptions) =>
+    ipcRenderer.invoke('books:reparse', bookId, options) as Promise<BookSummary>,
   mergeBooks: (bookIds: string[], title: string, author: string) =>
     ipcRenderer.invoke('books:merge', bookIds, title, author) as Promise<BookSummary>,
   splitBook: (bookId: string, fromChapterId: string, title: string) =>
     ipcRenderer.invoke('books:split', bookId, fromChapterId, title) as Promise<BookSummary>,
   deleteBook: (bookId) => ipcRenderer.invoke('books:delete', bookId) as Promise<void>,
-  formatChapter: (chapterId, instruction) =>
-    ipcRenderer.invoke('chapters:format', chapterId, instruction) as Promise<FormatResult>,
+  listTrashedBooks: () => ipcRenderer.invoke('books:trash-list') as Promise<TrashedBook[]>,
+  restoreTrashedBook: (bookId: string) =>
+    ipcRenderer.invoke('books:trash-restore', bookId) as Promise<BookSummary | null>,
+  purgeTrashedBook: (bookId: string) =>
+    ipcRenderer.invoke('books:trash-purge', bookId) as Promise<void>,
+  emptyBookTrash: () => ipcRenderer.invoke('books:trash-empty') as Promise<void>,
+  formatChapter: (chapterId, instruction, options?: FormatChapterOptions) =>
+    ipcRenderer.invoke('chapters:format', chapterId, instruction, options) as Promise<FormatResult>,
   formatBook: (bookId: string, options?: BookFormatOptions) =>
     ipcRenderer.invoke('chapters:format-book', bookId, options) as Promise<void>,
-  cancelFormat: () => ipcRenderer.invoke('chapters:format-cancel') as Promise<void>,
-  resetChapterFormat: (chapterId) => ipcRenderer.invoke('chapters:resetFormat', chapterId) as Promise<void>,
+  cancelFormat: (target?: AiJobCancelTarget) =>
+    ipcRenderer.invoke('chapters:format-cancel', target) as Promise<void>,
+  translateChapter: (chapterId: string, options?: { force?: boolean }) =>
+    ipcRenderer.invoke('chapters:translate', chapterId, options) as Promise<void>,
+  translateBook: (bookId: string, options?: BookTranslationOptions) =>
+    ipcRenderer.invoke('books:translate', bookId, options) as Promise<void>,
+  getBookTranslationInfo: (bookId: string) =>
+    ipcRenderer.invoke('books:translation-info', bookId) as Promise<BookTranslationInfo>,
+  cancelTranslation: (target?: AiJobCancelTarget) =>
+    ipcRenderer.invoke('chapters:translate-cancel', target) as Promise<void>,
+  listAiJobs: () => ipcRenderer.invoke('ai:jobs-list') as Promise<AiJobSnapshot[]>,
+  getChapterAiJobs: (chapterId: string) => ipcRenderer.invoke('ai:job-state', chapterId) as Promise<ChapterAiJobs>,
+  getBookAiJobs: (bookId: string) => ipcRenderer.invoke('ai:book-jobs', bookId) as Promise<BookAiJobs>,
+  dismissAiJob: (id: string) => ipcRenderer.invoke('ai:job-dismiss', id) as Promise<void>,
+  onAiJobUpdate: (cb) => subscribe<AiJobSnapshot>('ai:job:update', cb),
+  resetChapterFormat: (chapterId) => ipcRenderer.invoke('chapters:resetFormat', chapterId) as Promise<number>,
   saveStyle: (bookId, style) => ipcRenderer.invoke('books:saveStyle', bookId, style) as Promise<ReaderStyle>,
   getChapter: (chapterId) => ipcRenderer.invoke('chapters:get', chapterId) as Promise<ChapterContent>,
   setProgress: (bookId, chapterId) => ipcRenderer.invoke('books:progress', bookId, chapterId) as Promise<void>,
@@ -209,10 +263,12 @@ const api: ReadingApi = {
     ipcRenderer.invoke('notes:generate', chapterId, options) as Promise<void>,
   generateBookNotes: (bookId: string, options?: BookGenerationOptions) =>
     ipcRenderer.invoke('notes:generate-book', bookId, options) as Promise<void>,
-  cancelGeneration: () => ipcRenderer.invoke('notes:cancel') as Promise<void>,
+  cancelGeneration: (target?: AiJobCancelTarget) =>
+    ipcRenderer.invoke('notes:cancel', target) as Promise<void>,
   composeBook: (bookId: string, options: BookComposeOptions) =>
     ipcRenderer.invoke('book:compose', bookId, options) as Promise<BookComposeResult>,
-  cancelBookCompose: () => ipcRenderer.invoke('book:compose-cancel') as Promise<void>,
+  cancelBookCompose: (target?: AiJobCancelTarget) =>
+    ipcRenderer.invoke('book:compose-cancel', target) as Promise<void>,
   rewriteComposeSection: (input: ComposeSectionRewriteInput) =>
     ipcRenderer.invoke('compose:rewrite-section', input) as Promise<ComposeSectionRewriteResult>,
   cancelComposeSectionRewrite: () =>
@@ -242,6 +298,8 @@ const api: ReadingApi = {
   logRendererError: (report: RendererErrorReport) =>
     ipcRenderer.invoke('app:log-renderer-error', report) as Promise<void>,
   copyText: (text: string) => ipcRenderer.invoke('app:copy-text', text) as Promise<void>,
+  saveTextFile: (defaultName: string, content: string, extension: 'bib' | 'ris' | 'txt') =>
+    ipcRenderer.invoke('app:save-text-file', defaultName, content, extension) as Promise<SaveFileResult>,
   optimizeShareCopy: (input: ShareCopyInput) =>
     ipcRenderer.invoke('share:optimize-copy', input) as Promise<ShareCopyResult>,
   saveMarkdown: (defaultName: string, content: string) =>
@@ -253,11 +311,14 @@ const api: ReadingApi = {
   saveBinary: (defaultName: string, base64: string) =>
     ipcRenderer.invoke('app:save-binary', defaultName, base64) as Promise<SaveFileResult>,
   copyImage: (dataUrl: string) => ipcRenderer.invoke('app:copy-image', dataUrl) as Promise<void>,
+  notifyDesktop: (title: string, body: string) =>
+    ipcRenderer.invoke('app:notify', title, body) as Promise<void>,
   readBookFile: (bookId: string) =>
     ipcRenderer.invoke('books:file', bookId).then((bytes: Uint8Array) => new Uint8Array(bytes)),
   getTtsStatus: () => ipcRenderer.invoke('tts:status') as Promise<TtsStatus>,
   synthesizeTts: (request: TtsSynthesisRequest) =>
     ipcRenderer.invoke('tts:synthesize', request) as Promise<TtsAudio>,
+  detectLocalModels: () => ipcRenderer.invoke('settings:detect-local') as Promise<LocalModelDetection>,
   search: (query: string) => ipcRenderer.invoke('library:search', query) as Promise<SearchResult[]>,
   searchSemantic: (query: string) => ipcRenderer.invoke('library:search-semantic', query) as Promise<SearchResult[]>,
   listLibraryNotes: (filter?: LibraryFilter) =>
@@ -379,12 +440,22 @@ const api: ReadingApi = {
   onGenerationError: (cb) => subscribe<GenerationErrorEvent>('generation:error', cb),
   onBookGenerationProgress: (cb) => subscribe<BookGenerationProgress>('book:generation:progress', cb),
   onBookGenerationDone: (cb) => subscribe<BookGenerationDoneEvent>('book:generation:done', cb),
+  onDoclingProgress: (cb) => subscribe<DoclingProgressEvent>('docling:progress', cb),
   onOcrProgress: (cb) => subscribe<OcrProgress>('ocr:progress', cb),
   onOcrDone: (cb) => subscribe<OcrDoneEvent>('ocr:done', cb),
   onOcrError: (cb) => subscribe<OcrErrorEvent>('ocr:error', cb),
   onBookFormatProgress: (cb) => subscribe<BookFormatProgress>('book:format:progress', cb),
   onBookFormatDone: (cb) => subscribe<BookFormatDoneEvent>('book:format:done', cb),
   onChapterFormatted: (cb) => subscribe<FormatResult>('chapter:formatted', cb),
+  onChapterTranslationProgress: (cb) =>
+    subscribe<ChapterTranslationProgress>('chapter:translation:progress', cb),
+  onChapterTranslated: (cb) => subscribe<ChapterTranslatedEvent>('chapter:translated', cb),
+  onChapterTranslationError: (cb) =>
+    subscribe<ChapterTranslationErrorEvent>('chapter:translation:error', cb),
+  onBookTranslationProgress: (cb) =>
+    subscribe<BookTranslationProgress>('book:translation:progress', cb),
+  onBookTranslationDone: (cb) =>
+    subscribe<BookTranslationDoneEvent>('book:translation:done', cb),
   onBookComposeProgress: (cb) => subscribe<BookComposeProgress>('book:compose:progress', cb),
   onSemanticReady: (cb) => subscribe<void>('semantic:ready', () => cb()),
   onAppNotice: (cb: (notice: AppNotice) => void) => subscribe<AppNotice>('app:notice', cb),

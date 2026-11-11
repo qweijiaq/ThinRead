@@ -5,7 +5,7 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import test from 'node:test'
 
-import { closeDatabase, initDatabase } from '../electron/db.js'
+import { SCHEMA_VERSION, closeDatabase, initDatabase } from '../electron/db.js'
 
 test('creates the indexes used by library, trash and task queries', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'reading-notes-indexes-'))
@@ -86,7 +86,7 @@ test('adds the new indexes when upgrading an existing version-3 database', () =>
     initDatabase(dir)
     conn = new DatabaseSync(path.join(dir, 'reading-notes.db'))
     const version = (conn.prepare('PRAGMA user_version').get() as { user_version: number }).user_version
-    assert.equal(version, 4)
+    assert.equal(version, SCHEMA_VERSION)
     const names = new Set(
       (conn.prepare("SELECT name FROM sqlite_master WHERE type = 'index'").all() as Array<{ name: string }>).map(
         (row) => row.name,

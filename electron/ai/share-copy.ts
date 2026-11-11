@@ -1,8 +1,7 @@
-import { generateText } from 'ai'
-
 import type { ShareCopyResult } from '../../shared/types.js'
 
 import { createLanguageModel, type ModelConfig } from './provider.js'
+import { tracedGenerateText } from './trace.js'
 
 interface OptimizeArgs {
   config: ModelConfig
@@ -61,25 +60,29 @@ function cleanJson(text: string): unknown {
 export async function optimizeShareCopy(args: OptimizeArgs): Promise<ShareCopyResult> {
   const source = plainText(args.body).slice(0, 12_000)
   if (args.demo) return fallback(args.title, args.body)
-  if (!args.config.apiKey && args.config.provider !== 'ollama') {
+  if (!args.config.apiKey && args.config.provider !== 'ollama' && args.config.provider !== 'lmstudio') {
     throw new Error('还没有配置 API Key，无法优化文案。')
   }
   if (!source) throw new Error('没有可以优化的正文。')
 
-  const { text } = await generateText({
-    model: createLanguageModel(args.config),
-    system:
-      '你是中文阅读分享编辑。把用户给出的笔记改写成适合社交平台分享的短文案，保留原意，不编造事实，不使用 Markdown。',
-    prompt: [
-      '把下面的笔记改写成 1 个标题和 3 条要点。',
-      '要求：标题 12–20 字；每条要点 18–45 字，彼此不重复；语气克制、具体，不要口号。',
-      '只输出 JSON：{"title":"...","points":["...","...","..."]}',
-      '',
-      `原标题：${args.title}`,
-      `正文：${source}`,
-    ].join('\n'),
-    temperature: 0.4,
-  })
+  const { text } = await tracedGenerateText(
+    { step: 'share-copy', provider: args.config.provider, model: args.config.model, promptVersion: 'share-copy-v2' },
+    {
+      model: createLanguageModel(args.config),
+      system:
+        '你是中文阅读分享编辑。把用户给出的笔记改写成适合社交平台分享的短文案，保留原意，不编造事实，不使用 Markdown。',
+      prompt: [
+        '把下面的笔记改写成 1 个标题和 3 条要点。',
+        '要求：标题 12–20 字；每条要点 18–45 字，彼此不重复；语气克制、具体，不要口号。',
+        '只输出 JSON：{"title":"...","points":["...","...","..."]}',
+        '',
+        `原标题：${args.title}`,
+        `正文：${source}`,
+      ].join('\n'),
+      temperature: 0.4,
+      maxOutputTokens: 800,
+    },
+  )
 
   const parsed = cleanJson(text) as { title?: unknown; points?: unknown } | null
   const points = Array.isArray(parsed?.points)

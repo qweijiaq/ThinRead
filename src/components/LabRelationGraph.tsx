@@ -31,6 +31,7 @@ import {
 
 import type { RelationEdge, RelationGraph, RelationNode, RelationNodeKind } from '../../shared/types.js'
 import { exportFlowImage, graphImageFilename } from '../lib/flow-image.js'
+import { confirmDialog } from './ConfirmDialog.js'
 import { countCrossings, countOverlaps, relationLabelWidth } from '../lib/relation-layout.js'
 import { mermaidFence, relationGraphToMermaid } from '../lib/mermaid-graph.js'
 
@@ -725,6 +726,20 @@ export function LabRelationGraph({ bookId, bookTitle }: LabRelationGraphProps): 
 
   async function generate(): Promise<void> {
     if (!bookId || busy) return
+    const settings = await window.api.getSettings().catch(() => null)
+    const price = settings ? settings.aiPricing[settings.labModel || settings.model] : null
+    const costHint = price
+      ? `，${t('估算约')} ¥${(
+          (45_000 / 1_000_000) * price.inputPerMTokens +
+          (30_000 / 1_000_000) * price.outputPerMTokens
+        ).toFixed(3)}`
+      : ''
+    const confirmed = await confirmDialog({
+      title: t('生成人物关系图'),
+      message: `${t('本次会发起 2 次较大的模型请求：先抽取节点名单，再抽取节点间关系。长书预计输入 3–6 万 token、输出 2–4 万 token，可能持续几分钟，可以随时取消')}${costHint}。${t('实际费用以你设置的价格为准；继续？')}`,
+      confirmLabel: t('开始生成'),
+    })
+    if (!confirmed) return
     setBusy(true)
     setError(null)
     setNotice(null)

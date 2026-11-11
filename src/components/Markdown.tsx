@@ -2,6 +2,8 @@ import { isValidElement, memo, useEffect, useMemo, useState, type JSX, type Reac
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
+import { CodeBlock } from './CodeBlock.js'
+
 interface MarkdownProps {
   text: string
   onWikiLink?(title: string): void
@@ -98,7 +100,13 @@ function MarkdownImpl({ text, onWikiLink }: MarkdownProps): JSX.Element {
       pre: ({ children }) => {
         const source = mermaidSource(children)
         if (source !== null) return <MermaidDiagram source={source.trimEnd()} />
-        return <pre>{children}</pre>
+        const code = isValidElement<{ className?: string; children?: ReactNode }>(children)
+          ? {
+              text: nodeText(children.props.children),
+              className: children.props.className ?? '',
+            }
+          : { text: nodeText(children), className: '' }
+        return <CodeBlock code={code.text} className={code.className} />
       },
     }),
     [onWikiLink],

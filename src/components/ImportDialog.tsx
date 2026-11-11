@@ -2,13 +2,13 @@ import { useEffect, useState, type JSX } from 'react'
 import { t, useLocale } from '../lib/i18n.js'
 import { useDialogFocus } from '../lib/useDialogFocus.js'
 
-import type { BookSummary, HighlightImportResult, OcrJob } from '../../shared/types.js'
+import type { BookSummary, DoclingProgressEvent, DoclingStatus, HighlightImportResult, OcrJob } from '../../shared/types.js'
 import { Checkbox } from './Checkbox.js'
 
 interface ImportDialogProps {
   open: boolean
   onClose(): void
-  onFileImport(): Promise<BookSummary | null>
+  onFileImport(options?: { skipReferences?: boolean; deepPdf?: boolean }): Promise<BookSummary | null>
   onImported(book: BookSummary): void
   onHighlightsImported(result: HighlightImportResult): void
   onOcrStarted(fileName: string): void
@@ -34,9 +34,35 @@ export function ImportDialog({
   const [ocrStart, setOcrStart] = useState('')
   const [ocrEnd, setOcrEnd] = useState('')
   const [mergeHighlights, setMergeHighlights] = useState(false)
+  const [skipReferences, setSkipReferences] = useState(false)
+  const [deepPdf, setDeepPdf] = useState(false)
+  const [doclingStatus, setDoclingStatus] = useState<DoclingStatus | null>(null)
+  const [doclingProgress, setDoclingProgress] = useState<DoclingProgressEvent | null>(null)
   const [ocrJobs, setOcrJobs] = useState<OcrJob[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    setDoclingStatus(null)
+    void window.api
+      .getDoclingStatus()
+      .then((status) => {
+        if (!cancelled) setDoclingStatus(status)
+      })
+      .catch(() => {
+        if (!cancelled) setDoclingStatus({ available: false, error: t('无法检测 Docling。') })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    return window.api.onDoclingProgress((event) => setDoclingProgress(event))
+  }, [open])
 
   useEffect(() => {
     if (!open) return
@@ -48,6 +74,7 @@ export function ImportDialog({
     setOcrStart('')
     setOcrEnd('')
     setMergeHighlights(false)
+    setSkipReferences(false)
     setError(null)
     void window.api.listOcrJobs().then(setOcrJobs).catch(() => setOcrJobs([]))
   }, [open])
@@ -67,13 +94,15 @@ export function ImportDialog({
   async function chooseFile(): Promise<void> {
     setBusy(true)
     setError(null)
+    setDoclingProgress(null)
     try {
-      const book = await onFileImport()
+      const book = await onFileImport({ skipReferences, deepPdf: deepPdf && doclingStatus?.available === true })
       if (book) onImported(book)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
       setBusy(false)
+      setDoclingProgress(null)
     }
   }
 
@@ -170,7 +199,12 @@ export function ImportDialog({
     setBusy(true)
     setError(null)
     try {
-      const book = await window.api.importText({ title: title.trim(), author: author.trim(), text })
+      const book = await window.api.importText({
+        title: title.trim(),
+        author: author.trim(),
+        text,
+        skipReferences,
+      })
       onImported(book)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -184,7 +218,7 @@ export function ImportDialog({
     setBusy(true)
     setError(null)
     try {
-      const book = await window.api.importUrl(url.trim())
+      const book = await window.api.importUrl(url.trim(), { skipReferences })
       onImported(book)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -228,9 +262,53 @@ export function ImportDialog({
           </button>
         </div>
 
+        {mode !== 'highlights' ? (
+          <div className="import-option">
+            <Checkbox
+              checked={skipReferences}
+              onChange={setSkipReferences}
+              label={t('忽略参考文献 / 注释 / 索引')}
+            />
+            <p className="field-hint">
+              {t('导入时跳过书末的参考文献、注释、索引和延伸阅读；不勾选则保留全部内容。')}
+            </p>
+          </div>
+        ) : null}
+
+        {mode === 'file' ? (
+          <div className="import-option">
+            <Checkbox
+              checked={deepPdf && doclingStatus?.available === true}
+              onChange={setDeepPdf}
+              disabled={doclingStatus !== null && !doclingStatus.available}
+              label={t('PDF 深度解析（Docling，较慢）')}
+            />
+            <p className="field-hint">
+              {doclingStatus === null
+                ? t('正在检测 Docling…')
+                : doclingStatus.available
+                  ? `${t('仅对 PDF 生效。版面和图片更完整，但一本几百页的书可能需要几分钟。')}${doclingStatus.version ? ` · v${doclingStatus.version}` : ''}`
+                  : t('未检测到 Docling。需要 Python 3.10+，并在终端运行 pip install docling。')}
+            </p>
+            {busy && deepPdf && doclingStatus?.available ? (
+              <p className="field-hint">
+                {doclingProgress?.phase === 'pages' && doclingProgress.total
+                  ? `${t('正在分析版面')} ${doclingProgress.done ?? 0} / ${doclingProgress.total} ${t('页')}`
+                  : doclingProgress?.phase === 'build'
+                    ? t('正在识别段落、表格和图表…')
+                    : doclingProgress?.phase === 'assemble'
+                      ? t('正在组装章节…')
+                      : doclingProgress?.phase === 'enrich'
+                        ? t('正在处理图表和表格…')
+                        : t('正在解析…')}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
         {mode === 'file' ? (
           <section className="import-pane">
-            <p className="import-hint">{t('支持 EPUB、PDF、MOBI、AZW3、DOCX、HTML、Markdown 和 TXT。DRM 加密的电子书无法导入。')}</p>
+            <p className="import-hint">{t('支持 EPUB、PDF、MOBI、AZW3、DOCX、HTML、Markdown 和 TXT。DRM 加密的电子书无法导入。DOCX 目前只保留文字，图片不会导入。')}</p>
             <div className="import-field-row">
               <label className="import-field">
                 {t('扫描版起始页')}

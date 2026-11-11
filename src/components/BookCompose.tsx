@@ -2,13 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'rea
 
 import { countUnit, t, useLocale } from '../lib/i18n.js'
 import type {
+  AiJobSnapshot,
   BookComposeOptions,
   BookComposeProgress,
   BookComposeResult,
   BookFormatDoneEvent,
   BookFormatProgress,
   BookGenerationDoneEvent,
-  BookGenerationProgress,
   BookGenre,
   BookSummary,
   ChapterMeta,
@@ -16,12 +16,13 @@ import type {
   Note,
 } from '../../shared/types.js'
 import { onContentCurrent } from '../lib/content-events.js'
-import { confirmDialog } from './ConfirmDialog.js'
+import { confirmDialog, confirmOptionDialog } from './ConfirmDialog.js'
 import { CompareModelDialog } from './CompareModelDialog.js'
 import { PublishDialog } from './PublishDialog.js'
 import { Select } from './Select.js'
 import { TextDiffDialog } from './TextDiffDialog.js'
 import { contentToMarkdown } from '../lib/content-view.js'
+import { EMPTY_GENERATION, parseComposeArtifact, versionLabel, type GenerationView } from '../lib/book-compose.js'
 import { todayStamp } from '../lib/export.js'
 import { BOOK_GENRE_OPTIONS, bookGenreLabel } from '../lib/genres.js'
 import { Markdown } from './Markdown.js'
@@ -35,67 +36,6 @@ interface BookComposeProps {
   onOpenXhsBook(): void
   onSplitBook(): void
   compareModels?: string[]
-}
-
-interface GenerationView {
-  running: boolean
-  done: number
-  total: number
-  title: string
-  status: BookGenerationProgress['status'] | null
-  message: string
-}
-
-const EMPTY_GENERATION: GenerationView = {
-  running: false,
-  done: 0,
-  total: 0,
-  title: '',
-  status: null,
-  message: '',
-}
-
-function parseComposeArtifact(artifact: LabArtifact | null): BookComposeResult | null {
-  if (!artifact) return null
-  try {
-    const parsed = JSON.parse(artifact.content) as Partial<BookComposeResult>
-    if (typeof parsed.markdown === 'string' && parsed.markdown.trim()) {
-      return {
-        title: typeof parsed.title === 'string' ? parsed.title : artifact.title,
-        markdown: parsed.markdown,
-        sourceChapters: Number(parsed.sourceChapters) || 0,
-        sourceChars: Number(parsed.sourceChars) || 0,
-        outputChars: Number(parsed.outputChars) || parsed.markdown.length,
-        durationMs: Number(parsed.durationMs) || 0,
-        usage: parsed.usage,
-        promptVersion: typeof parsed.promptVersion === 'string' ? parsed.promptVersion : undefined,
-        model: typeof parsed.model === 'string' ? parsed.model : '',
-        createdAt: typeof parsed.createdAt === 'string' ? parsed.createdAt : artifact.createdAt,
-        options: parsed.options ?? { length: 'tight', voice: 'calm' },
-      }
-    }
-  } catch {
-    // 旧版本只存了 Markdown 正文。
-  }
-  return {
-    title: artifact.title,
-    markdown: artifact.content,
-    sourceChapters: 0,
-    sourceChars: 0,
-    outputChars: artifact.content.length,
-    durationMs: 0,
-    model: '',
-    createdAt: artifact.createdAt,
-    options: { length: 'tight', voice: 'calm' },
-  }
-}
-
-function versionLabel(artifact: LabArtifact): string {
-  const date = new Date(artifact.createdAt)
-  const stamp = Number.isNaN(date.getTime())
-    ? artifact.createdAt
-    : `${date.getMonth() + 1}/${date.getDate()} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
-  return `${stamp} · ${artifact.title}`
 }
 
 export function BookCompose({
@@ -234,6 +174,92 @@ export function BookCompose({
     void loadCompose()
   }, [loadCompose, composeTick])
 
+  // 成书合并任务保存在主进程：切走再回来时重新接上进度或结果。
+  useEffect(() => {
+    let cancelled = false
+    const apply = (job: AiJobSnapshot | null, announce: boolean): void => {
+      if (!job) return
+      if (job.status === 'running') {
+        setComposing(true)
+        setComposeProgress(
+          job.composeProgress ?? {
+            stage: 'rewrite',
+            done: job.done,
+            total: job.total,
+            message: job.detail,
+          },
+        )
+        return
+      }
+      setComposing(false)
+      setComposeProgress(null)
+      if (job.status === 'done') {
+        if (announce) {
+          setNotice(t('整本成稿已生成并保存。'))
+          void loadCompose()
+        }
+        return
+      }
+      if (job.status === 'error' && job.error && Date.now() - Date.parse(job.updatedAt) < 10 * 60 * 1000) {
+        setError(job.error)
+      }
+    }
+    void window.api
+      .getBookAiJobs(book.id)
+      .then((jobs) => {
+        if (!cancelled) apply(jobs.compose, false)
+      })
+      .catch(() => undefined)
+    const off = window.api.onAiJobUpdate((job) => {
+      if (job.kind !== 'compose' || job.bookId !== book.id) return
+      apply(job, true)
+    })
+    return () => {
+      cancelled = true
+      off()
+    }
+  }, [book.id, loadCompose])
+
+  // 整本生成/排版也可能在切走期间继续跑，回来后恢复进度卡片。
+  useEffect(() => {
+    let cancelled = false
+    void window.api
+      .listBackgroundTasks()
+      .then((records) => {
+        if (cancelled) return
+        const running = records.filter((record) => record.bookId === book.id && record.status === 'running')
+        const notesTask = running.find((record) => record.kind === 'notes')
+        if (notesTask) {
+          setGeneration({
+            running: true,
+            done: notesTask.done,
+            total: notesTask.total,
+            title: '',
+            status: null,
+            message: t('正在继续整本生成'),
+          })
+        }
+        const formatTask = running.find((record) => record.kind === 'format')
+        if (formatTask) {
+          setFormatting(true)
+          setFormatProgress({
+            bookId: book.id,
+            chapterId: '',
+            title: '',
+            index: formatTask.done,
+            total: formatTask.total,
+            status: 'start',
+            done: formatTask.done,
+            message: t('正在继续整本排版'),
+          })
+        }
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [book.id])
+
   useEffect(
     () =>
       onContentCurrent((detail) => {
@@ -291,13 +317,15 @@ export function BookCompose({
   }, [book.id])
 
   async function formatBook(): Promise<void> {
-    const confirmed = await confirmDialog({
+    const result = await confirmOptionDialog({
       title: t('整本 AI 排版'),
       message: t('会逐章用 AI 整理正文、清理广告和乱码，并覆盖已有 AI 排版结果；原文仍可随时还原。继续？'),
       confirmLabel: t('开始排版'),
       danger: false,
+      checkboxLabel: t('忽略参考文献 / 注释 / 索引'),
+      checkboxDefault: false,
     })
-    if (!confirmed) return
+    if (!result.confirmed) return
     setError(null)
     setFormatResult(null)
     setFormatting(true)
@@ -312,7 +340,7 @@ export function BookCompose({
       message: t('正在准备排版'),
     })
     try {
-      await window.api.formatBook(book.id)
+      await window.api.formatBook(book.id, { skipReferences: result.checked })
     } catch (err) {
       setFormatting(false)
       setFormatProgress(null)
@@ -321,7 +349,7 @@ export function BookCompose({
   }
 
   async function cancelFormat(): Promise<void> {
-    await window.api.cancelFormat()
+    await window.api.cancelFormat({ bookId: book.id })
     setFormatting(false)
     setFormatProgress(null)
   }
@@ -378,7 +406,7 @@ export function BookCompose({
 
   async function cancelGeneration(): Promise<void> {
     autoComposeRef.current = false
-    await window.api.cancelGeneration()
+    await window.api.cancelGeneration({ bookId: book.id })
     setGeneration((current) => ({ ...current, running: false }))
   }
 
@@ -411,7 +439,7 @@ export function BookCompose({
   }
 
   async function cancelCompose(): Promise<void> {
-    await window.api.cancelBookCompose()
+    await window.api.cancelBookCompose({ bookId: book.id })
     setComposing(false)
     setComposeProgress(null)
   }

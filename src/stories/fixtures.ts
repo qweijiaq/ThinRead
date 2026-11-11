@@ -44,6 +44,9 @@ export const articleChapter: ChapterContent = {
   formattedHtml: articleHtml,
   removed: [],
   noteReport: null,
+  translatedText: null,
+  translatedHtml: null,
+  translatedAt: null,
 }
 
 export const articleMarks: ReaderMark[] = [
@@ -101,11 +104,11 @@ export const articleEchoes: RelatedNote[] = [
 export const readerStyle: ReaderStyle = {
   fontFamily: 'serif',
   fontSize: 17,
-  lineHeight: 1.98,
-  paragraphSpacing: 1.15,
+  lineHeight: 1.86,
+  paragraphSpacing: 0.7,
   indent: false,
   theme: 'folio',
-  maxWidth: 760,
+  maxWidth: 720,
 }
 
 export const shareQuoteNote: ShareNote = {

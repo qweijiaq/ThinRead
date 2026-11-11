@@ -1,8 +1,11 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 
 import { useBookshelf, type BookshelfActions } from './hooks/useBookshelf.js'
+import { useCoreMode } from './hooks/useCoreMode.js'
 import { useFormatPanel } from './hooks/useFormatPanel.js'
 import { useTasks } from './hooks/useTasks.js'
+import { useBookTranslation } from './hooks/useBookTranslation.js'
+import { useTranslation } from './hooks/useTranslation.js'
 import { useGeneration } from './hooks/useGeneration.js'
 import { useImportFlow } from './hooks/useImportFlow.js'
 import { useOrganize } from './hooks/useOrganize.js'
@@ -21,13 +24,14 @@ import { hydrateReadingStats } from './lib/reading-stats.js'
 import type {
   AppInfo,
   BookSummary,
+  DoclingProgressEvent,
   LabToolId,
   ReaderStyle,
   RelatedNote,
   SettingsView,
 } from '../shared/types.js'
 import { PROVIDER_PRESETS } from '../shared/types.js'
-import { ConfirmHost, confirmDialog } from './components/ConfirmDialog.js'
+import { ConfirmHost, confirmOptionDialog } from './components/ConfirmDialog.js'
 import { AppLockScreen } from './components/AppLockScreen.js'
 import { ChapterList } from './components/ChapterList.js'
 import { ChatPanel } from './components/ChatPanel.js'
@@ -40,6 +44,9 @@ import { ListenPanel } from './components/ListenPanel.js'
 import { MarginNoteDialog } from './components/MarginNoteDialog.js'
 import { NotesPanel } from './components/NotesPanel.js'
 import { ChapterTrashDialog } from './components/ChapterTrashDialog.js'
+import { DeepParseOverlay } from './components/DeepParseOverlay.js'
+import { GenerationPreflight } from './components/GenerationPreflight.js'
+import { BookTrashDialog } from './components/BookTrashDialog.js'
 import { OrganizeDialog } from './components/OrganizeDialog.js'
 import { Reader } from './components/Reader.js'
 import { RenameDialog } from './components/RenameDialog.js'
@@ -96,12 +103,21 @@ export function App(): JSX.Element {
     deleteBook,
   } = useBookshelf(shelfActions)
   const { appTheme, setAppTheme, readerStyle, setReaderStyle, updateReaderStyle } = useReaderStyle(book?.id ?? null)
+  const [coreMode, setCoreMode] = useCoreMode()
   const { notes, allNotes, setNotes, setAllNotes, refreshNotes, resetNotes, patchNote } = useNoteStore()
   const [settings, setSettings] = useState<SettingsView | null>(null)
   const [planBook, setPlanBook] = useState<BookSummary | null>(null)
   const [planVersion, setPlanVersion] = useState(0)
   const [booksLoaded, setBooksLoaded] = useState(false)
   const [onboardingOpen, setOnboardingOpen] = useState(false)
+  const [bookTrashOpen, setBookTrashOpen] = useState(false)
+  const [sidePanelCollapsed, setSidePanelCollapsed] = useState(false)
+  const [pendingGenerate, setPendingGenerate] = useState<{ fresh: boolean } | null>(null)
+  const [deepParse, setDeepParse] = useState<{
+    title: string
+    startedAt: number
+    progress: DoclingProgressEvent | null
+  } | null>(null)
   const [sampleBookId, setSampleBookId] = useState<string | null>(null)
   const sampleBook = useMemo(() => books.find((item) => item.title === SAMPLE_BOOK.title) ?? null, [books])
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null)
@@ -128,11 +144,55 @@ export function App(): JSX.Element {
     applyStyle: applyReaderStyle,
     notify: setToast,
   })
+  const preflightKey = `reading-notes-preflight:${settings?.provider ?? 'demo'}:${
+    settings?.notesModel || settings?.model || ''
+  }:${settings?.generationMode ?? 'standard'}`
+  const requestGenerate = useCallback(
+    (fresh = false) => {
+      if (!chapter) return
+      if (settings?.demo) {
+        void generate(fresh)
+        return
+      }
+      try {
+        if (sessionStorage.getItem(preflightKey) === '1') {
+          void generate(fresh)
+          return
+        }
+      } catch {
+        // sessionStorage 不可用时仍然显示预检。
+      }
+      setPendingGenerate({ fresh })
+    },
+    [chapter, generate, preflightKey, settings?.demo],
+  )
+
   const handleBooksChanged = useCallback(() => {
     void window.api
       .listBooks()
       .then(setBooks)
       .catch(() => undefined)
+  }, [setBooks])
+
+  // 后台排版/读薄结束时同步书架总字数、已读字数和笔记数，避免切回书架看到旧数字。
+  useEffect(() => {
+    let timer: number | undefined
+    const schedule = (): void => {
+      if (timer) window.clearTimeout(timer)
+      timer = window.setTimeout(() => {
+        void window.api
+          .listBooks()
+          .then(setBooks)
+          .catch(() => undefined)
+      }, 500)
+    }
+    const offFormatted = window.api.onChapterFormatted(schedule)
+    const offGenerated = window.api.onGenerationDone(schedule)
+    return () => {
+      offFormatted()
+      offGenerated()
+      if (timer) window.clearTimeout(timer)
+    }
   }, [setBooks])
 
   const finishOnboarding = useCallback(() => {
@@ -165,9 +225,19 @@ export function App(): JSX.Element {
     setSampleBookId(imported.id)
   }, [books, setBooks])
 
+  const backgroundViewRef = useRef<{ mainView: MainView; chapterId: string | null; bookId: string | null }>({
+    mainView: 'reader',
+    chapterId: null,
+    bookId: null,
+  })
   const { tasks: backgroundTasks, setTasks: setBackgroundTasks } = useTasks({
     notify: setToast,
     onBooksChanged: handleBooksChanged,
+    isJobVisible: (job) => {
+      const view = backgroundViewRef.current
+      if (job.kind === 'compose') return view.mainView === 'compose' && view.bookId === job.bookId
+      return view.mainView === 'reader' && view.chapterId === job.chapterId
+    },
   })
   const {
     busy: formatBusy,
@@ -182,6 +252,20 @@ export function App(): JSX.Element {
     setChapter,
     setStyle: setReaderStyle,
   })
+  const {
+    translating,
+    showTranslation,
+    progress: translationProgress,
+    hasTranslation,
+    toggle: toggleTranslation,
+    retranslate: retranslateChapter,
+  } = useTranslation({ chapter, setChapter, notify: setToast })
+  const {
+    info: bookTranslation,
+    running: bookTranslationRunning,
+    progress: bookTranslationProgress,
+    translateBook: translateWholeBook,
+  } = useBookTranslation(book?.id ?? null, setToast)
   const {
     organizeOpen,
     setOrganizeOpen,
@@ -256,6 +340,17 @@ export function App(): JSX.Element {
     openChapter,
     notify: setToast,
   })
+
+  useEffect(() => {
+    if (!coreMode) return
+    setSideTab((current) => (current === 'feynman' ? 'notes' : current))
+  }, [coreMode, setSideTab])
+
+  useEffect(() => {
+    return window.api.onDoclingProgress((event) => {
+      setDeepParse((current) => (current ? { ...current, progress: event } : current))
+    })
+  }, [])
   const { renameTarget, setRenameTarget, startRenameBook, startRenameChapter, startRenamePart, saveRename } =
     useRename({ bookId: book?.id ?? null, setBooks, setBook, setChapters, setChapter })
   const {
@@ -266,12 +361,18 @@ export function App(): JSX.Element {
     mainView,
     setMainView,
     labMounted,
+    composeMountedBookId,
     contentFocusId,
     setContentFocusId,
     leaveReader,
     openLab,
     openCompose,
   } = useViews({ bookId: book?.id ?? null, openBook, clearBook, resetGeneration, resetOrganize })
+  backgroundViewRef.current = {
+    mainView,
+    chapterId: chapter?.id ?? null,
+    bookId: book?.id ?? null,
+  }
   const [manualReturn, setManualReturn] = useState<MainView>('reader')
   const openSampleBook = useCallback(async () => {
     const targetId = sampleBookId ?? sampleBook?.id
@@ -416,21 +517,44 @@ export function App(): JSX.Element {
 
   const reparseBook = useCallback(async () => {
     if (!book) return
-    const confirmed = await confirmDialog({
+    const docling = book.format === 'pdf' ? await window.api.getDoclingStatus().catch(() => null) : null
+    const result = await confirmOptionDialog({
       title: t('重新解析目录'),
       message:
         t('重新解析会用新的章节切分替换目录。已有笔记会先按原文引用、再按章节标题重新归属；匹配不上的笔记会保留，但不再显示在章节里。继续？'),
       confirmLabel: t('继续解析'),
       danger: true,
+      checkboxLabel: t('忽略参考文献 / 注释 / 索引'),
+      checkboxDefault: false,
+      ...(book.format === 'pdf' && docling?.available
+        ? {
+            secondCheckboxLabel: t('使用 Docling 深度解析（较慢，版面和图片更完整）'),
+            secondCheckboxDefault: false,
+          }
+        : {}),
     })
-    if (!confirmed) return
+    if (!result.confirmed) return
+    const deep = result.secondChecked
+    if (deep) {
+      setDeepParse({ title: book.title, startedAt: Date.now(), progress: null })
+    }
     try {
-      const updated = await window.api.reparseBook(book.id)
+      const updated = await window.api.reparseBook(book.id, {
+        skipReferences: result.checked,
+        deepPdf: deep,
+      })
       setBooks((current) => current.map((item) => (item.id === updated.id ? updated : item)))
       await openBook(updated.id)
-      setToast({ kind: 'info', text: t('已重新解析目录，笔记已尽量保留。') })
+      setToast({
+        kind: 'info',
+        text: result.checked
+          ? t('已重新解析目录并忽略参考文献，笔记已尽量保留。')
+          : t('已重新解析目录，笔记已尽量保留。'),
+      })
     } catch (err) {
       setToast({ kind: 'error', text: messageOf(err) })
+    } finally {
+      if (deep) setDeepParse(null)
     }
   }, [book, openBook])
 
@@ -481,27 +605,33 @@ export function App(): JSX.Element {
   }, [allNotes])
 
   const noteTags = useMemo(
-    () => Array.from(new Set(notes.flatMap((note) => note.tags))).slice(0, 12),
+    () =>
+      Array.from(
+        new Set(
+          notes
+            .filter((note) => note.kind !== 'condensed' && note.kind !== 'summary' && note.kind !== 'question')
+            .flatMap((note) => note.tags),
+        ),
+      ).slice(0, 12),
     [notes],
   )
 
   const relatedQuery = useMemo(() => {
-    const condensed = notes.find((note) => note.kind === 'condensed')
     const cards = notes
       .filter((note) => note.kind === 'point' || note.kind === 'claim')
       .map((note) => `${note.title}\n${note.content}`)
-    // 读薄稿可能很长，语义查询优先带上短小、概念密集的卡片。
-    return [condensed?.content.slice(0, 900), ...cards].filter(Boolean).join('\n').slice(0, 1800)
+    // 读薄稿是整章改写，不是知识点；回声只用卡片作为查询依据。
+    return cards.join('\n').slice(0, 1800)
   }, [notes])
 
-  const echoExcerpt = useMemo(() => {
-    const condensed = notes.find((note) => note.kind === 'condensed')
-    if (condensed) return condensed.content
-    return notes
-      .filter((note) => note.kind === 'point' || note.kind === 'claim')
-      .map((note) => `**${note.title}**\n${note.content}`)
-      .join('\n\n')
-  }, [notes])
+  const echoExcerpt = useMemo(
+    () =>
+      notes
+        .filter((note) => note.kind === 'point' || note.kind === 'claim')
+        .map((note) => `**${note.title}**\n${note.content}`)
+        .join('\n\n'),
+    [notes],
+  )
 
   useEffect(() => {
     if (!book || notes.length === 0) {
@@ -594,6 +724,8 @@ export function App(): JSX.Element {
         contentActive={mainView === 'content'}
         onManual={openManual}
         onRenameBook={book ? () => startRenameBook(book) : undefined}
+        coreMode={coreMode}
+        onToggleCoreMode={setCoreMode}
       />
 
       <TaskCenter
@@ -607,9 +739,9 @@ export function App(): JSX.Element {
                 ? {
                     ...item,
                     status: 'running',
-                    detail: t('正在重试失败章节'),
+                    detail: retry.kind === 'compose' ? t('正在继续成稿') : t('正在重试失败章节'),
                     done: 0,
-                    total: retry.chapterIds.length,
+                    total: retry.kind === 'compose' ? 1 : retry.chapterIds.length,
                     failures: [],
                     retry: undefined,
                   }
@@ -618,9 +750,21 @@ export function App(): JSX.Element {
           )
           const resume = task.status === 'paused'
           const run =
-            retry.kind === 'notes'
-              ? window.api.generateBookNotes(retry.bookId, { onlyMissing: resume, chapterIds: retry.chapterIds })
-              : window.api.formatBook(retry.bookId, { onlyMissing: resume, chapterIds: retry.chapterIds })
+            retry.kind === 'translate'
+              ? retry.chapterId
+                ? window.api.translateChapter(retry.chapterId)
+                : window.api.translateBook(retry.bookId, { chapterIds: retry.chapterIds })
+              : retry.kind === 'compose'
+              ? window.api
+                  .composeBook(retry.bookId, retry.composeOptions ?? { length: 'tight', voice: 'calm' })
+                  .then(() => undefined)
+              : retry.chapterId
+                ? retry.kind === 'notes'
+                  ? window.api.generateNotes(retry.chapterId)
+                  : window.api.formatChapter(retry.chapterId, undefined, retry.formatOptions).then(() => undefined)
+                : retry.kind === 'notes'
+                  ? window.api.generateBookNotes(retry.bookId, { onlyMissing: resume, chapterIds: retry.chapterIds })
+                  : window.api.formatBook(retry.bookId, { onlyMissing: resume, chapterIds: retry.chapterIds })
           void run.catch((err: unknown) => {
             const message = messageOf(err)
             setBackgroundTasks((current) =>
@@ -632,11 +776,22 @@ export function App(): JSX.Element {
           })
         }}
         onCancel={(task) => {
-          if (task.kind === 'notes') void window.api.cancelGeneration()
-          else if (task.kind === 'format') void window.api.cancelFormat()
+          const target = task.chapterId
+            ? { chapterId: task.chapterId }
+            : task.bookId
+              ? { bookId: task.bookId }
+              : undefined
+          if (task.kind === 'notes') void window.api.cancelGeneration(target)
+          else if (task.kind === 'format') void window.api.cancelFormat(target)
+          else if (task.kind === 'compose') void window.api.cancelBookCompose(target)
+          else if (task.kind === 'translate') void window.api.cancelTranslation(target)
           else void window.api.cancelOcrImport()
         }}
-        onDismiss={(id) => setBackgroundTasks((current) => current.filter((task) => task.id !== id))}
+        onDismiss={(id) => {
+          void window.api.dismissAiJob(id)
+          setBackgroundTasks((current) => current.filter((task) => task.id !== id))
+        }}
+        onOpenStats={() => setMainView('stats')}
       />
 
       {toast ? (
@@ -733,30 +888,8 @@ export function App(): JSX.Element {
             }}
           />
         </Suspense>
-      ) : mainView === 'compose' && book ? (
-        <Suspense fallback={<div className="view-loading-shell"><p className="view-loading">{t('正在加载成书页…')}</p></div>}>
-          <BookCompose
-            key={book.id}
-            book={book}
-            chapters={chapters}
-            onBack={() => setMainView('reader')}
-            onOpenChapter={(chapterId) => {
-              const meta = chapters.find((item) => item.id === chapterId)
-              setMainView('reader')
-              if (meta) void openChapter(book.id, meta, chapters)
-            }}
-            onShareBook={() => void shareCurrentBook()}
-            onOpenXhsBook={openBookXhs}
-            onSplitBook={() => setSplitOpen(true)}
-            compareModels={
-              settings && settings.provider !== 'demo'
-                ? (PROVIDER_PRESETS.find((item) => item.id === settings.provider)?.suggestedModels ?? [])
-                : []
-            }
-          />
-        </Suspense>
-      ) : book ? (
-        <div className="workspace">
+      ) : mainView === 'compose' ? null : book ? (
+        <div className={`workspace${sidePanelCollapsed ? ' is-side-collapsed' : ''}`}>
           <ChapterList
             chapters={chapters}
             currentId={chapter?.id ?? null}
@@ -776,9 +909,23 @@ export function App(): JSX.Element {
             loading={loadingChapter}
             style={readerStyle}
             bookTitle={book?.title ?? ''}
+            bookAuthor={book?.author ?? ''}
             scrollTarget={scrollTarget}
             echoes={crossBookNotes}
             excerpt={echoExcerpt}
+            translatedText={chapter?.translatedText ?? null}
+            translatedHtml={chapter?.translatedHtml ?? null}
+            hasTranslation={hasTranslation}
+            showTranslation={showTranslation}
+            translationBusy={translating}
+            translationProgress={translationProgress}
+            onToggleTranslation={toggleTranslation}
+            onRetranslateTranslation={() => void retranslateChapter()}
+            bookForeign={bookTranslation?.foreign ?? false}
+            bookTranslation={bookTranslation}
+            bookTranslationRunning={bookTranslationRunning}
+            bookTranslationProgress={bookTranslationProgress}
+            onTranslateBook={() => void translateWholeBook()}
             marks={readerMarks}
             onCreateMark={(style, text) => void createReaderMark(style, text)}
             onClearMarks={(ids) => void clearReaderMarks(ids)}
@@ -806,6 +953,7 @@ export function App(): JSX.Element {
             onAdjustStyle={applyReaderStyle}
             focusMode={readerFocus}
             onToggleFocus={toggleReaderFocus}
+            onNotify={setToast}
             onSaveSummary={
               chapter
                 ? async (title, markdown) => {
@@ -814,6 +962,16 @@ export function App(): JSX.Element {
                 : undefined
             }
           />
+          {sidePanelCollapsed ? (
+            <aside className="side-rail" aria-label={t('侧栏已收起')}>
+              <button type="button" onClick={() => { setSideTab('notes'); setSidePanelCollapsed(false) }}>
+                {t('本章笔记')}
+              </button>
+              <button type="button" onClick={() => { setSideTab('chat'); setSidePanelCollapsed(false) }}>
+                {t('问答')}
+              </button>
+            </aside>
+          ) : (
           <aside className="side-panel">
             <div className="side-tabs">
               <button
@@ -821,7 +979,7 @@ export function App(): JSX.Element {
                 className={`side-tab${sideTab === 'notes' ? ' active' : ''}`}
                 onClick={() => setSideTab('notes')}
               >
-                {t('笔记')}
+                {t('本章笔记')}
               </button>
               <button
                 type="button"
@@ -830,19 +988,30 @@ export function App(): JSX.Element {
               >
                 {t('问答')}
               </button>
-              <button
-                type="button"
-                className={`side-tab${sideTab === 'feynman' ? ' active' : ''}`}
-                onClick={() => setSideTab('feynman')}
-              >
-                {t('自测')}
-              </button>
+              {!coreMode ? (
+                <button
+                  type="button"
+                  className={`side-tab${sideTab === 'feynman' ? ' active' : ''}`}
+                  onClick={() => setSideTab('feynman')}
+                >
+                  {t('自测')}
+                </button>
+              ) : null}
               <button
                 type="button"
                 className={`side-tab${sideTab === 'format' ? ' active' : ''}`}
                 onClick={() => setSideTab('format')}
               >
                 {t('排版')}
+              </button>
+              <button
+                type="button"
+                className="side-tab-collapse"
+                onClick={() => setSidePanelCollapsed(true)}
+                title={t('收起侧栏')}
+                aria-label={t('收起侧栏')}
+              >
+                ›
               </button>
             </div>
             {sideTab === 'notes' ? (
@@ -858,13 +1027,16 @@ export function App(): JSX.Element {
                 error={error}
                 report={chapter?.noteReport ?? null}
                 generationMode={settings?.generationMode ?? 'standard'}
+                modelLabel={settings?.notesModel || settings?.model || ''}
+                demo={settings?.demo ?? false}
+                coreMode={coreMode}
                 marks={readerMarks}
                 crossBookNotes={crossBookNotes}
                 onOpenRelated={openRelatedNote}
                 focusNoteId={focusNote?.id ?? null}
                 focusKey={focusNote?.key ?? 0}
                 expandingNoteId={expandingNoteId}
-                onGenerate={generate}
+                onGenerate={requestGenerate}
                 onCancel={cancelGeneration}
                 onCreate={createNote}
                 onUpdate={updateNote}
@@ -910,12 +1082,13 @@ export function App(): JSX.Element {
                 note={formatNote}
                 messages={formatMessages}
                 demo={settings?.demo ?? false}
-                onFormat={(instruction) => void formatCurrentChapter(instruction)}
+                onFormat={(instruction, options) => void formatCurrentChapter(instruction, options)}
                 onReset={() => void resetChapterFormat()}
                 onStyleChange={updateReaderStyle}
               />
             )}
           </aside>
+          )}
         </div>
       ) : (
         <Library
@@ -923,6 +1096,7 @@ export function App(): JSX.Element {
           importing={importing}
           onOpen={(bookId) => void openBook(bookId)}
           onImport={() => setImportOpen(true)}
+          onOpenTrash={() => setBookTrashOpen(true)}
           onDelete={(bookId) => void deleteBook(bookId)}
           onRename={startRenameBook}
           onCompose={(bookId) => void openCompose(bookId)}
@@ -936,6 +1110,32 @@ export function App(): JSX.Element {
         />
       )}
 
+      {composeMountedBookId && book && composeMountedBookId === book.id ? (
+        <div className={`compose-shell${mainView === 'compose' ? ' is-active' : ''}`}>
+          <Suspense fallback={<div className="view-loading-shell"><p className="view-loading">{t('正在加载成书页…')}</p></div>}>
+            <BookCompose
+              key={book.id}
+              book={book}
+              chapters={chapters}
+              onBack={() => setMainView('reader')}
+              onOpenChapter={(chapterId) => {
+                const meta = chapters.find((item) => item.id === chapterId)
+                setMainView('reader')
+                if (meta) void openChapter(book.id, meta, chapters)
+              }}
+              onShareBook={() => void shareCurrentBook()}
+              onOpenXhsBook={openBookXhs}
+              onSplitBook={() => setSplitOpen(true)}
+              compareModels={
+                settings && settings.provider !== 'demo'
+                  ? (PROVIDER_PRESETS.find((item) => item.id === settings.provider)?.suggestedModels ?? [])
+                  : []
+              }
+            />
+          </Suspense>
+        </div>
+      ) : null}
+
       {labMounted ? (
         <div className={`lab-shell${mainView === 'lab' ? ' is-active' : ''}`}>
           <Suspense fallback={<div className="view-loading-shell"><p className="view-loading">{t('正在加载工作台…')}</p></div>}>
@@ -946,6 +1146,7 @@ export function App(): JSX.Element {
               onBack={() => setMainView('reader')}
               onSaveReport={saveLabReport}
               onListen={(title, text) => setListen({ title, text })}
+              demo={settings?.demo ?? false}
             />
           </Suspense>
         </div>
@@ -981,10 +1182,20 @@ export function App(): JSX.Element {
             setSettingsOpen(false)
             setOnboardingOpen(true)
           }}
+          coreMode={coreMode}
+          onToggleCoreMode={setCoreMode}
           onClose={() => setSettingsOpen(false)}
-          onSaved={(saved) => {
+          onSaved={(saved, options) => {
             setSettings(saved)
-            setToast({ kind: 'info', text: saved.demo ? t('已切换到演示模式') : `${t('已切换到')} ${saved.model}` })
+            if (!options?.silent) {
+              setToast({
+                kind: 'info',
+                text: saved.demo ? t('已切换到演示模式') : `${t('已保存设置')} · ${saved.model}`,
+              })
+            }
+          }}
+          onTestResult={(result) => {
+            setToast({ kind: result.ok ? 'info' : 'error', text: result.message })
           }}
         />
       ) : null}
@@ -1093,6 +1304,44 @@ export function App(): JSX.Element {
         onOpenTrash={() => setChapterTrashOpen(true)}
       />
 
+      <GenerationPreflight
+        open={Boolean(pendingGenerate)}
+        title={chapter?.title ?? ''}
+        chars={chapter?.chars ?? 0}
+        model={settings?.notesModel || settings?.model || t('未配置模型')}
+        provider={
+          PROVIDER_PRESETS.find((item) => item.id === settings?.provider)?.label ??
+          settings?.provider ??
+          ''
+        }
+        mode={settings?.generationMode ?? 'standard'}
+        images={((chapter?.formattedHtml ?? chapter?.html ?? '').match(/<img\b/gi) ?? []).length}
+        pricing={settings?.aiPricing[settings?.notesModel || settings?.model || '']}
+        onConfirm={(dontAsk) => {
+          if (dontAsk) {
+            try {
+              sessionStorage.setItem(preflightKey, '1')
+            } catch {
+              // 忽略存储失败。
+            }
+          }
+          const fresh = pendingGenerate?.fresh ?? false
+          setPendingGenerate(null)
+          void generate(fresh)
+        }}
+        onCancel={() => setPendingGenerate(null)}
+        onOpenSettings={() => {
+          setPendingGenerate(null)
+          setSettingsOpen(true)
+        }}
+      />
+
+      <BookTrashDialog
+        open={bookTrashOpen}
+        onClose={() => setBookTrashOpen(false)}
+        onChanged={() => void window.api.listBooks().then(setBooks).catch(() => undefined)}
+      />
+
       <ChapterTrashDialog
         open={chapterTrashOpen}
         onClose={() => setChapterTrashOpen(false)}
@@ -1124,6 +1373,13 @@ export function App(): JSX.Element {
         onImported={(imported) => void handleImported(imported)}
         onHighlightsImported={(result) => void handleHighlightsImported(result)}
         onOcrStarted={handleOcrStarted}
+      />
+
+      <DeepParseOverlay
+        open={Boolean(deepParse)}
+        title={deepParse?.title ?? ''}
+        startedAt={deepParse?.startedAt ?? Date.now()}
+        progress={deepParse?.progress ?? null}
       />
 
       <ConfirmHost />
