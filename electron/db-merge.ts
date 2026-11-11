@@ -7,6 +7,7 @@ export interface MergeSnapshotResult {
   annotations: number
   bookmarks: number
   positions: number
+  stats: number
   skipped: number
 }
 
@@ -45,7 +46,7 @@ function sqlValue(value: unknown): string | number | null {
 export function mergeSnapshotDatabase(sourcePath: string): MergeSnapshotResult {
   const source = new DatabaseSync(sourcePath, { readOnly: true })
   const conn = getDb()
-  const result: MergeSnapshotResult = { notes: 0, annotations: 0, bookmarks: 0, positions: 0, skipped: 0 }
+  const result: MergeSnapshotResult = { notes: 0, annotations: 0, bookmarks: 0, positions: 0, stats: 0, skipped: 0 }
   try {
     const books = new Set((conn.prepare('SELECT id FROM books').all() as unknown as Array<{ id: string }>).map((row) => row.id))
     const chapters = new Set(
@@ -183,6 +184,54 @@ export function mergeSnapshotDatabase(sourcePath: string): MergeSnapshotResult {
         throw error
       }
     }
+    if (hasTable(source, 'reading_stats_days') && hasTable(conn, 'reading_stats_days')) {
+      const rows = source.prepare('SELECT day, seconds FROM reading_stats_days').all() as unknown as Array<{
+        day: string
+        seconds: number
+      }>
+      const upsert = conn.prepare(
+        `INSERT INTO reading_stats_days (day, seconds) VALUES (?, ?)
+         ON CONFLICT(day) DO UPDATE SET seconds = MAX(reading_stats_days.seconds, excluded.seconds)`,
+      )
+      conn.exec('BEGIN IMMEDIATE')
+      try {
+        for (const row of rows) {
+          upsert.run(row.day, Math.max(0, Math.floor(Number(row.seconds) || 0)))
+          result.stats += 1
+        }
+        conn.exec('COMMIT')
+      } catch (error) {
+        conn.exec('ROLLBACK')
+        throw error
+      }
+    }
+
+    if (hasTable(source, 'reading_stats_books') && hasTable(conn, 'reading_stats_books')) {
+      const rows = source.prepare('SELECT book_id, seconds FROM reading_stats_books').all() as unknown as Array<{
+        book_id: string
+        seconds: number
+      }>
+      const upsert = conn.prepare(
+        `INSERT INTO reading_stats_books (book_id, seconds) VALUES (?, ?)
+         ON CONFLICT(book_id) DO UPDATE SET seconds = MAX(reading_stats_books.seconds, excluded.seconds)`,
+      )
+      conn.exec('BEGIN IMMEDIATE')
+      try {
+        for (const row of rows) {
+          if (!books.has(String(row.book_id))) {
+            result.skipped += 1
+            continue
+          }
+          upsert.run(row.book_id, Math.max(0, Math.floor(Number(row.seconds) || 0)))
+          result.stats += 1
+        }
+        conn.exec('COMMIT')
+      } catch (error) {
+        conn.exec('ROLLBACK')
+        throw error
+      }
+    }
+
   } finally {
     source.close()
   }

@@ -10,6 +10,7 @@ import {
   createNote,
   getChapters,
   getReadingPosition,
+  getReadingStatsRecord,
   initDatabase,
   insertBook,
   listNotes,
@@ -60,13 +61,16 @@ test('merges newer notes and new notes from a snapshot without replacing the lib
          VALUES (?, ?, 0.4, 1200, 7, ?)`,
       )
       .run(chapterId, book.id, '2026-01-03T00:00:00.000Z')
+    source.prepare('INSERT INTO reading_stats_days (day, seconds) VALUES (?, ?)').run('2026-01-05', 600)
     source.close()
 
     initDatabase(dir)
     const result = mergeSnapshotDatabase(snapshotPath)
     assert.equal(result.notes, 2)
     assert.equal(result.positions, 1)
+    assert.ok(result.stats >= 1)
     assert.equal(getReadingPosition(chapterId)?.page, 7)
+    assert.equal(getReadingStatsRecord().days['2026-01-05'], 600)
     const notes = listNotes(book.id)
     assert.equal(notes.length, 2)
     assert.equal(notes.find((note) => note.id === local.id)?.content, '快照里的新内容')
