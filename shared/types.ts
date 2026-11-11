@@ -1053,6 +1053,8 @@ export interface MergeSnapshotResult {
   bookmarks: number
   positions: number
   stats: number
+  plans: number
+  reviews: number
   skipped: number
 }
 

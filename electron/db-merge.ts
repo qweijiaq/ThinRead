@@ -8,6 +8,8 @@ export interface MergeSnapshotResult {
   bookmarks: number
   positions: number
   stats: number
+  plans: number
+  reviews: number
   skipped: number
 }
 
@@ -46,7 +48,7 @@ function sqlValue(value: unknown): string | number | null {
 export function mergeSnapshotDatabase(sourcePath: string): MergeSnapshotResult {
   const source = new DatabaseSync(sourcePath, { readOnly: true })
   const conn = getDb()
-  const result: MergeSnapshotResult = { notes: 0, annotations: 0, bookmarks: 0, positions: 0, stats: 0, skipped: 0 }
+  const result: MergeSnapshotResult = { notes: 0, annotations: 0, bookmarks: 0, positions: 0, stats: 0, plans: 0, reviews: 0, skipped: 0 }
   try {
     const books = new Set((conn.prepare('SELECT id FROM books').all() as unknown as Array<{ id: string }>).map((row) => row.id))
     const chapters = new Set(
@@ -224,6 +226,74 @@ export function mergeSnapshotDatabase(sourcePath: string): MergeSnapshotResult {
           }
           upsert.run(row.book_id, Math.max(0, Math.floor(Number(row.seconds) || 0)))
           result.stats += 1
+        }
+        conn.exec('COMMIT')
+      } catch (error) {
+        conn.exec('ROLLBACK')
+        throw error
+      }
+    }
+
+    if (hasTable(source, 'reading_plans') && hasTable(conn, 'reading_plans')) {
+      const rows = source.prepare('SELECT * FROM reading_plans').all() as unknown as Array<Record<string, unknown>>
+      const find = conn.prepare('SELECT updated_at FROM reading_plans WHERE book_id = ?')
+      const upsert = conn.prepare(
+        `INSERT INTO reading_plans (book_id, plan, created_at, updated_at) VALUES (?, ?, ?, ?)
+         ON CONFLICT(book_id) DO UPDATE SET plan = excluded.plan, updated_at = excluded.updated_at`,
+      )
+      conn.exec('BEGIN IMMEDIATE')
+      try {
+        for (const row of rows) {
+          const bookId = String(row.book_id ?? '')
+          if (!books.has(bookId)) {
+            result.skipped += 1
+            continue
+          }
+          const existing = find.get(bookId) as unknown as { updated_at?: string } | undefined
+          if (!existing || String(row.updated_at ?? '') > String(existing.updated_at ?? '')) {
+            upsert.run(bookId, sqlValue(row.plan), sqlValue(row.created_at), sqlValue(row.updated_at))
+            result.plans += 1
+          }
+        }
+        conn.exec('COMMIT')
+      } catch (error) {
+        conn.exec('ROLLBACK')
+        throw error
+      }
+    }
+
+    if (hasTable(source, 'weekly_reviews') && hasTable(conn, 'weekly_reviews')) {
+      const rows = source.prepare('SELECT * FROM weekly_reviews').all() as unknown as Array<Record<string, unknown>>
+      const find = conn.prepare('SELECT updated_at FROM weekly_reviews WHERE week = ?')
+      const insert = conn.prepare(
+        `INSERT INTO weekly_reviews (id, week, title, content, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      const update = conn.prepare(
+        'UPDATE weekly_reviews SET title = ?, content = ?, updated_at = ? WHERE week = ?',
+      )
+      conn.exec('BEGIN IMMEDIATE')
+      try {
+        for (const row of rows) {
+          const week = String(row.week ?? '')
+          if (!week) {
+            result.skipped += 1
+            continue
+          }
+          const existing = find.get(week) as unknown as { updated_at?: string } | undefined
+          if (!existing) {
+            insert.run(
+              sqlValue(row.id),
+              week,
+              sqlValue(row.title),
+              sqlValue(row.content),
+              sqlValue(row.created_at),
+              sqlValue(row.updated_at),
+            )
+            result.reviews += 1
+          } else if (String(row.updated_at ?? '') > String(existing.updated_at ?? '')) {
+            update.run(sqlValue(row.title), sqlValue(row.content), sqlValue(row.updated_at), week)
+            result.reviews += 1
+          }
         }
         conn.exec('COMMIT')
       } catch (error) {

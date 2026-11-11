@@ -1324,7 +1324,7 @@
   "清除计划": "Clear plan",
   "清除阅读计划": "Clear reading plan",
   "的阅读计划？已读标记也会一起清除。": " reading plan? Completed marks will also be cleared.",
-  "计划": "Plan",
+  "计划": "plans",
   "「去工作台」会调用模型生成复盘报告；「存为本周复盘」只保存本地阅读统计，不调用模型。": "“Open lab” uses a model to generate a review; “Save weekly review” only stores local reading stats.",
   "这个备份来自另一台机器，部分 API Key 无法在当前系统解密；需要重新填写后才能继续使用。": "This backup came from another computer. Some API keys cannot be decrypted on this system; re-enter them to continue.",
   "的阅读计划进度": "reading plan progress",
@@ -1786,5 +1786,6 @@
   "还没有标注。": "No annotations yet.",
   "无备注": "No note",
   "位置": "positions",
-  "统计": "stats"
+  "统计": "stats",
+  "复盘": "reviews"
 }

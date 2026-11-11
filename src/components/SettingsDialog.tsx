@@ -371,7 +371,7 @@ export function SettingsDialog({
       const result = await window.api.mergeSyncSnapshot(name, syncPassphrase.trim() || undefined)
       const skipped = result.skipped > 0 ? ` · ${t('跳过')} ${result.skipped}` : ''
       setSyncNotice(
-        `${t('已合并')} · ${t('笔记')} ${result.notes} · ${t('标注')} ${result.annotations} · ${t('书签')} ${result.bookmarks} · ${t('位置')} ${result.positions} · ${t('统计')} ${result.stats}${skipped}。${t('正在重新加载…')}`,
+        `${t('已合并')} · ${t('笔记')} ${result.notes} · ${t('标注')} ${result.annotations} · ${t('书签')} ${result.bookmarks} · ${t('位置')} ${result.positions} · ${t('统计')} ${result.stats} · ${t('计划')} ${result.plans} · ${t('复盘')} ${result.reviews}${skipped}。${t('正在重新加载…')}`,
       )
       window.setTimeout(() => window.location.reload(), 700)
     } catch (error) {
