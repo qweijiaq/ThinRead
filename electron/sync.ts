@@ -2,8 +2,11 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
+import { unzipSync } from 'fflate'
+
 import type { SyncSnapshot, SyncStatus } from '../shared/types.js'
 import { createBackup, exportBackup, importBackupArchive, restoreBackup } from './backup.js'
+import { mergeSnapshotDatabase, type MergeSnapshotResult } from './db.js'
 import { getSettingsView, setSyncFolder } from './settings.js'
 import { decryptSnapshot, encryptSnapshot, isEncryptedSnapshot } from './sync-crypto.js'
 
@@ -117,5 +120,41 @@ export function pullSyncSnapshot(dataDir: string, name: string, passphrase = '')
     restoreBackup(dataDir, info.id, { safetyBackup: true })
   } finally {
     if (temp) fs.rmSync(temp, { force: true })
+  }
+}
+
+
+/**
+ * 合并快照里的笔记、PDF 标注和书签，而不是整库替换。
+ * 适合两台设备各自记了笔记、想保留双方新增内容的场景；删除不会同步。
+ */
+export function mergeSyncSnapshot(name: string, passphrase = ''): MergeSnapshotResult {
+  const folder = getSettingsView().syncFolder
+  if (!folder) throw new Error('还没有选择同步文件夹。')
+  const safeName = path.basename(name)
+  if (!safeName.startsWith(PREFIX) || (!safeName.endsWith('.zip') && !safeName.endsWith('.thinsync'))) {
+    throw new Error('同步快照名称无效。')
+  }
+  const source = path.join(folder, safeName)
+  if (!fs.existsSync(source)) throw new Error('找不到这个同步快照。')
+
+  let archive = source
+  let tempArchive: string | null = null
+  let tempDb: string | null = null
+  try {
+    if (safeName.endsWith('.thinsync')) {
+      tempArchive = path.join(os.tmpdir(), `${PREFIX}merge-${Date.now()}.zip`)
+      decryptSnapshot(source, tempArchive, passphrase)
+      archive = tempArchive
+    }
+    const files = unzipSync(new Uint8Array(fs.readFileSync(archive)))
+    const db = files['db/reading-notes.db']
+    if (!db) throw new Error('这个快照里没有数据库。')
+    tempDb = path.join(os.tmpdir(), `${PREFIX}merge-${Date.now()}.db`)
+    fs.writeFileSync(tempDb, db)
+    return mergeSnapshotDatabase(tempDb)
+  } finally {
+    if (tempArchive) fs.rmSync(tempArchive, { force: true })
+    if (tempDb) fs.rmSync(tempDb, { force: true })
   }
 }

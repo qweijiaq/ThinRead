@@ -9,6 +9,7 @@ import type {
   AiUsageSummary,
   NoteQualitySummary,
   SyncSnapshot,
+  MergeSnapshotResult,
   SyncStatus,
   PdfAnnotation,
   PdfAnnotationColor,
@@ -314,6 +315,8 @@ const api: ReadingApi = {
   pushSyncSnapshot: (passphrase?: string) => ipcRenderer.invoke('sync:push', passphrase) as Promise<SyncSnapshot>,
   pullSyncSnapshot: (name: string, passphrase?: string) =>
     ipcRenderer.invoke('sync:pull', name, passphrase) as Promise<{ ok: boolean }>,
+  mergeSyncSnapshot: (name: string, passphrase?: string) =>
+    ipcRenderer.invoke('sync:merge', name, passphrase) as Promise<MergeSnapshotResult>,
   openDataDir: () => ipcRenderer.invoke('app:open-data') as Promise<void>,
   createBackup: () => ipcRenderer.invoke('backup:create') as Promise<BackupInfo>,
   listBackups: () => ipcRenderer.invoke('backup:list') as Promise<BackupInfo[]>,

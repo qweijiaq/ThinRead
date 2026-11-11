@@ -1041,6 +1041,13 @@ export interface SyncStatus {
   snapshots: SyncSnapshot[]
 }
 
+export interface MergeSnapshotResult {
+  notes: number
+  annotations: number
+  bookmarks: number
+  skipped: number
+}
+
 export interface LocalModelDetection {
   ollama: string[]
   lmstudio: string[]
@@ -1766,6 +1773,7 @@ export interface ReadingApi {
   chooseSyncFolder(): Promise<SyncStatus>
   pushSyncSnapshot(passphrase?: string): Promise<SyncSnapshot>
   pullSyncSnapshot(name: string, passphrase?: string): Promise<{ ok: boolean }>
+  mergeSyncSnapshot(name: string, passphrase?: string): Promise<MergeSnapshotResult>
   openDataDir(): Promise<void>
   createBackup(): Promise<BackupInfo>
   listBackups(): Promise<BackupInfo[]>

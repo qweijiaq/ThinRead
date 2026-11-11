@@ -339,6 +339,28 @@ export function SettingsDialog({
     }
   }
 
+  async function mergeSync(name: string): Promise<void> {
+    const confirmed = await confirmDialog({
+      title: t('合并快照里的笔记'),
+      message: t('会把快照里较新的笔记、PDF 标注和书签合并到当前库；不会删除本地内容。继续？'),
+      confirmLabel: t('合并'),
+    })
+    if (!confirmed) return
+    setSyncBusy(name)
+    setSyncNotice(null)
+    try {
+      const result = await window.api.mergeSyncSnapshot(name, syncPassphrase.trim() || undefined)
+      const skipped = result.skipped > 0 ? ` · ${t('跳过')} ${result.skipped}` : ''
+      setSyncNotice(
+        `${t('已合并')} · ${t('笔记')} ${result.notes} · ${t('标注')} ${result.annotations} · ${t('书签')} ${result.bookmarks}${skipped}。${t('正在重新加载…')}`,
+      )
+      window.setTimeout(() => window.location.reload(), 700)
+    } catch (error) {
+      setSyncNotice(error instanceof Error ? error.message : String(error))
+      setSyncBusy(null)
+    }
+  }
+
   async function pullSync(name: string): Promise<void> {
     const confirmed = await confirmDialog({
       title: t('从同步快照恢复'),
@@ -1214,6 +1236,14 @@ export function SettingsDialog({
                     <span>{formatBytes(item.size)}{item.encrypted ? ` · ${t('已加密')}` : ''}</span>
                   </div>
                   <div className="backup-row-actions">
+                    <button
+                      type="button"
+                      className="text-button"
+                      onClick={() => void mergeSync(item.name)}
+                      disabled={syncBusy !== null}
+                    >
+                      {t('合并笔记')}
+                    </button>
                     <button
                       type="button"
                       className="text-button"
