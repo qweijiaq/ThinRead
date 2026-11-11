@@ -278,7 +278,7 @@ You can assign separate models to condensing, composition, and the workbench, an
 - **Global search**: `⌘K` / `Ctrl+K` across titles, chapter bodies, and notes. Keyword inverted index returns first, local semantic search follows, fused with RRF.
 - **Notes library**: filter by book, type, and tag; the audit view shows AI/human edits, citation verification status, and chapter coverage; export a Markdown folder with YAML frontmatter for Obsidian or Notion.
 - **Note linking**: `[[Note title]]` references, automatic backlinks, and same-book / cross-book related notes.
-- **Shelf status**: mark each book as to read / reading / finished, filter the shelf by status with counts, and toggle the status from the card.
+- **Shelf status**: mark each book as to read / reading / finished / archived, filter the shelf by status with counts, and change it from the card. New imports start as to read and become reading when you open a chapter.
 - **Zero-config listening**: without a Qwen TTS key, ThinRead falls back to built-in macOS voices synthesized entirely on-device at no cost; with a key it still uses Qwen, with the same voices and cost estimates.
 - **Reading data**: time tracking, daily goals, streaks, 7/30/100-day milestone badges, monthly and yearly stats, weekly reviews, CSV export, plus note quality and citation pass rate.
 - **Backup and restore**: manual and automatic backups, whole-library export/import, app lock, and a diagnostics bundle.

@@ -792,7 +792,7 @@ export function insertBook(book: NewBook, chapters: NewChapter[], bookId: string
   try {
     conn
       .prepare(
-        'INSERT INTO books (id, title, author, format, file_path, cover_path, created_at, last_opened_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        "INSERT INTO books (id, title, author, format, file_path, cover_path, created_at, last_opened_at, shelf_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'inbox')",
       )
       .run(bookId, book.title, book.author, book.format, book.filePath, book.coverPath ?? null, now, now)
     const insertChapter = conn.prepare(
@@ -1824,7 +1824,9 @@ export function optimizeDatabase(): void {
 
 export function setProgress(bookId: string, chapterId: string): void {
   database()
-    .prepare('UPDATE books SET current_chapter_id = ?, last_opened_at = ? WHERE id = ?')
+    .prepare(
+      "UPDATE books SET current_chapter_id = ?, last_opened_at = ?, shelf_status = CASE WHEN shelf_status = 'inbox' THEN 'reading' ELSE shelf_status END WHERE id = ?",
+    )
     .run(chapterId, new Date().toISOString(), bookId)
 }
 
