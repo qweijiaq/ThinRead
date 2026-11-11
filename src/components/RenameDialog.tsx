@@ -104,10 +104,10 @@ export function RenameDialog({ open, title, label, value, secondaryLabel, second
           <span className="modal-meta">{t('最多 200 个字')}</span>
           <div className="modal-footer-actions">
             <button type="button" className="ghost-button" onClick={onClose}>
-              取消
+              {t('取消')}
             </button>
             <button type="submit" className="primary-button" disabled={saving || !draft.trim()}>
-              {saving ? '保存中…' : '保存'}
+              {saving ? t('保存中…') : t('保存')}
             </button>
           </div>
         </div>

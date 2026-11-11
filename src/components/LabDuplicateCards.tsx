@@ -44,7 +44,7 @@ export function LabDuplicateCards(): JSX.Element {
       .saveLabArtifact({
         tool: 'lab-dedupe',
         scope: 'latest',
-        title: '卡片去重',
+        title: t('卡片去重'),
         content: JSON.stringify({ pairs, done }),
       })
       .catch(() => undefined)
@@ -88,14 +88,14 @@ export function LabDuplicateCards(): JSX.Element {
         <span className="lab-run-hint">
           {done > 0
             ? `已合并 ${done} 组卡片。`
-            : '只扫描同一章里的知识点 / 论点卡片；跨章相近内容不会被合并。合并后保留左边这张。'}
+            : t('只扫描同一章里的知识点 / 论点卡片；跨章相近内容不会被合并。合并后保留左边这张。')}
         </span>
         <button type="button" className="ghost-button small" onClick={() => void load()} disabled={loading}>
-          {loading ? '扫描中…' : '重新扫描'}
+          {loading ? t('扫描中…') : t('重新扫描')}
         </button>
         {loading ? (
           <button type="button" className="ghost-button small" onClick={() => void bridge.cancelLab()}>
-            取消
+            {t('取消')}
           </button>
         ) : null}
       </div>
@@ -105,7 +105,7 @@ export function LabDuplicateCards(): JSX.Element {
       <div className="lab-dedupe-list">
         {pairs.map((pair, index) => (
           <article key={`${pair.keepId}:${pair.mergeId}`} className="lab-dedupe-card">
-            <div className="lab-dedupe-score">综合相似度 {Math.round(pair.score * 100)}% · 请对照正文确认</div>
+            <div className="lab-dedupe-score">{t('综合相似度')} {Math.round(pair.score * 100)}{t('% · 请对照正文确认')}</div>
             <div className="lab-dedupe-pair">
               <div>
                 <span>{t('保留')}</span>
@@ -128,7 +128,7 @@ export function LabDuplicateCards(): JSX.Element {
               </div>
             </div>
             <button type="button" className="primary-button small" onClick={() => void merge(index)} disabled={merging === index}>
-              {merging === index ? '合并中…' : '合并为一条'}
+              {merging === index ? t('合并中…') : t('合并为一条')}
             </button>
           </article>
         ))}

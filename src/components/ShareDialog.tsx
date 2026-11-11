@@ -26,21 +26,21 @@ interface ShareDialogProps {
 }
 
 const TEMPLATE_OPTIONS: Array<{ value: ShareTemplate; label: string }> = [
-  { value: 'quote', label: '金句卡' },
-  { value: 'knowledge', label: '知识卡' },
-  { value: 'condensed', label: '读薄卡' },
-  { value: 'book', label: '整本书' },
-  { value: 'deck', label: '长图' },
-  { value: 'badge', label: '里程碑' },
+  { value: 'quote', label: t('金句卡') },
+  { value: 'knowledge', label: t('知识卡') },
+  { value: 'condensed', label: t('读薄卡') },
+  { value: 'book', label: t('整本书') },
+  { value: 'deck', label: t('长图') },
+  { value: 'badge', label: t('里程碑') },
 ]
 
 const TEMPLATE_HINT: Record<ShareTemplate, string> = {
-  quote: '把一句原文放大，适合摘录和转发。',
-  knowledge: '一句话主张 + 简短解释，适合知识点。',
-  condensed: '一段读薄稿，适合分享一章的完整意思。',
-  book: '书名 + 关键卡片，适合读完一本书后发总结。',
-  deck: '把多张笔记排成一张长图，适合一次分享一组摘录。',
-  badge: '把连续阅读和 7/30/100 天徽章做成一张分享卡。',
+  quote: t('把一句原文放大，适合摘录和转发。'),
+  knowledge: t('一句话主张 + 简短解释，适合知识点。'),
+  condensed: t('一段读薄稿，适合分享一章的完整意思。'),
+  book: t('书名 + 关键卡片，适合读完一本书后发总结。'),
+  deck: t('把多张笔记排成一张长图，适合一次分享一组摘录。'),
+  badge: t('把连续阅读和 7/30/100 天徽章做成一张分享卡。'),
 }
 
 function preferredTemplate(note: ShareNote): ShareTemplate {

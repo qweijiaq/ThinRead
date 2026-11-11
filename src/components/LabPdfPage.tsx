@@ -98,7 +98,7 @@ export function LabPdfPage({ books }: LabPdfPageProps): JSX.Element {
     <div className="lab-pdf">
       <div className="lab-pdf-form">
         <label>
-          选择 PDF
+          {t('选择 PDF')}
           <Select
             value={bookId}
             onChange={setBookId}
@@ -107,15 +107,15 @@ export function LabPdfPage({ books }: LabPdfPageProps): JSX.Element {
           />
         </label>
         <label>
-          页码
+          {t('页码')}
           <input value={page} onChange={(event) => setPage(event.target.value)} inputMode="numeric" />
         </label>
         <button type="button" className="primary-button small" onClick={() => void analyze()} disabled={busy || !bookId}>
-          {busy ? '识别中…' : result ? '重新识别' : '理解这一页'}
+          {busy ? t('识别中…') : result ? t('重新识别') : t('理解这一页')}
         </button>
         {busy ? (
           <button type="button" className="ghost-button small" onClick={() => void bridge.cancelLab()}>
-            取消
+            {t('取消')}
           </button>
         ) : null}
       </div>
@@ -126,7 +126,7 @@ export function LabPdfPage({ books }: LabPdfPageProps): JSX.Element {
           <div className="lab-result-head">
             <h3>{result.title}</h3>
             <button type="button" className="text-button" onClick={() => void bridge.copyText(result.markdown)}>
-              复制全文
+              {t('复制全文')}
             </button>
           </div>
           <div className="lab-markdown">

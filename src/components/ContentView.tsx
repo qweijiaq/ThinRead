@@ -27,33 +27,33 @@ interface ContentViewProps {
 type StatusFilter = 'active' | ContentStatus | 'all'
 
 const STATUS_OPTIONS: Array<{ value: StatusFilter; label: string }> = [
-  { value: 'active', label: '使用中' },
-  { value: 'adopted', label: '已采用' },
-  { value: 'archived', label: '已归档' },
-  { value: 'deleted', label: '回收站' },
-  { value: 'all', label: '全部（含回收站）' },
+  { value: 'active', label: t('使用中') },
+  { value: 'adopted', label: t('已采用') },
+  { value: 'archived', label: t('已归档') },
+  { value: 'deleted', label: t('回收站') },
+  { value: 'all', label: t('全部（含回收站）') },
 ]
 
 const KIND_OPTIONS: Array<{ value: ContentKind | ''; label: string }> = [
-  { value: '', label: '全部类型' },
-  { value: 'report', label: '报告' },
-  { value: 'chat', label: '对话' },
-  { value: 'quiz', label: '出题' },
-  { value: 'notes', label: '章节笔记' },
-  { value: 'format', label: 'AI 排版' },
-  { value: 'compose', label: '整本成稿' },
-  { value: 'suggestion', label: '整理建议' },
-  { value: 'pdf', label: 'PDF 页' },
-  { value: 'graph', label: '人物关系图' },
+  { value: '', label: t('全部类型') },
+  { value: 'report', label: t('报告') },
+  { value: 'chat', label: t('对话') },
+  { value: 'quiz', label: t('出题') },
+  { value: 'notes', label: t('章节笔记') },
+  { value: 'format', label: t('AI 排版') },
+  { value: 'compose', label: t('整本成稿') },
+  { value: 'suggestion', label: t('整理建议') },
+  { value: 'pdf', label: t('PDF 页') },
+  { value: 'graph', label: t('人物关系图') },
 ]
 
 const PAGE_SIZE = 30
 
 const STATUS_LABEL: Record<ContentStatus, string> = {
-  draft: '草稿',
-  adopted: '已采用',
-  archived: '已归档',
-  deleted: '已删除',
+  draft: t('草稿'),
+  adopted: t('已采用'),
+  archived: t('已归档'),
+  deleted: t('已删除'),
 }
 
 function formatDate(value: string): string {
@@ -68,7 +68,7 @@ function sourceLabel(item: ContentItem): string {
   if (item.bookTitle) {
     return `${item.bookTitle}${item.chapterTitle ? ` · ${item.chapterTitle}` : ''}`
   }
-  return item.scope === 'library' || item.scope === 'all' || item.scope === 'latest' ? '全库' : item.scope
+  return item.scope === 'library' || item.scope === 'all' || item.scope === 'latest' ? t('全库') : item.scope
 }
 
 export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppliedSource }: ContentViewProps): JSX.Element {

@@ -13,13 +13,13 @@ interface NoteTrashDialogProps {
 }
 
 const KIND_LABEL: Record<TrashedNote['kind'], string> = {
-  condensed: '读薄稿',
-  summary: '摘要',
-  claim: '论点',
-  point: '知识点',
-  question: '问题',
-  thought: '想法',
-  highlight: '划线',
+  condensed: t('读薄稿'),
+  summary: t('摘要'),
+  claim: t('论点'),
+  point: t('知识点'),
+  question: t('问题'),
+  thought: t('想法'),
+  highlight: t('划线'),
 }
 
 function deletedLabel(value: string): string {

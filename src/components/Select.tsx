@@ -32,7 +32,7 @@ export function Select({
   value,
   options,
   onChange,
-  placeholder = '请选择',
+  placeholder = t('请选择'),
   className = '',
   disabled = false,
   ariaLabel,

@@ -19,8 +19,8 @@ interface Turn {
   citations?: ChatCitation[]
 }
 
-const ANSWER_SUGGESTIONS = ['这一章最重要的三个观点是什么？', '作者反对了什么？', '这些结论在什么条件下会失效？']
-const SOCRATIC_SUGGESTIONS = ['我觉得这一章主要在讲……', '这一章最容易被误解的地方是什么？', '作者最反对哪种做法？']
+const ANSWER_SUGGESTIONS = [t('这一章最重要的三个观点是什么？'), t('作者反对了什么？'), t('这些结论在什么条件下会失效？')]
+const SOCRATIC_SUGGESTIONS = [t('我觉得这一章主要在讲……'), t('这一章最容易被误解的地方是什么？'), t('作者最反对哪种做法？')]
 
 export function ChatPanel({ chapter, bookTitle, seed, onJumpQuote, onSave }: ChatPanelProps): JSX.Element {
   useLocale()

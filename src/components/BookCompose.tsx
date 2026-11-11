@@ -965,7 +965,7 @@ export function BookCompose({
               <div className="compose-progress-head">
                 <span>{composeProgress?.message ?? t('正在合并整本书')}</span>
                 <button type="button" className="text-button muted" onClick={() => void cancelCompose()}>
-                  取消
+                  {t('取消')}
                 </button>
               </div>
               <div className="progress-track">

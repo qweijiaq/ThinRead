@@ -43,7 +43,7 @@ export function LabMergeConcepts(): JSX.Element {
       .saveLabArtifact({
         tool: 'lab-merge',
         scope: 'latest',
-        title: '概念合并',
+        title: t('概念合并'),
         content: JSON.stringify({ groups, names, done }),
       })
       .catch(() => undefined)
@@ -88,14 +88,14 @@ export function LabMergeConcepts(): JSX.Element {
     <div className="lab-merge">
       <div className="lab-run-row">
         <span className="lab-run-hint">
-          {done != null ? `已更新 ${done} 条笔记的标签。` : 'AI 只给建议，合并前可以改标准名。'}
+          {done != null ? `已更新 ${done} 条笔记的标签。` : t('AI 只给建议，合并前可以改标准名。')}
         </span>
         <button type="button" className="ghost-button small" onClick={() => void load()} disabled={loading}>
-          {loading ? '分析中…' : '重新分析'}
+          {loading ? t('分析中…') : t('重新分析')}
         </button>
         {loading ? (
           <button type="button" className="ghost-button small" onClick={() => void bridge.cancelLab()}>
-            取消
+            {t('取消')}
           </button>
         ) : null}
       </div>
@@ -111,19 +111,19 @@ export function LabMergeConcepts(): JSX.Element {
                   {tag}
                 </span>
               ))}
-              <span className="lab-merge-count">{group.noteCount} 条笔记</span>
+              <span className="lab-merge-count">{group.noteCount} {t('条笔记')}</span>
             </div>
             <p>{group.reason}</p>
             <div className="lab-merge-action">
               <label>
-                合并为标准名
+                {t('合并为标准名')}
                 <input
                   value={names[index] ?? group.canonical}
                   onChange={(event) => setNames((current) => ({ ...current, [index]: event.target.value }))}
                 />
               </label>
               <button type="button" className="primary-button small" onClick={() => void merge(index)} disabled={merging === index}>
-                {merging === index ? '合并中…' : '合并'}
+                {merging === index ? t('合并中…') : t('合并')}
               </button>
             </div>
           </article>

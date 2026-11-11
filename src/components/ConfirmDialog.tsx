@@ -111,7 +111,7 @@ export function ConfirmHost(): JSX.Element | null {
         aria-describedby="confirm-message"
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <h2 id="confirm-title">{t(request.title ?? '确认操作')}</h2>
+        <h2 id="confirm-title">{t(request.title ?? t('确认操作'))}</h2>
         <p id="confirm-message">{request.message}</p>
         {request.checkboxLabel ? (
           <div className="confirm-option">
@@ -129,7 +129,7 @@ export function ConfirmHost(): JSX.Element | null {
         ) : null}
         <div className="confirm-actions">
           <button type="button" className="ghost-button" onClick={() => finish(false)}>
-            {t(request.cancelLabel ?? '取消')}
+            {t(request.cancelLabel ?? t('取消'))}
           </button>
           <button
             ref={confirmRef}
@@ -137,7 +137,7 @@ export function ConfirmHost(): JSX.Element | null {
             className={`primary-button${request.danger ? ' is-danger' : ''}`}
             onClick={() => finish(true)}
           >
-            {t(request.confirmLabel ?? '确定')}
+            {t(request.confirmLabel ?? t('确定'))}
           </button>
         </div>
       </div>

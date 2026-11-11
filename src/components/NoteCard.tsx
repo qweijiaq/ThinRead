@@ -11,19 +11,19 @@ import { Markdown } from './Markdown.js'
 import { SentenceCheck } from './SentenceCheck.js'
 
 export const KIND_LABEL: Record<NoteKind, string> = {
-  condensed: '读薄稿',
-  summary: '摘要',
-  claim: '论点',
-  point: '知识点',
-  question: '问题',
-  highlight: '高亮',
-  thought: '想法',
+  condensed: t('读薄稿'),
+  summary: t('摘要'),
+  claim: t('论点'),
+  point: t('知识点'),
+  question: t('问题'),
+  highlight: t('高亮'),
+  thought: t('想法'),
 }
 
 const DIVERGENCE_LABEL = {
-  boundary: '边界',
-  crossbook: '跨书',
-  transfer: '触类',
+  boundary: t('边界'),
+  crossbook: t('跨书'),
+  transfer: t('触类'),
 } as const
 
 interface NoteCardProps {

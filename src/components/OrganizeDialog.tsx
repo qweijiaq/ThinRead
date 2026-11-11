@@ -13,14 +13,14 @@ import type {
 } from '../../shared/types.js'
 
 const KIND_LABEL: Record<ChapterKind, string> = {
-  content: '正文',
-  front: '前言/序',
-  nav: '目录',
-  cover: '封面',
-  copyright: '版权页',
-  ad: '广告',
-  index: '索引',
-  unknown: '无法识别',
+  content: t('正文'),
+  front: t('前言/序'),
+  nav: t('目录'),
+  cover: t('封面'),
+  copyright: t('版权页'),
+  ad: t('广告'),
+  index: t('索引'),
+  unknown: t('无法识别'),
 }
 
 interface OrganizeDialogProps {

@@ -97,13 +97,13 @@ export function MarginNoteDialog({ chapter, quote, onSave, onClose }: MarginNote
               }}
               disabled={!result}
             >
-              {copied ? '已复制' : '复制全文'}
+              {copied ? t('已复制') : t('复制全文')}
             </button>
             <button type="button" className="ghost-button" onClick={onClose}>
-              关闭
+              {t('关闭')}
             </button>
             <button type="button" className="primary-button" onClick={() => void save()} disabled={!result || saving || saved}>
-              {saved ? '已保存' : saving ? '保存中…' : '存为笔记'}
+              {saved ? t('已保存') : saving ? t('保存中…') : t('存为笔记')}
             </button>
           </div>
         </div>

@@ -82,33 +82,33 @@ const NODE_RADIUS: Record<RelationNode['kind'], number> = {
 }
 
 const ROLE_LABEL: Record<RelationNode['role'], string> = {
-  detective: '侦探',
-  killer: '凶手',
-  victim: '被害人',
-  witness: '关键证人',
-  suspect: '嫌疑人',
-  protagonist: '主角',
-  supporting: '配角',
-  other: '其他',
+  detective: t('侦探'),
+  killer: t('凶手'),
+  victim: t('被害人'),
+  witness: t('关键证人'),
+  suspect: t('嫌疑人'),
+  protagonist: t('主角'),
+  supporting: t('配角'),
+  other: t('其他'),
 }
 
 const NODE_LABEL: Record<RelationNode['kind'], string> = {
-  person: '人物',
-  organization: '组织',
-  place: '地点',
-  event: '事件',
-  concept: '概念',
+  person: t('人物'),
+  organization: t('组织'),
+  place: t('地点'),
+  event: t('事件'),
+  concept: t('概念'),
 }
 
 const EDGE_KIND_LABEL: Record<RelationEdge['kind'], string> = {
-  family: '亲缘',
-  ally: '盟友',
-  rival: '敌对',
-  suspect: '嫌疑',
-  motive: '动机',
-  clue: '线索',
-  event: '事件牵连',
-  other: '其他',
+  family: t('亲缘'),
+  ally: t('盟友'),
+  rival: t('敌对'),
+  suspect: t('嫌疑'),
+  motive: t('动机'),
+  clue: t('线索'),
+  event: t('事件牵连'),
+  other: t('其他'),
 }
 
 const MINIMAP_WIDTH = 148
@@ -663,9 +663,9 @@ export function LabRelationGraph({ bookId, bookTitle }: LabRelationGraphProps): 
       graph.genre ? `体裁：${graph.genre}` : '',
       graph.summary ? `\n${graph.summary}` : '',
       graph.plot ? `\n## 情节梗概（含剧透）\n\n${graph.plot}` : '',
-      '\n## 关系图\n',
+      t('\n## 关系图\n'),
       mermaidFence(mermaidSource),
-      '\n## 节点\n',
+      t('\n## 节点\n'),
       ...graph.nodes.map((node) => {
         const facts = [node.identity, node.rank, node.affiliation].filter(Boolean).join(' / ')
         const role =
@@ -673,7 +673,7 @@ export function LabRelationGraph({ bookId, bookTitle }: LabRelationGraphProps): 
         const chapters = node.chapters?.length ? ` · 出处：${node.chapters.join('、')}` : ''
         return `- **${node.label}**（${kindLabel[node.kind]}${role}${facts ? ` · ${facts}` : ''}）${node.description ? `：${node.description}` : ''}${chapters}`
       }),
-      '\n## 关系\n',
+      t('\n## 关系\n'),
       ...graph.edges.map((edge) => {
         const source = nodeById.get(edge.source)?.label ?? edge.source
         const target = nodeById.get(edge.target)?.label ?? edge.target
@@ -688,7 +688,7 @@ export function LabRelationGraph({ bookId, bookTitle }: LabRelationGraphProps): 
       .filter(Boolean)
       .join('\n')
     try {
-      const filename = `${graph.title.replace(/[\\/:*?"<>|#%{}]/g, ' ').replace(/\s+/g, ' ').trim() || '关系图'}.md`
+      const filename = `${graph.title.replace(/[\\/:*?"<>|#%{}]/g, ' ').replace(/\s+/g, ' ').trim() || t('关系图')}.md`
       await bridge.saveMarkdown(filename, markdown)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -715,7 +715,7 @@ export function LabRelationGraph({ bookId, bookTitle }: LabRelationGraphProps): 
       const result = await exportFlowImage({
         root: canvasRef.current,
         nodes: flowRef.current?.getNodes() ?? [],
-        filename: graphImageFilename('人物关系图'),
+        filename: graphImageFilename(t('人物关系图')),
       })
       if (result.saved) setNotice(`${t('已保存到')} ${result.path ?? t('图片')}`)
     } catch (err) {
@@ -888,7 +888,7 @@ export function LabRelationGraph({ bookId, bookTitle }: LabRelationGraphProps): 
                     {selectedEdge.chapters?.length ? <small>{t('出处：')}{selectedEdge.chapters.join('、')}</small> : null}
                     {selectedEdge.reverseLabel && selectedEdge.reverseLabel !== selectedEdge.label ? (
                       <small className="relation-edge-detail-reverse">
-                        反向：{selectedEdgeTarget?.label ?? selectedEdge.target} — {selectedEdge.reverseLabel} —{' '}
+                        {t('反向：')}{selectedEdgeTarget?.label ?? selectedEdge.target} — {selectedEdge.reverseLabel} —{' '}
                         {selectedEdgeSource?.label ?? selectedEdge.source}
                       </small>
                     ) : null}

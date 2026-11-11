@@ -55,11 +55,11 @@ function formatCost(value: number): string {
 }
 
 const STATUS_LABEL: Record<BackgroundTask['status'], string> = {
-  running: '进行中',
-  paused: '已暂停',
-  done: '已完成',
-  error: '有失败',
-  cancelled: '已取消',
+  running: t('进行中'),
+  paused: t('已暂停'),
+  done: t('已完成'),
+  error: t('有失败'),
+  cancelled: t('已取消'),
 }
 
 export function TaskCenter({ tasks, onCancel, onRetry, onDismiss, onOpenStats }: TaskCenterProps): JSX.Element | null {

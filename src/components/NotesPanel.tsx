@@ -48,12 +48,12 @@ interface NotesPanelProps {
 }
 
 const STAGE_LABEL: Record<string, string> = {
-  condense: '读薄',
-  'audit-fidelity': '保真回查',
-  'audit-details': '细节回查',
-  'extract-cards': '卡片提炼',
-  'refilter-cards': '卡片筛选',
-  'expand-cards': '卡片延伸',
+  condense: t('读薄'),
+  'audit-fidelity': t('保真回查'),
+  'audit-details': t('细节回查'),
+  'extract-cards': t('卡片提炼'),
+  'refilter-cards': t('卡片筛选'),
+  'expand-cards': t('卡片延伸'),
 }
 
 function degradedSummary(report: NoteReport): string {
@@ -462,7 +462,7 @@ function NotesPanelImpl({
           <div className="note-group-head">
             <span>{t('读薄稿')}</span>
             <div className="condensed-tools">
-              {report && report.ratio > 0 ? <span className="muted">约 1/{report.ratio.toFixed(1)}</span> : null}
+              {report && report.ratio > 0 ? <span className="muted">{t('约 1/')}{report.ratio.toFixed(1)}</span> : null}
               <Checkbox
                 className="export-check"
                 checked={includeCards}

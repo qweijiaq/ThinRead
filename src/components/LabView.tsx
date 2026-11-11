@@ -181,7 +181,7 @@ export function LabView({ books, onBack, onSaveReport, initialToolId, onListen, 
 
               {tool.kind === 'report' && tool.question ? (
                 <label className="lab-source-block">
-                  <span className="lab-source-label">{t(tool.questionLabel ?? '输入')}</span>
+                  <span className="lab-source-label">{t(tool.questionLabel ?? t('输入'))}</span>
                   <textarea
                     value={question}
                     onChange={(event) => setQuestion(event.target.value)}

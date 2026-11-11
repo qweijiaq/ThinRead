@@ -292,7 +292,7 @@ export function PdfOriginalView({ bookId, chapterId, title, initialPage, onClose
           </div>
           <div className="pdf-toolbar-controls">
             <button type="button" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page <= 1}>
-              上一页
+              {t('上一页')}
             </button>
             <label>
               <span className="sr-only">{t('页码')}</span>
@@ -306,7 +306,7 @@ export function PdfOriginalView({ bookId, chapterId, title, initialPage, onClose
             </label>
             <span className="pdf-page-total">/ {total || '—'}</span>
             <button type="button" onClick={() => setPage((current) => Math.min(total, current + 1))} disabled={page >= total}>
-              下一页
+              {t('下一页')}
             </button>
             <span className="pdf-toolbar-divider" />
             <button type="button" onClick={() => setZoom((current) => Math.max(MIN_ZOOM, current - 0.1))} aria-label={t('缩小')}>
@@ -317,7 +317,7 @@ export function PdfOriginalView({ bookId, chapterId, title, initialPage, onClose
               ＋
             </button>
             <button type="button" className="ghost-button small" onClick={() => setZoom(1)}>
-              适应宽度
+              {t('适应宽度')}
             </button>
             <span className="pdf-toolbar-divider" />
             <button
@@ -333,7 +333,7 @@ export function PdfOriginalView({ bookId, chapterId, title, initialPage, onClose
               {t('标注')}{annotations.length > 0 ? ` · ${annotations.length}` : ''}
             </button>
             <button type="button" className="ghost-button small" onClick={onClose}>
-              关闭
+              {t('关闭')}
             </button>
           </div>
         </div>

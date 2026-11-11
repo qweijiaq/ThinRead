@@ -18,24 +18,24 @@ interface NotesLibraryProps {
 const PAGE_SIZE = 30
 
 const KIND_LABEL: Record<NoteKind, string> = {
-  condensed: '读薄稿',
-  summary: '摘要',
-  claim: '论点',
-  point: '知识点',
-  question: '问题',
-  thought: '想法',
-  highlight: '划线',
+  condensed: t('读薄稿'),
+  summary: t('摘要'),
+  claim: t('论点'),
+  point: t('知识点'),
+  question: t('问题'),
+  thought: t('想法'),
+  highlight: t('划线'),
 }
 
 const KIND_OPTIONS: Array<{ value: NoteKind | ''; label: string }> = [
-  { value: '', label: '全部类型' },
-  { value: 'point', label: '知识点' },
-  { value: 'claim', label: '论点' },
-  { value: 'summary', label: '摘要' },
-  { value: 'question', label: '问题' },
-  { value: 'thought', label: '想法' },
-  { value: 'highlight', label: '划线' },
-  { value: 'condensed', label: '读薄稿' },
+  { value: '', label: t('全部类型') },
+  { value: 'point', label: t('知识点') },
+  { value: 'claim', label: t('论点') },
+  { value: 'summary', label: t('摘要') },
+  { value: 'question', label: t('问题') },
+  { value: 'thought', label: t('想法') },
+  { value: 'highlight', label: t('划线') },
+  { value: 'condensed', label: t('读薄稿') },
 ]
 
 export function NotesLibrary({ books, onBack, onOpen, onShare, onShareDeck }: NotesLibraryProps): JSX.Element {

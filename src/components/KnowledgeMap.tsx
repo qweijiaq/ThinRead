@@ -84,9 +84,9 @@ type MapEdgeData = {
 type MapFlowEdge = Edge<MapEdgeData>
 
 const EDGE_KIND_LABEL: Record<KnowledgeMapEdge['kind'], string> = {
-  book: '书 · 概念',
-  semantic: '概念共现',
-  tag: '标签共现',
+  book: t('书 · 概念'),
+  semantic: t('概念共现'),
+  tag: t('标签共现'),
 }
 
 const MINIMAP_WIDTH = 148
@@ -149,7 +149,7 @@ function MapNodeView({ data }: NodeProps): JSX.Element {
             </text>
             {cross ? (
               <text className="map-concept-cross" x={center} y={center + radius + 14}>
-                跨书
+                {t('跨书')}
               </text>
             ) : null}
           </>

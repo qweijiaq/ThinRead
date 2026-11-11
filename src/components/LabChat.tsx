@@ -19,10 +19,10 @@ interface Turn {
 }
 
 const SUGGESTIONS: Partial<Record<LabToolId, string[]>> = {
-  'library-research': ['我读过的书里，关于习惯有哪些不同看法？', '哪些书对「意志力」的解释互相矛盾？'],
-  'author-roundtable': ['作者会怎么反驳「靠意志力就能改变」？', '两位作者最大的分歧是什么？'],
-  'devils-advocate': ['请挑战这一章最核心的主张。', '如果作者错了，最可能错在哪里？'],
-  'book-club': ['请三位读者聊聊这一章最值得实践的一点。', '怀疑者会质疑什么？'],
+  'library-research': [t('我读过的书里，关于习惯有哪些不同看法？'), t('哪些书对「意志力」的解释互相矛盾？')],
+  'author-roundtable': [t('作者会怎么反驳「靠意志力就能改变」？'), t('两位作者最大的分歧是什么？')],
+  'devils-advocate': [t('请挑战这一章最核心的主张。'), t('如果作者错了，最可能错在哪里？')],
+  'book-club': [t('请三位读者聊聊这一章最值得实践的一点。'), t('怀疑者会质疑什么？')],
 }
 
 function plain(value: string): string {
@@ -207,7 +207,7 @@ export function LabChat({ tool, bookIds, chapterId }: LabChatProps): JSX.Element
           <div className="lab-chat-empty">
             <p>{t('从一句话开始。AI 会基于你选中的书和笔记回答。')}</p>
             <div className="qa-suggestions">
-              {(SUGGESTIONS[tool] ?? ['我该从哪里开始？']).map((suggestion) => (
+              {(SUGGESTIONS[tool] ?? [t('我该从哪里开始？')]).map((suggestion) => (
                 <button key={suggestion} type="button" onClick={() => void ask(suggestion)} disabled={busy}>
                   {t(suggestion)}
                 </button>

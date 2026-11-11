@@ -61,14 +61,14 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
           <p className="crash-eyebrow">{t('页边 · ThinRead')}</p>
           <h1>{t('界面遇到了问题')}</h1>
           <p className="crash-lead">
-            这一步的界面没能渲染出来。书和笔记都还在本地，重新加载通常可以恢复；如果反复出现，先导出诊断包再反馈。
+            {t('这一步的界面没能渲染出来。书和笔记都还在本地，重新加载通常可以恢复；如果反复出现，先导出诊断包再反馈。')}
           </p>
           <div className="crash-actions">
             <button type="button" className="primary-button" onClick={this.reload}>
-              重新加载
+              {t('重新加载')}
             </button>
             <button type="button" className="ghost-button" onClick={this.copy}>
-              {copied ? '已复制' : '复制错误信息'}
+              {copied ? t('已复制') : t('复制错误信息')}
             </button>
           </div>
           <details className="crash-details">
@@ -78,7 +78,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             </pre>
           </details>
           <p className="field-hint">
-            重新加载后仍然打不开的话，把「设置 → 导出诊断包」生成的 zip 发给开发者，里面有本机日志。
+            {t('重新加载后仍然打不开的话，把「设置 → 导出诊断包」生成的 zip 发给开发者，里面有本机日志。')}
           </p>
         </div>
       </div>

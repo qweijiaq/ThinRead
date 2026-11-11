@@ -66,12 +66,12 @@ export function FeynmanPanel({ chapter, bookTitle, hasNotes, onSave }: FeynmanPa
     const timer = window.setTimeout(() => {
       const content = JSON.stringify({ explanation, result })
       const task = artifactId
-        ? bridge.updateLabArtifact(artifactId, { title: '讲给我听', content })
+        ? bridge.updateLabArtifact(artifactId, { title: t('讲给我听'), content })
         : bridge
             .saveLabArtifact({
               tool: 'feynman',
               scope: chapter.id,
-              title: '讲给我听',
+              title: t('讲给我听'),
               content,
               kind: 'chat',
             })
@@ -101,7 +101,7 @@ export function FeynmanPanel({ chapter, bookTitle, hasNotes, onSave }: FeynmanPa
           .saveLabArtifact({
             tool: 'feynman',
             scope: chapterId,
-            title: '讲给我听',
+            title: t('讲给我听'),
             content: JSON.stringify({ explanation, result: next }),
             kind: 'chat',
           })
@@ -122,7 +122,7 @@ export function FeynmanPanel({ chapter, bookTitle, hasNotes, onSave }: FeynmanPa
   async function save(): Promise<void> {
     if (!result) return
     const content = [
-      '我的解释：',
+      t('我的解释：'),
       explanation.trim(),
       '',
       `反馈：${result.feedback}`,
@@ -148,7 +148,7 @@ export function FeynmanPanel({ chapter, bookTitle, hasNotes, onSave }: FeynmanPa
       <div className="feynman-head">
         <div>
           <h2>{t('讲给我听')}</h2>
-          <p>{bookTitle ? `${bookTitle} · ` : ''}{chapter?.title ?? '选择一章开始'}</p>
+          <p>{bookTitle ? `${bookTitle} · ` : ''}{chapter?.title ?? t('选择一章开始')}</p>
         </div>
         <button
           type="button"
@@ -161,11 +161,11 @@ export function FeynmanPanel({ chapter, bookTitle, hasNotes, onSave }: FeynmanPa
           }}
           disabled={busy}
         >
-          清空
+          {t('清空')}
         </button>
       </div>
       <p className="feynman-hint">
-        不看笔记，用自己的话把这一章讲清楚。AI 会对照读薄稿和卡片，指出讲对、漏掉和理解偏的地方。
+        {t('不看笔记，用自己的话把这一章讲清楚。AI 会对照读薄稿和卡片，指出讲对、漏掉和理解偏的地方。')}
       </p>
       {!hasNotes ? <p className="feynman-warning">{t('这一章还没有读薄稿。先生成笔记，检查会更准确；也可以先凭记忆试一次。')}</p> : null}
 
@@ -178,14 +178,14 @@ export function FeynmanPanel({ chapter, bookTitle, hasNotes, onSave }: FeynmanPa
         disabled={!chapter || busy}
       />
       <div className="feynman-actions">
-        <span className="muted">{explanation.trim().length} 字</span>
+        <span className="muted">{explanation.trim().length} {t('字')}</span>
         <button
           type="button"
           className="primary-button small"
           onClick={() => void evaluate()}
           disabled={!chapter || busy || explanation.trim().length < 12}
         >
-          {busy ? '正在对照…' : '检查我的理解'}
+          {busy ? t('正在对照…') : t('检查我的理解')}
         </button>
       </div>
 
@@ -265,13 +265,13 @@ export function FeynmanPanel({ chapter, bookTitle, hasNotes, onSave }: FeynmanPa
                 })
               }}
             >
-              {copied ? '已复制' : '复制全文'}
+              {copied ? t('已复制') : t('复制全文')}
             </button>
             <button type="button" className="ghost-button small" onClick={() => setResult(null)}>
-              再讲一次
+              {t('再讲一次')}
             </button>
             <button type="button" className="primary-button small" onClick={() => void save()} disabled={saved}>
-              {saved ? '已存为笔记' : '存为笔记'}
+              {saved ? t('已存为笔记') : t('存为笔记')}
             </button>
           </div>
         </div>

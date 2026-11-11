@@ -12,9 +12,9 @@ interface LabQuizProps {
 }
 
 const VERDICT_LABEL: Record<LabAnswerCheck['verdict'], string> = {
-  good: '讲清楚了',
-  partial: '还差一点',
-  off: '需要重想',
+  good: t('讲清楚了'),
+  partial: t('还差一点'),
+  off: t('需要重想'),
 }
 
 export function LabQuiz({ chapterId, bookTitle, chapterTitle }: LabQuizProps): JSX.Element {
@@ -73,7 +73,7 @@ export function LabQuiz({ chapterId, bookTitle, chapterTitle }: LabQuizProps): J
     if (!hydrated || !quiz) return
     const timer = window.setTimeout(() => {
       const content = JSON.stringify({ quiz, answers, checks, revealed: [...revealed] })
-      const title = chapterTitle ? `自适应出题 · ${chapterTitle}` : '自适应出题'
+      const title = chapterTitle ? `自适应出题 · ${chapterTitle}` : t('自适应出题')
       const task = artifactId
         ? bridge.updateLabArtifact(artifactId, { title, content }).then((updated) => {
             setHistory((current) => current.map((item) => (item.id === updated.id ? updated : item)))
@@ -144,14 +144,14 @@ export function LabQuiz({ chapterId, bookTitle, chapterTitle }: LabQuizProps): J
       <div className="lab-run-row">
         <span className="lab-run-hint">
           {chapterTitle ? `《${bookTitle}》 · ${chapterTitle} · ` : ''}
-          生成 5 道需要理解才能回答的问题，不考死记硬背。
+          {t('生成 5 道需要理解才能回答的问题，不考死记硬背。')}
         </span>
         <button type="button" className="primary-button small" onClick={() => void generate()} disabled={busy}>
-          {busy ? '出题中…' : quiz ? '重新生成' : '开始出题'}
+          {busy ? t('出题中…') : quiz ? t('重新生成') : t('开始出题')}
         </button>
         {busy ? (
           <button type="button" className="ghost-button small" onClick={() => void bridge.cancelLab()}>
-            取消
+            {t('取消')}
           </button>
         ) : null}
       </div>
@@ -179,7 +179,7 @@ export function LabQuiz({ chapterId, bookTitle, chapterTitle }: LabQuizProps): J
                 setSelectedHistoryId(artifact.id)
                 setError(null)
               } catch {
-                setError('这组旧题目无法读取。')
+                setError(t('这组旧题目无法读取。'))
               }
             }}
             ariaLabel="历史题目"
@@ -200,7 +200,7 @@ export function LabQuiz({ chapterId, bookTitle, chapterTitle }: LabQuizProps): J
       {error ? <div className="inline-error" role="alert">{error}</div> : null}
       {!quiz && !busy ? (
         <p className="lab-empty">
-          {chapterTitle ? `当前章节：${chapterTitle}。` : '选好章节后点「开始出题」。'}
+          {chapterTitle ? `当前章节：${chapterTitle}。` : t('选好章节后点「开始出题」。')}
         </p>
       ) : null}
       {quiz ? (
@@ -211,7 +211,7 @@ export function LabQuiz({ chapterId, bookTitle, chapterTitle }: LabQuizProps): J
               <article key={index} className="lab-quiz-card">
                 <div className="lab-quiz-head">
                   <span className="kind-badge">{question.kind}</span>
-                  <span className="lab-quiz-index">第 {index + 1} 题</span>
+                  <span className="lab-quiz-index">{t('第')} {index + 1} {t('题')}</span>
                 </div>
                 <h3>{question.question}</h3>
                 <textarea
@@ -230,7 +230,7 @@ export function LabQuiz({ chapterId, bookTitle, chapterTitle }: LabQuizProps): J
                 />
                 <div className="lab-quiz-actions">
                   <button type="button" className="text-button" onClick={() => void check(index)} disabled={!answers[index]?.trim() || checking === index}>
-                    {checking === index ? '检查中…' : '检查'}
+                    {checking === index ? t('检查中…') : t('检查')}
                   </button>
                   <button
                     type="button"
@@ -244,7 +244,7 @@ export function LabQuiz({ chapterId, bookTitle, chapterTitle }: LabQuizProps): J
                       })
                     }
                   >
-                    {revealed.has(index) ? '收起答案' : '显示答案'}
+                    {revealed.has(index) ? t('收起答案') : t('显示答案')}
                   </button>
                 </div>
                 {checkResult ? (
@@ -252,14 +252,14 @@ export function LabQuiz({ chapterId, bookTitle, chapterTitle }: LabQuizProps): J
                     <strong>{VERDICT_LABEL[checkResult.verdict]}</strong>
                     <p>{checkResult.feedback}</p>
                     {checkResult.missing.length > 0 ? (
-                      <span>还缺：{checkResult.missing.join('、')}</span>
+                      <span>{t('还缺：')}{checkResult.missing.join('、')}</span>
                     ) : null}
                   </div>
                 ) : null}
                 {revealed.has(index) ? (
                   <div className="lab-quiz-answer">
                     <p>{question.answer}</p>
-                    {question.source ? <span>依据：{question.source}</span> : null}
+                    {question.source ? <span>{t('依据：')}{question.source}</span> : null}
                   </div>
                 ) : null}
               </article>

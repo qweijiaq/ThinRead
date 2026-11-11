@@ -38,22 +38,22 @@ interface SettingsDialogProps {
 }
 
 const THEME_OPTIONS: Array<[ReaderStyle['theme'], string]> = [
-  ['folio', '墨蓝'],
-  ['paper', '纸色'],
-  ['plain', '纯白'],
-  ['warm', '暖色'],
+  ['folio', t('墨蓝')],
+  ['paper', t('纸色')],
+  ['plain', t('纯白')],
+  ['warm', t('暖色')],
 ]
 
 const MODE_OPTIONS: Array<[GenerationMode, string]> = [
-  ['fast', '快速'],
-  ['standard', '标准'],
-  ['deep', '精读'],
+  ['fast', t('快速')],
+  ['standard', t('标准')],
+  ['deep', t('精读')],
 ]
 
 const MODE_HINTS: Record<GenerationMode, string> = {
-  fast: '跳过断言回查和卡片延伸，最快、最省 token；适合先看结构。',
-  standard: '读薄、回查、卡片延伸都保留，速度和质量的默认平衡。',
-  deep: '额外做一轮全局回查，并保留全部延伸；适合重要章节。',
+  fast: t('跳过断言回查和卡片延伸，最快、最省 token；适合先看结构。'),
+  standard: t('读薄、回查、卡片延伸都保留，速度和质量的默认平衡。'),
+  deep: t('额外做一轮全局回查，并保留全部延伸；适合重要章节。'),
 }
 
 function formatBytes(value: number): string {
@@ -273,7 +273,7 @@ export function SettingsDialog({
           message: `检测到本机 LM Studio，共 ${found.lmstudio.length} 个模型。`,
         })
       } else {
-        setResult({ ok: false, message: '没有检测到本机 Ollama 或 LM Studio。' })
+        setResult({ ok: false, message: t('没有检测到本机 Ollama 或 LM Studio。') })
       }
     } catch (error) {
       setResult({ ok: false, message: error instanceof Error ? error.message : String(error) })
@@ -638,7 +638,7 @@ export function SettingsDialog({
           <label>{t('界面语言（Beta）')}</label>
           <div className="segmented theme-segmented">
             <button type="button" className={locale === 'zh' ? 'active' : ''} onClick={() => setLocale('zh')}>
-              中文
+              {t('中文')}
             </button>
             <button type="button" className={locale === 'en' ? 'active' : ''} onClick={() => setLocale('en')}>
               English

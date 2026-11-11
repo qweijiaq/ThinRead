@@ -28,38 +28,38 @@ export type SearchCommandId =
   | 'manual'
 
 const COMMANDS: Array<{ id: SearchCommandId; label: string; requiresBook?: boolean }> = [
-  { id: 'library', label: '书架' },
-  { id: 'reader', label: '返回阅读', requiresBook: true },
-  { id: 'notes', label: '全库笔记' },
-  { id: 'content', label: '内容库' },
-  { id: 'compose', label: '成书', requiresBook: true },
-  { id: 'map', label: '知识地图' },
-  { id: 'lab', label: 'AI 工作台' },
-  { id: 'stats', label: '阅读统计' },
-  { id: 'weekly', label: '历次周复盘' },
-  { id: 'settings', label: '设置' },
-  { id: 'import', label: '导入' },
-  { id: 'manual', label: '使用手册' },
+  { id: 'library', label: t('书架') },
+  { id: 'reader', label: t('返回阅读'), requiresBook: true },
+  { id: 'notes', label: t('全库笔记') },
+  { id: 'content', label: t('内容库') },
+  { id: 'compose', label: t('成书'), requiresBook: true },
+  { id: 'map', label: t('知识地图') },
+  { id: 'lab', label: t('AI 工作台') },
+  { id: 'stats', label: t('阅读统计') },
+  { id: 'weekly', label: t('历次周复盘') },
+  { id: 'settings', label: t('设置') },
+  { id: 'import', label: t('导入') },
+  { id: 'manual', label: t('使用手册') },
 ]
 
 const GROUPS: Array<{ type: SearchResultType; label: string }> = [
-  { type: 'book', label: '书' },
-  { type: 'chapter', label: '章节' },
-  { type: 'note', label: '笔记' },
-  { type: 'content', label: '生成内容' },
+  { type: 'book', label: t('书') },
+  { type: 'chapter', label: t('章节') },
+  { type: 'note', label: t('笔记') },
+  { type: 'content', label: t('生成内容') },
 ]
 
 const KIND_LABEL: Record<SearchResultType, string> = {
-  book: '书',
-  chapter: '章节',
-  note: '笔记',
-  content: '生成',
+  book: t('书'),
+  chapter: t('章节'),
+  note: t('笔记'),
+  content: t('生成'),
 }
 
 type Filter = 'all' | SearchResultType
 const PAGE_SIZE = 12
 const FILTERS: Array<{ value: Filter; label: string }> = [
-  { value: 'all', label: '全部' },
+  { value: 'all', label: t('全部') },
   ...GROUPS.map((group) => ({ value: group.type as Filter, label: group.label })),
 ]
 
