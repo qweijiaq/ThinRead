@@ -1778,5 +1778,8 @@
   "检测到本机 Ollama，共": "Detected local Ollama with",
   "检测到本机 LM Studio，共": "Detected local LM Studio with",
   "个模型。": "models.",
-  "整章": "full chapter"
+  "整章": "full chapter",
+  "打开同步文件夹": "Open sync folder",
+  "删除同步快照": "Delete sync snapshot",
+  "删除这个同步快照？删除后无法恢复。": "Delete this sync snapshot? This cannot be undone."
 }

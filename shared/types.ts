@@ -1780,6 +1780,8 @@ export interface ReadingApi {
   pushSyncSnapshot(passphrase?: string): Promise<SyncSnapshot>
   pullSyncSnapshot(name: string, passphrase?: string): Promise<{ ok: boolean }>
   mergeSyncSnapshot(name: string, passphrase?: string): Promise<MergeSnapshotResult>
+  deleteSyncSnapshot(name: string): Promise<SyncStatus>
+  openSyncFolder(): Promise<void>
   openDataDir(): Promise<void>
   createBackup(): Promise<BackupInfo>
   listBackups(): Promise<BackupInfo[]>

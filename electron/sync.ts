@@ -168,3 +168,16 @@ export function mergeSyncSnapshot(name: string, passphrase = ''): MergeSnapshotR
     if (tempDb) fs.rmSync(tempDb, { force: true })
   }
 }
+
+
+export function deleteSyncSnapshot(name: string): void {
+  const folder = getSettingsView().syncFolder
+  if (!folder) throw new Error('还没有选择同步文件夹。')
+  const safeName = path.basename(name)
+  if (!safeName.startsWith(PREFIX) || (!safeName.endsWith('.zip') && !safeName.endsWith('.thinsync'))) {
+    throw new Error('同步快照名称无效。')
+  }
+  const target = path.join(folder, safeName)
+  if (!fs.existsSync(target)) throw new Error('找不到这个同步快照。')
+  fs.unlinkSync(target)
+}

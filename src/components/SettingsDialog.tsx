@@ -339,6 +339,25 @@ export function SettingsDialog({
     }
   }
 
+  async function deleteSync(name: string): Promise<void> {
+    const confirmed = await confirmDialog({
+      title: t('删除同步快照'),
+      message: t('删除这个同步快照？删除后无法恢复。'),
+      confirmLabel: t('删除'),
+      danger: true,
+    })
+    if (!confirmed) return
+    setSyncBusy(name)
+    setSyncNotice(null)
+    try {
+      setSyncStatus(await bridge.deleteSyncSnapshot(name))
+    } catch (error) {
+      setSyncNotice(error instanceof Error ? error.message : String(error))
+    } finally {
+      setSyncBusy(null)
+    }
+  }
+
   async function mergeSync(name: string): Promise<void> {
     const confirmed = await confirmDialog({
       title: t('合并快照里的笔记'),
@@ -1215,6 +1234,14 @@ export function SettingsDialog({
             <button type="button" className="text-button muted" onClick={() => void refreshSync()} disabled={syncBusy !== null}>
               {t('刷新')}
             </button>
+            <button
+              type="button"
+              className="text-button muted"
+              onClick={() => void bridge.openSyncFolder()}
+              disabled={!syncStatus?.folder || syncBusy !== null}
+            >
+              {t('打开同步文件夹')}
+            </button>
             <input
               type="password"
               value={syncPassphrase}
@@ -1262,6 +1289,14 @@ export function SettingsDialog({
                       disabled={syncBusy !== null}
                     >
                       {syncBusy === item.name ? t('恢复中…') : t('恢复')}
+                    </button>
+                    <button
+                      type="button"
+                      className="text-button danger"
+                      onClick={() => void deleteSync(item.name)}
+                      disabled={syncBusy !== null}
+                    >
+                      {t('删除')}
                     </button>
                   </div>
                 </div>

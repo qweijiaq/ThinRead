@@ -317,6 +317,8 @@ const api: ReadingApi = {
     ipcRenderer.invoke('sync:pull', name, passphrase) as Promise<{ ok: boolean }>,
   mergeSyncSnapshot: (name: string, passphrase?: string) =>
     ipcRenderer.invoke('sync:merge', name, passphrase) as Promise<MergeSnapshotResult>,
+  deleteSyncSnapshot: (name: string) => ipcRenderer.invoke('sync:delete', name) as Promise<SyncStatus>,
+  openSyncFolder: () => ipcRenderer.invoke('sync:open-folder') as Promise<void>,
   openDataDir: () => ipcRenderer.invoke('app:open-data') as Promise<void>,
   createBackup: () => ipcRenderer.invoke('backup:create') as Promise<BackupInfo>,
   listBackups: () => ipcRenderer.invoke('backup:list') as Promise<BackupInfo[]>,

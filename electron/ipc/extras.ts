@@ -1,4 +1,4 @@
-import { dialog, ipcMain } from 'electron'
+import { dialog, ipcMain, shell } from 'electron'
 import type { BrowserWindow, OpenDialogOptions } from 'electron'
 
 import {
@@ -12,7 +12,7 @@ import { getNoteQuality, setBookShelfStatus } from '../db.js'
 import { deletePdfAnnotation, listPdfAnnotations, savePdfAnnotation, updatePdfAnnotation } from '../db-pdf.js'
 import { readAiUsage } from '../ai/usage.js'
 import { getAiPricing } from '../settings.js'
-import { chooseSyncFolder, getSyncStatus, mergeSyncSnapshot, pullSyncSnapshot, pushSyncSnapshot } from '../sync.js'
+import { chooseSyncFolder, deleteSyncSnapshot, getSyncStatus, mergeSyncSnapshot, pullSyncSnapshot, pushSyncSnapshot } from '../sync.js'
 import { parseIpc } from './parse.js'
 
 export interface ExtrasContext {
@@ -33,6 +33,18 @@ export function registerExtrasIpc({ getWindow, dataDir, cancelAllAiJobs }: Extra
   ipcMain.handle('stats:note-quality', () => getNoteQuality())
 
   ipcMain.handle('sync:status', () => getSyncStatus())
+
+  ipcMain.handle('sync:open-folder', async () => {
+    const folder = getSyncStatus().folder
+    if (!folder) throw new Error('还没有选择同步文件夹。')
+    await shell.openPath(folder)
+  })
+
+  ipcMain.handle('sync:delete', (_event, name: unknown) => {
+    if (typeof name !== 'string' || !name.trim()) throw new Error('同步快照名称无效。')
+    deleteSyncSnapshot(name)
+    return getSyncStatus()
+  })
 
   ipcMain.handle('sync:choose-folder', async () => {
     const win = getWindow()
