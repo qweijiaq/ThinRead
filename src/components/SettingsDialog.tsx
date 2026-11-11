@@ -241,7 +241,7 @@ export function SettingsDialog({
       setAvailableModels(result.models)
       setModelListError(result.error ?? null)
       if (manual && result.models.length > 0) {
-        setResult({ ok: true, message: `已读取 ${result.models.length} 个可用模型。` })
+        setResult({ ok: true, message: `${t('已读取')} ${result.models.length} ${t('个可用模型。')}` })
       }
     } catch (error) {
       setModelListError(error instanceof Error ? error.message : String(error))
@@ -262,7 +262,7 @@ export function SettingsDialog({
         setAvailableModels(found.ollama)
         setResult({
           ok: true,
-          message: `检测到本机 Ollama，共 ${found.ollama.length} 个模型。`,
+          message: `${t('检测到本机 Ollama，共')} ${found.ollama.length} ${t('个模型。')}`,
         })
       } else if (found.lmstudio.length > 0) {
         changeProvider('lmstudio')
@@ -271,7 +271,7 @@ export function SettingsDialog({
         setAvailableModels(found.lmstudio)
         setResult({
           ok: true,
-          message: `检测到本机 LM Studio，共 ${found.lmstudio.length} 个模型。`,
+          message: `${t('检测到本机 LM Studio，共')} ${found.lmstudio.length} ${t('个模型。')}`,
         })
       } else {
         setResult({ ok: false, message: t('没有检测到本机 Ollama 或 LM Studio。') })

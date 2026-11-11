@@ -449,7 +449,7 @@ export function ListenPanel({
   async function saveFullAudio(): Promise<void> {
     if (!fullAudioBase64) return
     try {
-      const result = await bridge.saveAudio(fullAudioBase64, `页边-${title}-整章.wav`)
+      const result = await bridge.saveAudio(fullAudioBase64, `${t('页边')}-${title}-${t('整章')}.wav`)
       if (result.saved) setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -459,7 +459,7 @@ export function ListenPanel({
   async function saveFullAudioMp3(): Promise<void> {
     if (!fullAudioMp3Base64) return
     try {
-      const result = await bridge.saveAudio(fullAudioMp3Base64, `页边-${title}-整章.mp3`)
+      const result = await bridge.saveAudio(fullAudioMp3Base64, `${t('页边')}-${title}-${t('整章')}.mp3`)
       if (result.saved) setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
