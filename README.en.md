@@ -100,6 +100,8 @@ Model output is untrusted, so every generated artifact passes a verification gat
 - Deep mode reuses a 24k-token source prefix (explicit Anthropic `cache_control`; automatic prefix caching on OpenAI-compatible endpoints)
 - Short chapters, low compression ratios, and small card sets skip the stages that would not pay off
 - The full-text index is cached to `search-index.json.gz` and loaded directly when signatures are unchanged
+- Generated snapshots are pruned to the latest 30 per tool + scope; favorites and the current version are never pruned
+- Failed model requests retry with exponential backoff, only for recoverable errors such as 429, 5xx, and timeouts
 
 ### Verification
 
@@ -108,6 +110,7 @@ Model output is untrusted, so every generated artifact passes a verification gat
 - Storybook pixel baselines with CI diffing — layout drift fails the build
 - axe-core injected into UI smoke tests, scanning WCAG 2A/2AA critical/serious issues
 - CI runs without an API key: record real model responses once, replay them afterwards
+- `check:boundaries` blocks renderer imports of Electron or Node built-ins, enforcing the architecture boundary in CI
 
 ---
 
@@ -212,7 +215,7 @@ Settings → pick a provider → fill in Base URL, model, and API key → **Test
 
 Presets include DeepSeek, Zhipu GLM, Anthropic, OpenAI, Moonshot, Alibaba Cloud Bailian, OpenRouter, OpenCode Zen / Console, OpenCode Go, and local Ollama. Any OpenAI-compatible endpoint also works. Keys are encrypted in the system keychain, falling back to a `0600` file.
 
-You can assign separate models to condensing, composition, and the workbench, and choose a fast / standard / deep quality tier.
+You can assign separate models to condensing, composition, and the workbench, and choose a fast / standard / deep quality tier. A monthly AI budget can also be set: estimated from your model prices, new generation requests are rejected once the cap is reached, while existing content and local features keep working.
 
 ---
 
@@ -271,7 +274,9 @@ You can assign separate models to condensing, composition, and the workbench, an
 - **Global search**: `⌘K` / `Ctrl+K` across titles, chapter bodies, and notes. Keyword inverted index returns first, local semantic search follows, fused with RRF.
 - **Notes library**: filter by book, type, and tag; the audit view shows AI/human edits, citation verification status, and chapter coverage; export a Markdown folder with YAML frontmatter for Obsidian or Notion.
 - **Note linking**: `[[Note title]]` references, automatic backlinks, and same-book / cross-book related notes.
-- **Reading data**: time tracking, daily goals, streaks, 7/30/100-day milestone badges, monthly and yearly stats, weekly reviews, CSV export.
+- **Shelf status**: mark each book as to read / reading / finished, filter the shelf by status with counts, and toggle the status from the card.
+- **Zero-config listening**: without a Qwen TTS key, ThinRead falls back to built-in macOS voices synthesized entirely on-device at no cost; with a key it still uses Qwen, with the same voices and cost estimates.
+- **Reading data**: time tracking, daily goals, streaks, 7/30/100-day milestone badges, monthly and yearly stats, weekly reviews, CSV export, plus note quality and citation pass rate.
 - **Backup and restore**: manual and automatic backups, whole-library export/import, app lock, and a diagnostics bundle.
 
 ---
