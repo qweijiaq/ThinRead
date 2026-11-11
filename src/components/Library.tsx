@@ -312,6 +312,25 @@ export function Library({ books, importing, onOpen, onImport, onOpenTrash, onDel
             <div className="book-body">
               <h3>{book.title}</h3>
               <p className="book-author">{book.author || t('未知作者')}</p>
+              <div
+                className="book-status-row"
+                onClick={(event) => event.stopPropagation()}
+                onKeyDown={(event) => event.stopPropagation()}
+              >
+                <span className="book-status-label">{t('状态')}</span>
+                <Select
+                  className="book-status-select"
+                  value={book.shelfStatus}
+                  onChange={(value) => onShelfStatus(book.id, value as BookShelfStatus)}
+                  ariaLabel={`${book.title} ${t('阅读状态')}`}
+                  options={[
+                    { value: 'inbox', label: t('待读') },
+                    { value: 'reading', label: t('在读') },
+                    { value: 'finished', label: t('读完') },
+                    { value: 'archived', label: t('已归档') },
+                  ]}
+                />
+              </div>
               <div className="book-meta">
                 <span>{formatWords(book.totalChars)}</span>
                 <span>{book.chapterCount} {countUnit(book.chapterCount, t('节'), t('节一'))}</span>
@@ -337,19 +356,6 @@ export function Library({ books, importing, onOpen, onImport, onOpenTrash, onDel
                     : t('尚未开始')}
                 </span>
                 <span className="book-action-buttons">
-                  <button
-                    type="button"
-                    className="text-button"
-                    title={t('切换阅读状态')}
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      const next: BookShelfStatus =
-                        book.shelfStatus === 'inbox' ? 'reading' : book.shelfStatus === 'reading' ? 'finished' : 'inbox'
-                      onShelfStatus(book.id, next)
-                    }}
-                  >
-                    {t(book.shelfStatus === 'inbox' ? '待读' : book.shelfStatus === 'finished' ? '读完' : book.shelfStatus === 'archived' ? '已归档' : '在读')}
-                  </button>
                   <button
                     type="button"
                     className="text-button"

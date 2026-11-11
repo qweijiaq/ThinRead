@@ -1674,5 +1674,7 @@
   "这一章还没有读薄稿。先生成笔记，检查会更准确；也可以先凭记忆试一次。": "This chapter has no condensed draft yet. Generate notes first for a more accurate check, or try from memory.",
   "需要纠正": "Needs correction",
   "页码": "Page",
-  "页边 · ThinRead": "ThinRead"
+  "页边 · ThinRead": "ThinRead",
+  "状态": "Status",
+  "阅读状态": "Reading status"
 }

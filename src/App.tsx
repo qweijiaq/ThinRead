@@ -1104,12 +1104,22 @@ export function App(): JSX.Element {
           onCompose={(bookId) => void openCompose(bookId)}
           onPlan={setPlanBook}
           onShelfStatus={(bookId, status) => {
+            // 先乐观更新，点下去立刻看到变化；失败再回滚并提示。
+            const previous = books.find((book) => book.id === bookId)?.shelfStatus
+            setBooks((current) => current.map((book) => (book.id === bookId ? { ...book, shelfStatus: status } : book)))
             void bridge
               .setBookShelfStatus(bookId, status)
               .then((updated) => {
                 setBooks((current) => current.map((book) => (book.id === updated.id ? updated : book)))
               })
-              .catch(() => undefined)
+              .catch((error) => {
+                if (previous) {
+                  setBooks((current) =>
+                    current.map((book) => (book.id === bookId ? { ...book, shelfStatus: previous } : book)),
+                  )
+                }
+                setToast({ kind: 'error', text: messageOf(error) })
+              })
           }}
           onOpenPlan={(bookId, chapterId) => void openBookAt(bookId, chapterId)}
           planVersion={planVersion}

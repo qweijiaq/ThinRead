@@ -12672,3 +12672,37 @@ html.theme-plain .primary-button.is-danger:hover {
 .pdf-annotation-editor-actions span {
   flex: 1;
 }
+
+
+/* ─── 书架：状态选择与操作行换行 ─────────────────────────── */
+.book-status-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 0 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.book-status-label {
+  flex: 0 0 auto;
+  letter-spacing: 0.04em;
+}
+
+.book-status-row .ui-select {
+  flex: 0 0 auto;
+}
+
+.book-status-row .ui-select-trigger {
+  min-height: 24px;
+  padding: 2px 9px;
+  font-size: 11.5px;
+}
+
+.book-action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 2px 8px;
+  min-width: 0;
+}
