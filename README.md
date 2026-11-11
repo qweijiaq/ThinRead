@@ -307,6 +307,8 @@ macOS：`~/Library/Application Support/reading-notes/`
 electron/
   main.ts             主进程入口、窗口、开发验证模式
   ipc.ts              渲染层与主进程的 IPC 契约实现
+  ipc/extras.ts       书架状态、统计、同步和 PDF 标注的 IPC
+  ipc/parse.ts        IPC 参数的 zod 边界校验
   db.ts               SQLite 存储、版本化迁移、书 / 章节 / 笔记 / 标记 / 排版结果
   pdf.ts              Electron printToPDF：分享页 HTML → A4 PDF
   import.ts           解析、自动清理并写入一本书

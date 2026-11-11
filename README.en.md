@@ -309,7 +309,13 @@ macOS: `~/Library/Application Support/reading-notes/`
 electron/
   main.ts             Main process, windows, dev verification modes
   ipc.ts              IPC contract between renderer and main
+  ipc/extras.ts       Shelf status, stats, sync, and PDF annotation IPC
+  ipc/parse.ts        Zod boundary validation for IPC arguments
   db.ts               SQLite storage, versioned migrations, books/chapters/notes/marks/formatting
+  db-pdf.ts           PDF annotation CRUD
+  db-merge.ts         Merge notes, annotations, and bookmarks from a snapshot
+  sync.ts             Folder snapshot push, restore, and merge
+  sync-crypto.ts      AES-256-GCM encryption for sync snapshots
   pdf.ts              Electron printToPDF: share-page HTML -> A4 PDF
   import.ts           Parse, auto-clean, and persist a book
   settings.ts         Local model config and key storage
