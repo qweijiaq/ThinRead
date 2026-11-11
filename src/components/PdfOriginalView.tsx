@@ -59,6 +59,7 @@ export function PdfOriginalView({ bookId, chapterId, title, initialPage, onClose
   const [savingNote, setSavingNote] = useState(false)
   const [showList, setShowList] = useState(false)
   const [allAnnotations, setAllAnnotations] = useState<PdfAnnotation[]>([])
+  const [notice, setNotice] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -256,6 +257,26 @@ export function PdfOriginalView({ bookId, chapterId, title, initialPage, onClose
       })
       .catch((err) => setError(err instanceof Error ? err.message : String(err)))
       .finally(() => setSavingNote(false))
+  }
+
+  function saveAsNote(): void {
+    if (!selected) return
+    const text = noteDraft.trim()
+    void bridge
+      .createNote({
+        bookId,
+        chapterId: chapterId ?? null,
+        kind: 'highlight',
+        title: `${t('PDF 标注')} · ${t('第')} ${selected.page} ${t('页')}`,
+        content: text || t('PDF 标注'),
+        quote: text || null,
+        tags: ['PDF'],
+      })
+      .then(() => {
+        setNotice(t('已存为笔记。'))
+        setError(null)
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : String(err)))
   }
 
   function removeAnnotation(): void {
@@ -473,11 +494,15 @@ export function PdfOriginalView({ bookId, chapterId, title, initialPage, onClose
               placeholder={t('给这块标注写一句备注…')}
               rows={3}
             />
+            {notice ? <p className="field-hint" role="status">{notice}</p> : null}
             <div className="pdf-annotation-editor-actions">
               <button type="button" className="ghost-button small danger" onClick={removeAnnotation}>
                 {t('删除标注')}
               </button>
               <span />
+              <button type="button" className="ghost-button small" onClick={saveAsNote}>
+                {t('存为笔记')}
+              </button>
               <button type="button" className="ghost-button small" onClick={() => setSelectedId(null)}>
                 {t('取消')}
               </button>

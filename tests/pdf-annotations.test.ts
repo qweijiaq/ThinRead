@@ -8,6 +8,7 @@ import { closeDatabase, initDatabase, insertBook } from '../electron/db.js'
 import {
   deletePdfAnnotation,
   listPdfAnnotations,
+  listPdfAnnotationsForBook,
   savePdfAnnotation,
   updatePdfAnnotation,
 } from '../electron/db-pdf.js'
@@ -67,6 +68,26 @@ test('clamps annotation coordinates and rejects tiny regions', () => {
     assert.throws(() =>
       savePdfAnnotation({ bookId: book.id, page: 1, x: 0.1, y: 0.1, width: 0.0001, height: 0.0001 }),
     )
+  } finally {
+    closeDatabase()
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+
+test('lists annotations across the whole book in page order', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'reading-notes-pdf-ann-book-'))
+  try {
+    initDatabase(dir)
+    const book = insertBook(
+      { title: '标注列表', author: '作者', format: 'pdf', filePath: path.join(dir, 'source.pdf') },
+      [{ title: '第 1 页', text: '正文', html: '<p>正文</p>' }],
+    )
+    savePdfAnnotation({ bookId: book.id, page: 3, x: 0.1, y: 0.1, width: 0.2, height: 0.1, note: '第三页' })
+    savePdfAnnotation({ bookId: book.id, page: 1, x: 0.1, y: 0.1, width: 0.2, height: 0.1, note: '第一页' })
+    const all = listPdfAnnotationsForBook(book.id)
+    assert.equal(all.length, 2)
+    assert.deepEqual(all.map((item) => item.page), [1, 3])
   } finally {
     closeDatabase()
     fs.rmSync(dir, { recursive: true, force: true })
