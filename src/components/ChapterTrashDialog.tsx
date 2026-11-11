@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useEffect, useState, type JSX } from 'react'
 
 import type { TrashedChapter } from '../../shared/types.js'
@@ -29,7 +30,7 @@ export function ChapterTrashDialog({ open, onClose, onChanged }: ChapterTrashDia
     let cancelled = false
     setLoading(true)
     setError(null)
-    void window.api
+    void bridge
       .listTrashedChapters()
       .then((items) => {
         if (!cancelled) setChapters(items)
@@ -52,7 +53,7 @@ export function ChapterTrashDialog({ open, onClose, onChanged }: ChapterTrashDia
     setBusy(item.id)
     setError(null)
     try {
-      const chapter = await window.api.restoreTrashedChapter(item.id)
+      const chapter = await bridge.restoreTrashedChapter(item.id)
       if (!chapter) throw new Error(t('原书已经不存在，无法恢复这个章节。'))
       setChapters((current) => current.filter((entry) => entry.id !== item.id))
       onChanged()
@@ -75,7 +76,7 @@ export function ChapterTrashDialog({ open, onClose, onChanged }: ChapterTrashDia
     setBusy(item.id)
     setError(null)
     try {
-      await window.api.purgeTrashedChapter(item.id)
+      await bridge.purgeTrashedChapter(item.id)
       setChapters((current) => current.filter((entry) => entry.id !== item.id))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -96,7 +97,7 @@ export function ChapterTrashDialog({ open, onClose, onChanged }: ChapterTrashDia
     setBusy('empty')
     setError(null)
     try {
-      await window.api.emptyChapterTrash()
+      await bridge.emptyChapterTrash()
       setChapters([])
       onChanged()
     } catch (err) {

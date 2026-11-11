@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { AiJobSnapshot, BackgroundTaskRecord, BookComposeOptions, FormatChapterOptions } from '../../shared/types.js'
@@ -181,7 +182,7 @@ export function useTasks(options: {
 
   function desktopNotify(title: string, body: string): void {
     if (typeof document !== 'undefined' && document.hasFocus()) return
-    void window.api.notifyDesktop(title, body).catch(() => undefined)
+    void bridge.notifyDesktop(title, body).catch(() => undefined)
   }
 
   const mergeDurableTasks = useCallback((records: BackgroundTaskRecord[]) => {
@@ -200,7 +201,7 @@ export function useTasks(options: {
   }, [])
 
   const refreshDurableTasks = useCallback(() => {
-    void window.api
+    void bridge
       .listBackgroundTasks()
       .then(mergeDurableTasks)
       .catch(() => undefined)
@@ -222,7 +223,7 @@ export function useTasks(options: {
   }, [])
 
   const refreshAiJobs = useCallback(() => {
-    void window.api
+    void bridge
       .listAiJobs()
       .then(mergeAiJobs)
       .catch(() => undefined)
@@ -244,7 +245,7 @@ export function useTasks(options: {
       setTasks((current) => current.map((task) => (task.id === id ? { ...task, ...update } : task)))
     }
 
-    const offAiJob = window.api.onAiJobUpdate((job) => {
+    const offAiJob = bridge.onAiJobUpdate((job) => {
       const previous = jobStatusRef.current.get(job.id)
       jobStatusRef.current.set(job.id, job.status)
       const task = taskFromAiJob(job)
@@ -266,7 +267,7 @@ export function useTasks(options: {
       upsert(task)
     })
 
-    const offNotesProgress = window.api.onBookGenerationProgress((event) => {
+    const offNotesProgress = bridge.onBookGenerationProgress((event) => {
       upsert({
         id: `notes:${event.bookId}`,
         kind: 'notes',
@@ -277,7 +278,7 @@ export function useTasks(options: {
         status: 'running',
       })
     })
-    const offNotesDone = window.api.onBookGenerationDone((event) => {
+    const offNotesDone = bridge.onBookGenerationDone((event) => {
       patch(`notes:${event.bookId}`, {
         status: event.cancelled ? 'cancelled' : event.failed.length > 0 ? 'error' : 'done',
         done: event.generated + event.skipped + event.failed.length,
@@ -293,7 +294,7 @@ export function useTasks(options: {
       if (!document.hasFocus()) desktopNotify(t('整本生成'), event.cancelled ? t('已取消') : event.failed.length > 0 ? t('有章节失败') : t('已完成'))
       refreshDurableTasks()
     })
-    const offTranslateProgress = window.api.onBookTranslationProgress((event) => {
+    const offTranslateProgress = bridge.onBookTranslationProgress((event) => {
       upsert({
         id: `translate:${event.bookId}`,
         kind: 'translate',
@@ -308,7 +309,7 @@ export function useTasks(options: {
         status: 'running',
       })
     })
-    const offTranslateDone = window.api.onBookTranslationDone((event) => {
+    const offTranslateDone = bridge.onBookTranslationDone((event) => {
       patch(`translate:${event.bookId}`, {
         status: event.cancelled ? 'cancelled' : event.failed.length > 0 || event.error ? 'error' : 'done',
         done: event.translated + event.skipped + event.failed.length,
@@ -326,7 +327,7 @@ export function useTasks(options: {
       if (!document.hasFocus()) desktopNotify(t('整本翻译'), event.cancelled ? t('已取消') : event.error ? t('失败') : t('已完成'))
       refreshDurableTasks()
     })
-    const offFormatProgress = window.api.onBookFormatProgress((event) => {
+    const offFormatProgress = bridge.onBookFormatProgress((event) => {
       upsert({
         id: `format:${event.bookId}`,
         kind: 'format',
@@ -337,7 +338,7 @@ export function useTasks(options: {
         status: 'running',
       })
     })
-    const offFormatDone = window.api.onBookFormatDone((event) => {
+    const offFormatDone = bridge.onBookFormatDone((event) => {
       patch(`format:${event.bookId}`, {
         status: event.cancelled ? 'cancelled' : event.failed.length > 0 ? 'error' : 'done',
         done: event.formatted + event.skipped + event.failed.length,
@@ -353,7 +354,7 @@ export function useTasks(options: {
       if (!document.hasFocus()) desktopNotify(t('整本 AI 排版'), event.cancelled ? t('已取消') : event.failed.length > 0 ? t('有章节失败') : t('已完成'))
       refreshDurableTasks()
     })
-    const offOcrProgress = window.api.onOcrProgress((event) => {
+    const offOcrProgress = bridge.onOcrProgress((event) => {
       upsert({
         id: 'ocr',
         kind: 'import',
@@ -364,7 +365,7 @@ export function useTasks(options: {
         status: 'running',
       })
     })
-    const offOcrDone = window.api.onOcrDone((event) => {
+    const offOcrDone = bridge.onOcrDone((event) => {
       setTasks((current) =>
         current.map((task) =>
           task.id === 'ocr'
@@ -380,7 +381,7 @@ export function useTasks(options: {
       notify({ kind: 'info', text: `${t('OCR 导入完成')}：《${event.book.title}》，${t('共')} ${event.book.chapterCount} ${t('节')}.` })
       onBooksChanged()
     })
-    const offOcrError = window.api.onOcrError((event) => {
+    const offOcrError = bridge.onOcrError((event) => {
       patch('ocr', { status: event.cancelled ? 'cancelled' : 'error', detail: event.message })
       notify({ kind: event.cancelled ? 'info' : 'error', text: event.message })
     })

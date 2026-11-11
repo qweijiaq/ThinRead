@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useEffect, useRef, useState, type JSX, type KeyboardEvent } from 'react'
 import type { SearchResult, SearchResultType } from '../../shared/types.js'
 import { t, useLocale } from '../lib/i18n.js'
@@ -122,7 +123,7 @@ export function SearchDialog({ open, hasBook = false, onClose, onOpen, onCommand
     let cancelled = false
     setLoading(true)
     const timer = window.setTimeout(() => {
-      void window.api
+      void bridge
         .search(term)
         .then((found) => {
           if (cancelled) return
@@ -143,7 +144,7 @@ export function SearchDialog({ open, hasBook = false, onClose, onOpen, onCommand
     const semanticTimer =
       term.length >= 4
         ? window.setTimeout(() => {
-            void window.api
+            void bridge
               .searchSemantic(term)
               .then((extra) => {
                 if (!cancelled && extra.length > 0) {

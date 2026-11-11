@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { t } from './i18n.js'
 
 const WRAP_CLASS = 'reader-image-wrap'
@@ -78,7 +79,7 @@ export function handleImageCopyClick(event: MouseEvent, root: HTMLElement): bool
   const src = img.currentSrc || img.src
   void (async () => {
     try {
-      const copyImage = window.api?.copyImage
+      const copyImage = bridge?.copyImage
       if (!copyImage) throw new Error('剪贴板不可用')
       await copyImage(await imageToDataUrl(src))
       setButtonStatus(button, t('已复制图片'), fallback)

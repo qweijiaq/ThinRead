@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { memo, useCallback, useEffect, useMemo, useState, type JSX } from 'react'
 import type { ChapterContent, GeneratePartial, GenerationMode, Note, NoteDraft, NotePatch, NoteReport, ReaderMark, RelatedNote } from '../../shared/types.js'
 import { t, useLocale } from '../lib/i18n.js'
@@ -226,7 +227,7 @@ function NotesPanelImpl({
     if (!condensedNote) return
     setExportError(null)
     try {
-      await window.api.copyText(markdown())
+      await bridge.copyText(markdown())
       setExportState('copied')
       window.setTimeout(() => setExportState('idle'), 1800)
     } catch (err) {
@@ -238,7 +239,7 @@ function NotesPanelImpl({
     if (!condensedNote) return
     setExportError(null)
     try {
-      const result = await window.api.saveMarkdown(
+      const result = await bridge.saveMarkdown(
         markdownFilename(bookTitle, chapter?.title ?? ''),
         markdown(),
       )
@@ -293,7 +294,7 @@ function NotesPanelImpl({
     setCompareBusy(true)
     setCompareError(null)
     try {
-      const result = await window.api.compareChapterNotes({ chapterId: chapter.id, model })
+      const result = await bridge.compareChapterNotes({ chapterId: chapter.id, model })
       setCompareOpen(false)
       setCompareDiff({
         before: contentToMarkdown(result.base),

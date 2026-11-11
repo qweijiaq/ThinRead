@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import type { LabArtifact, LabRequest } from '../../shared/types.js'
 
 export interface LabArtifactMeta {
@@ -9,11 +10,11 @@ export interface LabArtifactMeta {
 }
 
 export async function loadLabArtifact(tool: string, scope = 'latest'): Promise<LabArtifact | null> {
-  return window.api.getLabArtifact(tool, scope)
+  return bridge.getLabArtifact(tool, scope)
 }
 
 export async function listLabArtifacts(tool: string): Promise<LabArtifact[]> {
-  return window.api.listLabArtifacts(tool, 40)
+  return bridge.listLabArtifacts(tool, 40)
 }
 
 export async function saveLabArtifact(
@@ -23,7 +24,7 @@ export async function saveLabArtifact(
   meta: LabArtifactMeta,
   scope = 'latest',
 ): Promise<LabArtifact> {
-  return window.api.saveLabArtifact({
+  return bridge.saveLabArtifact({
     tool,
     scope,
     title,

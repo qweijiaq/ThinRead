@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useEffect, useState, type JSX } from 'react'
 
 import { AI_PRICING_REFERENCE_DATE, PROVIDER_PRESETS } from '../../shared/types.js'
@@ -166,7 +167,7 @@ export function SettingsDialog({
     setQwenTtsVoices(settings.qwenTtsVoices)
     setNewVoice('')
     setSyncNotice(null)
-    void window.api.getSyncStatus().then(setSyncStatus).catch(() => setSyncStatus(null))
+    void bridge.getSyncStatus().then(setSyncStatus).catch(() => setSyncStatus(null))
     setLockPasscode('')
     setLockTest(null)
     setQwenTtsKey('')
@@ -174,7 +175,7 @@ export function SettingsDialog({
     setBackupError(null)
     setBackupNotice(null)
     setBackupBusy(null)
-    void window.api
+    void bridge
       .listBackups()
       .then(setBackups)
       .catch((error: unknown) => {
@@ -231,7 +232,7 @@ export function SettingsDialog({
     setModelListLoading(true)
     if (manual) setModelListError(null)
     try {
-      const result = await window.api.listAiModels({
+      const result = await bridge.listAiModels({
         provider,
         baseUrl,
         apiKey: apiKey.trim() || undefined,
@@ -252,7 +253,7 @@ export function SettingsDialog({
     setDetectingLocal(true)
     setResult(null)
     try {
-      const found = await window.api.detectLocalModels()
+      const found = await bridge.detectLocalModels()
       if (found.ollama.length > 0) {
         changeProvider('ollama')
         setBaseUrl('http://127.0.0.1:11434/v1')
@@ -305,7 +306,7 @@ export function SettingsDialog({
 
   async function refreshSync(): Promise<void> {
     try {
-      setSyncStatus(await window.api.getSyncStatus())
+      setSyncStatus(await bridge.getSyncStatus())
     } catch {
       setSyncStatus(null)
     }
@@ -315,7 +316,7 @@ export function SettingsDialog({
     setSyncBusy('choose')
     setSyncNotice(null)
     try {
-      setSyncStatus(await window.api.chooseSyncFolder())
+      setSyncStatus(await bridge.chooseSyncFolder())
     } catch (error) {
       setSyncNotice(error instanceof Error ? error.message : String(error))
     } finally {
@@ -327,7 +328,7 @@ export function SettingsDialog({
     setSyncBusy('push')
     setSyncNotice(null)
     try {
-      const snapshot = await window.api.pushSyncSnapshot()
+      const snapshot = await bridge.pushSyncSnapshot()
       await refreshSync()
       setSyncNotice(`${t('已推送快照')} · ${formatBytes(snapshot.size)}`)
     } catch (error) {
@@ -348,7 +349,7 @@ export function SettingsDialog({
     setSyncBusy(name)
     setSyncNotice(null)
     try {
-      await window.api.pullSyncSnapshot(name)
+      await bridge.pullSyncSnapshot(name)
       setSyncNotice(t('正在重新加载…'))
     } catch (error) {
       setSyncNotice(error instanceof Error ? error.message : String(error))
@@ -359,7 +360,7 @@ export function SettingsDialog({
   async function persist(options: { silent?: boolean } = {}): Promise<SettingsView | null> {
     setSaving(true)
     try {
-      const saved = await window.api.saveSettings({
+      const saved = await bridge.saveSettings({
         provider,
         baseUrl,
         model,
@@ -411,8 +412,8 @@ export function SettingsDialog({
     setBackupError(null)
     setBackupNotice(null)
     try {
-      const info = await window.api.createBackup()
-      setBackups(await window.api.listBackups())
+      const info = await bridge.createBackup()
+      setBackups(await bridge.listBackups())
       setBackupNotice(`${t('已创建备份')} · ${formatBytes(info.bytes)}`)
     } catch (error) {
       setBackupError(error instanceof Error ? error.message : String(error))
@@ -428,7 +429,7 @@ export function SettingsDialog({
     setBackupError(null)
     setBackupNotice(null)
     try {
-      const saved = await window.api.exportBackup(latest.id)
+      const saved = await bridge.exportBackup(latest.id)
       if (saved.saved) setBackupNotice(`${t('备份已导出到')} ${saved.path}`)
     } catch (error) {
       setBackupError(error instanceof Error ? error.message : String(error))
@@ -443,7 +444,7 @@ export function SettingsDialog({
     setBackupError(null)
     setBackupNotice(null)
     try {
-      const saved = await window.api.exportLibrary()
+      const saved = await bridge.exportLibrary()
       if (saved.saved) setBackupNotice(`${t('整库已导出到')} ${saved.path}`)
     } catch (error) {
       setBackupError(error instanceof Error ? error.message : String(error))
@@ -465,7 +466,7 @@ export function SettingsDialog({
     setBackupError(null)
     setBackupNotice(null)
     try {
-      const saved = await window.api.importLibrary()
+      const saved = await bridge.importLibrary()
       if (saved.saved) setBackupNotice(t('整库已导入，正在重新加载…'))
     } catch (error) {
       setBackupError(error instanceof Error ? error.message : String(error))
@@ -480,7 +481,7 @@ export function SettingsDialog({
     setBackupError(null)
     setBackupNotice(null)
     try {
-      const saved = await window.api.exportDiagnostics()
+      const saved = await bridge.exportDiagnostics()
       if (saved.saved) setBackupNotice(`${t('诊断包已导出到')} ${saved.path}`)
     } catch (error) {
       setBackupError(error instanceof Error ? error.message : String(error))
@@ -492,7 +493,7 @@ export function SettingsDialog({
   async function testReadwiseToken(): Promise<void> {
     setReadwiseTest(null)
     try {
-      setReadwiseTest(await window.api.testReadwise(readwiseToken.trim() || undefined))
+      setReadwiseTest(await bridge.testReadwise(readwiseToken.trim() || undefined))
     } catch (error) {
       setReadwiseTest({ ok: false, message: error instanceof Error ? error.message : String(error) })
     }
@@ -505,10 +506,10 @@ export function SettingsDialog({
       return
     }
     try {
-      await window.api.setAppLock(passcode)
+      await bridge.setAppLock(passcode)
       setLockPasscode('')
       setLockTest({ ok: true, message: t('应用锁已开启；下次启动需要输入密码。') })
-      onSaved(await window.api.getSettings())
+      onSaved(await bridge.getSettings())
     } catch (error) {
       setLockTest({ ok: false, message: error instanceof Error ? error.message : String(error) })
     }
@@ -523,10 +524,10 @@ export function SettingsDialog({
     })
     if (!confirmed) return
     try {
-      await window.api.setAppLock(null)
+      await bridge.setAppLock(null)
       setLockPasscode('')
       setLockTest({ ok: true, message: t('应用锁已关闭。') })
-      onSaved(await window.api.getSettings())
+      onSaved(await bridge.getSettings())
     } catch (error) {
       setLockTest({ ok: false, message: error instanceof Error ? error.message : String(error) })
     }
@@ -544,7 +545,7 @@ export function SettingsDialog({
     setBackupError(null)
     setBackupNotice(t('正在恢复备份…'))
     try {
-      await window.api.restoreBackup(item.id)
+      await bridge.restoreBackup(item.id)
     } catch (error) {
       setBackupBusy(null)
       setBackupError(error instanceof Error ? error.message : String(error))
@@ -561,8 +562,8 @@ export function SettingsDialog({
     if (!confirmed) return
     setBackupError(null)
     try {
-      await window.api.deleteBackup(item.id)
-      setBackups(await window.api.listBackups())
+      await bridge.deleteBackup(item.id)
+      setBackups(await bridge.listBackups())
     } catch (error) {
       setBackupError(error instanceof Error ? error.message : String(error))
     }
@@ -575,7 +576,7 @@ export function SettingsDialog({
     setTesting(true)
     setResult(null)
     try {
-      const next = await window.api.testConnection()
+      const next = await bridge.testConnection()
       setResult(next)
       onTestResult?.(next)
     } catch (error) {
@@ -1114,7 +1115,7 @@ export function SettingsDialog({
             >
               {backupBusy === 'library-import' ? t('导入中…') : t('导入整库')}
             </button>
-            <button type="button" className="text-button muted" onClick={() => void window.api.openBackupsDir()}>
+            <button type="button" className="text-button muted" onClick={() => void bridge.openBackupsDir()}>
               {t('打开备份目录')}
             </button>
             <button
@@ -1223,7 +1224,7 @@ export function SettingsDialog({
         </div>
 
         <div className="modal-footer">
-          <button type="button" className="text-button muted" onClick={() => void window.api.openDataDir()}>
+          <button type="button" className="text-button muted" onClick={() => void bridge.openDataDir()}>
             {t('打开数据目录')}
           </button>
           <button type="button" className="text-button" onClick={onOpenManual}>

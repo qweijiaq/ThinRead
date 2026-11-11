@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useEffect, useState, type JSX } from 'react'
 import type { LabMergeGroup } from '../../shared/types.js'
 
@@ -12,7 +13,7 @@ export function LabMergeConcepts(): JSX.Element {
 
   useEffect(() => {
     let cancelled = false
-    void window.api.getLabArtifact('lab-merge').then((artifact) => {
+    void bridge.getLabArtifact('lab-merge').then((artifact) => {
       if (cancelled) return
       if (artifact) {
         try {
@@ -37,7 +38,7 @@ export function LabMergeConcepts(): JSX.Element {
 
   useEffect(() => {
     if (!hydrated) return
-    void window.api
+    void bridge
       .saveLabArtifact({
         tool: 'lab-merge',
         scope: 'latest',
@@ -51,7 +52,7 @@ export function LabMergeConcepts(): JSX.Element {
     setLoading(true)
     setError(null)
     try {
-      const result = await window.api.suggestConceptMerges()
+      const result = await bridge.suggestConceptMerges()
       setGroups(result)
       setNames(Object.fromEntries(result.map((group, index) => [index, group.canonical])))
     } catch (err) {
@@ -72,7 +73,7 @@ export function LabMergeConcepts(): JSX.Element {
     setMerging(index)
     setError(null)
     try {
-      const changed = await window.api.mergeNoteTags(group.tags, canonical)
+      const changed = await bridge.mergeNoteTags(group.tags, canonical)
       setGroups((current) => current.filter((_, itemIndex) => itemIndex !== index))
       setDone(changed)
     } catch (err) {
@@ -92,7 +93,7 @@ export function LabMergeConcepts(): JSX.Element {
           {loading ? '分析中…' : '重新分析'}
         </button>
         {loading ? (
-          <button type="button" className="ghost-button small" onClick={() => void window.api.cancelLab()}>
+          <button type="button" className="ghost-button small" onClick={() => void bridge.cancelLab()}>
             取消
           </button>
         ) : null}

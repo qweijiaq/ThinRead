@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useEffect, useState, type JSX } from 'react'
 import type { LabDuplicatePair } from '../../shared/types.js'
 
@@ -11,7 +12,7 @@ export function LabDuplicateCards(): JSX.Element {
 
   useEffect(() => {
     let cancelled = false
-    void window.api.getLabArtifact('lab-dedupe').then((artifact) => {
+    void bridge.getLabArtifact('lab-dedupe').then((artifact) => {
       if (cancelled) return
       if (artifact) {
         try {
@@ -38,7 +39,7 @@ export function LabDuplicateCards(): JSX.Element {
 
   useEffect(() => {
     if (!hydrated) return
-    void window.api
+    void bridge
       .saveLabArtifact({
         tool: 'lab-dedupe',
         scope: 'latest',
@@ -52,7 +53,7 @@ export function LabDuplicateCards(): JSX.Element {
     setLoading(true)
     setError(null)
     try {
-      setPairs(await window.api.findDuplicateNotes())
+      setPairs(await bridge.findDuplicateNotes())
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -70,7 +71,7 @@ export function LabDuplicateCards(): JSX.Element {
     setMerging(index)
     setError(null)
     try {
-      await window.api.mergeNotes(pair.keepId, pair.mergeId)
+      await bridge.mergeNotes(pair.keepId, pair.mergeId)
       setPairs((current) => current.filter((_, itemIndex) => itemIndex !== index))
       setDone((value) => value + 1)
     } catch (err) {
@@ -92,7 +93,7 @@ export function LabDuplicateCards(): JSX.Element {
           {loading ? '扫描中…' : '重新扫描'}
         </button>
         {loading ? (
-          <button type="button" className="ghost-button small" onClick={() => void window.api.cancelLab()}>
+          <button type="button" className="ghost-button small" onClick={() => void bridge.cancelLab()}>
             取消
           </button>
         ) : null}

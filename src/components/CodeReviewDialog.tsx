@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useState, type JSX } from 'react'
 
 import { t } from '../lib/i18n.js'
@@ -31,7 +32,7 @@ export function CodeReviewDialog({
 
   async function copyReview(): Promise<void> {
     if (!review) return
-    await window.api.copyText(review)
+    await bridge.copyText(review)
     setCopied(true)
     window.setTimeout(() => setCopied(false), 1600)
   }

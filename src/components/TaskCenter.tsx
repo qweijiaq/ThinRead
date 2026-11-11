@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useEffect, useState, type JSX } from 'react'
 
 import type { AiUsageSummary, BookComposeOptions, FormatChapterOptions } from '../../shared/types.js'
@@ -69,7 +70,7 @@ export function TaskCenter({ tasks, onCancel, onRetry, onDismiss, onOpenStats }:
   useEffect(() => {
     if (!open) return
     let cancelled = false
-    void window.api
+    void bridge
       .getAiUsage(1)
       .then((next) => {
         if (!cancelled) setUsage(next)

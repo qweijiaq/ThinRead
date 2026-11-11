@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useEffect, useState, type JSX } from 'react'
 import type { LabReport as LabReportData, LabRequest, LabToolId } from '../../shared/types.js'
 import { listLabArtifacts, loadLabArtifact, parseArtifactMeta, saveLabArtifact } from '../lib/lab-artifacts.js'
@@ -82,7 +83,7 @@ export function LabReport({
     if (busy) return
     if (!requestOverride && !ready) return
     if (!demo) {
-      const settings = await window.api.getSettings().catch(() => null)
+      const settings = await bridge.getSettings().catch(() => null)
       const price = settings ? settings.aiPricing[settings.labModel || settings.model] : null
       const costHint = price
         ? `，${t('估算约')} ¥${(
@@ -114,9 +115,9 @@ export function LabReport({
     try {
       let next: LabReportData
       if (request.tool === 'margin-note') {
-        next = await window.api.marginNote(request.chapterId ?? '', request.question ?? '')
+        next = await bridge.marginNote(request.chapterId ?? '', request.question ?? '')
       } else {
-        next = await window.api.runLab(request)
+        next = await bridge.runLab(request)
       }
       setResult(next)
       setStoredRequest(request)
@@ -139,7 +140,7 @@ export function LabReport({
 
   async function copy(): Promise<void> {
     if (!result) return
-    await window.api.copyText(result.markdown)
+    await bridge.copyText(result.markdown)
     setStatus('copied')
     window.setTimeout(() => setStatus('idle'), 1600)
   }
@@ -158,7 +159,7 @@ export function LabReport({
   async function exportFile(): Promise<void> {
     if (!result) return
     try {
-      await window.api.saveMarkdown(`${result.title}.md`, result.markdown)
+      await bridge.saveMarkdown(`${result.title}.md`, result.markdown)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
@@ -174,7 +175,7 @@ export function LabReport({
           {busy ? t('生成中…') : t('运行')}
         </button>
         {busy ? (
-          <button type="button" className="ghost-button small" onClick={() => void window.api.cancelLab()}>
+          <button type="button" className="ghost-button small" onClick={() => void bridge.cancelLab()}>
             {t('取消')}
           </button>
         ) : null}

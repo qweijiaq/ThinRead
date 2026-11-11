@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useEffect, useState, type JSX } from 'react'
 import { useDialogFocus } from '../lib/useDialogFocus.js'
 import type { ChapterContent, LabReport } from '../../shared/types.js'
@@ -23,7 +24,7 @@ export function MarginNoteDialog({ chapter, quote, onSave, onClose }: MarginNote
     let cancelled = false
     setLoading(true)
     setError(null)
-    void window.api
+    void bridge
       .marginNote(chapter.id, quote)
       .then((value) => {
         if (!cancelled) setResult(value)
@@ -88,7 +89,7 @@ export function MarginNoteDialog({ chapter, quote, onSave, onClose }: MarginNote
               className="text-button"
               onClick={() => {
                 if (!result) return
-                void window.api.copyText(result.markdown).then(() => {
+                void bridge.copyText(result.markdown).then(() => {
                   setCopied(true)
                   window.setTimeout(() => setCopied(false), 1600)
                 })

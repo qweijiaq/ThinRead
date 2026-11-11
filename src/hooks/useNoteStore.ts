@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useCallback, useState } from 'react'
 
 import type { Note } from '../../shared/types.js'
@@ -19,8 +20,8 @@ export function useNoteStore(): NoteStore {
 
   const refreshNotes = useCallback(async (bookId: string, chapterId: string | null) => {
     const [chapterNotes, all] = await Promise.all([
-      chapterId ? window.api.listNotes(bookId, chapterId) : Promise.resolve([]),
-      window.api.listNotes(bookId),
+      chapterId ? bridge.listNotes(bookId, chapterId) : Promise.resolve([]),
+      bridge.listNotes(bookId),
     ])
     setNotes(chapterNotes)
     setAllNotes(all)

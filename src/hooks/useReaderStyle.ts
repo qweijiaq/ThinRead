@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { DEFAULT_READER_STYLE, type ReaderStyle } from '../../shared/types.js'
@@ -72,7 +73,7 @@ export function useReaderStyle(bookId: string | null): ReaderStyleState {
     }
     const item = pendingSave.current
     pendingSave.current = null
-    if (item) void window.api.saveStyle(item.bookId, item.style)
+    if (item) void bridge.saveStyle(item.bookId, item.style)
   }, [])
 
   // 切换书籍或退出时补一次保存。

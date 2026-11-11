@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useEffect, useMemo, useState, type JSX } from 'react'
 
 import type { AiUsageSummary, BookSummary, NoteQualitySummary } from '../../shared/types.js'
@@ -245,7 +246,7 @@ export function StatsView({ books, onBack, onOpenWeeklyReview, onOpenWeeklyRevie
 
   useEffect(() => {
     let cancelled = false
-    void window.api
+    void bridge
       .getAiUsage(30)
       .then((usage) => {
         if (!cancelled) setAiUsage(usage)
@@ -253,7 +254,7 @@ export function StatsView({ books, onBack, onOpenWeeklyReview, onOpenWeeklyRevie
       .catch(() => {
         if (!cancelled) setAiUsage(null)
       })
-    void window.api
+    void bridge
       .getNoteQuality()
       .then((quality) => {
         if (!cancelled) setNoteQuality(quality)
@@ -278,7 +279,7 @@ export function StatsView({ books, onBack, onOpenWeeklyReview, onOpenWeeklyRevie
           : mode === 'year'
             ? `reading-stats-${year.year}.png`
             : `reading-stats-${month.label}.png`
-      const result = await window.api.saveImage(dataUrl, name)
+      const result = await bridge.saveImage(dataUrl, name)
       if (result.saved) setNotice(`${t('已保存到')} ${result.path}`)
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error))
@@ -325,7 +326,7 @@ export function StatsView({ books, onBack, onOpenWeeklyReview, onOpenWeeklyRevie
               type="button"
               className="text-button"
               onClick={() => {
-                void window.api.copyText(readingCsv(month)).then(() => {
+                void bridge.copyText(readingCsv(month)).then(() => {
                   setCopied(true)
                   window.setTimeout(() => setCopied(false), 1600)
                 })
@@ -428,7 +429,7 @@ export function StatsView({ books, onBack, onOpenWeeklyReview, onOpenWeeklyRevie
                   try {
                     const dataUrl = drawBadgeImage(summary, badgeTheme)
                     if (!dataUrl) throw new Error(t('无法生成统计图片。'))
-                    const result = await window.api.saveImage(dataUrl, 'reading-milestones.png')
+                    const result = await bridge.saveImage(dataUrl, 'reading-milestones.png')
                     if (result.saved) setNotice(`${t('已保存到')} ${result.path}`)
                   } catch (error) {
                     setNotice(error instanceof Error ? error.message : String(error))

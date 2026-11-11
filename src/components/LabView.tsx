@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useEffect, useMemo, useState, type JSX } from 'react'
 import type { BookSummary, ChapterMeta, LabToolId } from '../../shared/types.js'
 import { t, useLocale } from '../lib/i18n.js'
@@ -44,7 +45,7 @@ export function LabView({ books, onBack, onSaveReport, initialToolId, onListen, 
     }
     let cancelled = false
     setChapterError(null)
-    void window.api
+    void bridge
       .openBook(bookId)
       .then((opened) => {
         if (cancelled) return

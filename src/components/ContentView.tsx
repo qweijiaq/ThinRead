@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useCallback, useEffect, useMemo, useState, type JSX } from 'react'
 
 import type {
@@ -103,7 +104,7 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
     let cancelled = false
     setLoading(true)
     const timer = window.setTimeout(() => {
-      void window.api
+      void bridge
         .listContentPage({
           query: query.trim() || undefined,
           kind: kind || undefined,
@@ -142,7 +143,7 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
   useEffect(() => {
     if (!initialItemId) return
     setSelectedId(initialItemId)
-    void window.api.getContent(initialItemId).then((item) => {
+    void bridge.getContent(initialItemId).then((item) => {
       if (!item) return
       setItems((current) => (current.some((row) => row.id === item.id) ? current : [item, ...current]))
     })
@@ -158,7 +159,7 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
     setBusy(`favorite:${item.id}`)
     setError(null)
     try {
-      const next = await window.api.setContentFavorite(item.id, !item.favorite)
+      const next = await bridge.setContentFavorite(item.id, !item.favorite)
       replaceItem(next)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -171,7 +172,7 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
     setBusy(`status:${item.id}`)
     setError(null)
     try {
-      const next = await window.api.setContentStatus(item.id, nextStatus)
+      const next = await bridge.setContentStatus(item.id, nextStatus)
       const stays =
         status === 'all' ||
         (status === 'active' ? nextStatus === 'draft' || nextStatus === 'adopted' : status === nextStatus)
@@ -211,7 +212,7 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
     setError(null)
     setNotice(null)
     try {
-      await window.api.purgeContent(item.id)
+      await bridge.purgeContent(item.id)
       setItems((current) => current.filter((row) => row.id !== item.id))
       setTotal((current) => Math.max(0, current - 1))
       setNotice(t('已彻底删除。'))
@@ -234,7 +235,7 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
     setError(null)
     setNotice(null)
     try {
-      const count = await window.api.purgeDeletedContent()
+      const count = await bridge.purgeDeletedContent()
       setItems([])
       setTotal(0)
       setNotice(`${t('已彻底删除')} ${count} ${t('条内容。')}`)
@@ -260,7 +261,7 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
     setError(null)
     setNotice(null)
     try {
-      const result = await window.api.applyContent(item.id, action)
+      const result = await bridge.applyContent(item.id, action)
       setNotice(result.message)
       setUndoToken(action === 'source' ? result.undoToken ?? null : null)
       if (action === 'current') notifyContentCurrent({ tool: item.tool, scope: item.scope })
@@ -279,7 +280,7 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
     setError(null)
     setNotice(null)
     try {
-      const result = await window.api.undoContentApply(undoToken)
+      const result = await bridge.undoContentApply(undoToken)
       setUndoToken(null)
       setNotice(result.message)
       refresh()
@@ -293,7 +294,7 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
   async function copy(item: ContentItem): Promise<void> {
     setError(null)
     try {
-      await window.api.copyText(contentToMarkdown(item))
+      await bridge.copyText(contentToMarkdown(item))
       setNotice(t('内容已复制。'))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -304,7 +305,7 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
     setError(null)
     try {
       const name = `${item.title}.md`.replace(/[\\/:*?"<>|#%{}]/g, ' ').replace(/\s+/g, ' ').trim()
-      const saved = await window.api.saveMarkdown(name, contentToMarkdown(item))
+      const saved = await bridge.saveMarkdown(name, contentToMarkdown(item))
       if (saved.saved) setNotice(`${t('已导出到')} ${saved.path}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -315,7 +316,7 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
     setError(null)
     setNotice(null)
     try {
-      const versions = await window.api.getContentVersions(item.tool, item.scope)
+      const versions = await bridge.getContentVersions(item.tool, item.scope)
       if (versions.filter((version) => version.id !== item.id).length === 0) {
         setNotice(t('没有其他版本可以对比。'))
         return

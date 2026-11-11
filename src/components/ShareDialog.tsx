@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import { useDialogFocus } from '../lib/useDialogFocus.js'
 
@@ -191,7 +192,7 @@ export function ShareDialog({ note, book, notes, initialTemplate, onClose }: Sha
     setBusy('copy')
     setError(null)
     try {
-      await window.api.copyImage(preview)
+      await bridge.copyImage(preview)
       setNotice(t('图片已复制，可以直接粘贴到聊天窗口或编辑器。'))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -205,7 +206,7 @@ export function ShareDialog({ note, book, notes, initialTemplate, onClose }: Sha
     setBusy('save')
     setError(null)
     try {
-      const result = await window.api.saveImage(preview, shareFilename(input))
+      const result = await bridge.saveImage(preview, shareFilename(input))
       if (result.saved) setNotice(`${t('已保存到')} ${result.path}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -219,7 +220,7 @@ export function ShareDialog({ note, book, notes, initialTemplate, onClose }: Sha
     setBusy('text')
     setError(null)
     try {
-      await window.api.copyText(shareText(input))
+      await bridge.copyText(shareText(input))
       setNotice(t('文字和出处已复制。'))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -282,7 +283,7 @@ export function ShareDialog({ note, book, notes, initialTemplate, onClose }: Sha
                     setError(null)
                     setNotice(null)
                     try {
-                      const result = await window.api.optimizeShareCopy({ title, body, kind: template })
+                      const result = await bridge.optimizeShareCopy({ title, body, kind: template })
                       setTitle(result.title)
                       setBody(result.points.join('\n'))
                       setPoints(result.points)

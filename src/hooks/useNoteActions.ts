@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useCallback, useState } from 'react'
 
 import type { BookSummary, ChapterContent, Note, NoteDraft, NotePatch } from '../../shared/types.js'
@@ -52,7 +53,7 @@ export function useNoteActions(options: NoteActionsOptions): NoteActions {
 
   const createNote = useCallback(
     async (draft: NoteDraft): Promise<Note> => {
-      const created = await window.api.createNote(draft)
+      const created = await bridge.createNote(draft)
       if (book) await refreshNotes(book.id, chapter?.id ?? null)
       setFocusNote({ id: created.id, key: Date.now() })
       return created
@@ -72,7 +73,7 @@ export function useNoteActions(options: NoteActionsOptions): NoteActions {
     async (title: string, markdown: string, targetBookId: string, targetChapterId: string) => {
       const weekly = /每周复盘|Weekly review/i.test(title)
       if (weekly) {
-        await window.api.saveWeeklyReview({ week: isoWeekLabel(), title, content: markdown })
+        await bridge.saveWeeklyReview({ week: isoWeekLabel(), title, content: markdown })
       }
       const ownerId = targetBookId || book?.id || books[0]?.id
       if (!ownerId) {
@@ -82,7 +83,7 @@ export function useNoteActions(options: NoteActionsOptions): NoteActions {
         }
         throw new Error(t('还没有导入书。'))
       }
-      await window.api.createNote({
+      await bridge.createNote({
         bookId: ownerId,
         chapterId: targetChapterId || null,
         kind: 'summary',
@@ -116,7 +117,7 @@ export function useNoteActions(options: NoteActionsOptions): NoteActions {
   const updateNote = useCallback(
     async (noteId: string, patch: NotePatch) => {
       // 只回填这一条笔记，避免每次保存都把整本书的笔记重新拉一遍并重建卡片。
-      const updated = await window.api.updateNote(noteId, patch)
+      const updated = await bridge.updateNote(noteId, patch)
       patchNote(updated)
     },
     [patchNote],
@@ -124,7 +125,7 @@ export function useNoteActions(options: NoteActionsOptions): NoteActions {
 
   const removeNote = useCallback(
     async (noteId: string) => {
-      await window.api.deleteNote(noteId)
+      await bridge.deleteNote(noteId)
       if (book) await refreshNotes(book.id, chapter?.id ?? null)
       notify({
         kind: 'info',
@@ -132,7 +133,7 @@ export function useNoteActions(options: NoteActionsOptions): NoteActions {
         action: {
           label: t('撤销'),
           onClick: () => {
-            void window.api
+            void bridge
               .restoreNote(noteId)
               .then((restored) => {
                 if (!restored) throw new Error(t('笔记所在的书或章节已经不存在，无法恢复。'))
@@ -153,12 +154,12 @@ export function useNoteActions(options: NoteActionsOptions): NoteActions {
       const targetChapterId = chapter?.id ?? null
       setExpandingNoteId(noteId)
       try {
-        const updated = await window.api.expandNote(noteId)
+        const updated = await bridge.expandNote(noteId)
         setNotes((current) => current.map((note) => (note.id === noteId ? updated : note)))
         setAllNotes((current) => current.map((note) => (note.id === noteId ? updated : note)))
         // 延伸可能跑在别的章节上；只刷新这条笔记所属章节的报告，避免把计数加到当前章节上。
         if (targetChapterId) {
-          const fresh = await window.api.getChapter(targetChapterId).catch(() => null)
+          const fresh = await bridge.getChapter(targetChapterId).catch(() => null)
           if (fresh) {
             setChapter((current) =>
               current && current.id === targetChapterId

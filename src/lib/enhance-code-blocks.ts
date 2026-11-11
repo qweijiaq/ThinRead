@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { detectCodeLanguage, shouldCollapseCode } from './code-language.js'
 import { highlightCode } from './highlight.js'
 import { t } from './i18n.js'
@@ -115,7 +116,7 @@ export function handleCodeBlockClick(event: MouseEvent, root: HTMLElement): bool
   }
 
   if (action.dataset.codeAction === 'copy') {
-    const copyText = window.api?.copyText
+    const copyText = bridge?.copyText
     if (!copyText) return true
     const code = wrapper.querySelector('pre')?.textContent ?? ''
     void copyText(code).then(() => {

@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useCallback, useEffect } from 'react'
 
 import type {
@@ -156,7 +157,7 @@ export function useNavigation(options: NavigationOptions): NavigationActions {
   )
 
   useEffect(() => {
-    const unsubscribe = window.api.onDeepLink((target) => {
+    const unsubscribe = bridge.onDeepLink((target) => {
       void (async () => {
         try {
           setMainView('reader')

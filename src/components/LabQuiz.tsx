@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useEffect, useState, type JSX } from 'react'
 import type { LabAnswerCheck, LabArtifact, LabQuiz as LabQuizData } from '../../shared/types.js'
 import { onContentCurrent } from '../lib/content-events.js'
@@ -36,11 +37,11 @@ export function LabQuiz({ chapterId, bookTitle, chapterTitle }: LabQuizProps): J
     setAnswers({})
     setChecks({})
     setRevealed(new Set())
-    void window.api.listLabArtifacts('adaptive-quiz', 50).then((items) => {
+    void bridge.listLabArtifacts('adaptive-quiz', 50).then((items) => {
       if (cancelled) return
       setHistory(items.filter((item) => item.scope === chapterId))
     })
-    void window.api.getLabArtifact('adaptive-quiz', chapterId).then((artifact) => {
+    void bridge.getLabArtifact('adaptive-quiz', chapterId).then((artifact) => {
       if (cancelled) return
       if (artifact) {
         try {
@@ -73,11 +74,11 @@ export function LabQuiz({ chapterId, bookTitle, chapterTitle }: LabQuizProps): J
       const content = JSON.stringify({ quiz, answers, checks, revealed: [...revealed] })
       const title = chapterTitle ? `自适应出题 · ${chapterTitle}` : '自适应出题'
       const task = artifactId
-        ? window.api.updateLabArtifact(artifactId, { title, content }).then((updated) => {
+        ? bridge.updateLabArtifact(artifactId, { title, content }).then((updated) => {
             setHistory((current) => current.map((item) => (item.id === updated.id ? updated : item)))
             return updated
           })
-        : window.api
+        : bridge
             .saveLabArtifact({
               tool: 'adaptive-quiz',
               scope: chapterId,
@@ -113,7 +114,7 @@ export function LabQuiz({ chapterId, bookTitle, chapterTitle }: LabQuizProps): J
     setArtifactId(null)
     setSelectedHistoryId('')
     try {
-      setQuiz(await window.api.generateQuiz(chapterId))
+      setQuiz(await bridge.generateQuiz(chapterId))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -128,7 +129,7 @@ export function LabQuiz({ chapterId, bookTitle, chapterTitle }: LabQuizProps): J
     setChecking(index)
     setError(null)
     try {
-      const result = await window.api.checkQuizAnswer(chapterId, question.question, answer)
+      const result = await bridge.checkQuizAnswer(chapterId, question.question, answer)
       setChecks((current) => ({ ...current, [index]: result }))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -148,7 +149,7 @@ export function LabQuiz({ chapterId, bookTitle, chapterTitle }: LabQuizProps): J
           {busy ? '出题中…' : quiz ? '重新生成' : '开始出题'}
         </button>
         {busy ? (
-          <button type="button" className="ghost-button small" onClick={() => void window.api.cancelLab()}>
+          <button type="button" className="ghost-button small" onClick={() => void bridge.cancelLab()}>
             取消
           </button>
         ) : null}

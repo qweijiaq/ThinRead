@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useCallback, useState } from 'react'
 
 import type { ChapterFlag, ChapterSuggestion, ClassifyResult } from '../../shared/types.js'
@@ -52,7 +53,7 @@ export function useOrganize(options: OrganizeOptions): OrganizeState {
     setClassifying(true)
     setClassifyError(null)
     try {
-      const result = await window.api.classifyChapters(bookId)
+      const result = await bridge.classifyChapters(bookId)
       setSuggestions(result.suggestions)
       setClassifyMode(result.mode)
       setClassifyError(result.error ?? null)
@@ -67,7 +68,7 @@ export function useOrganize(options: OrganizeOptions): OrganizeState {
     async (flags: ChapterFlag[]) => {
       if (!bookId) return
       try {
-        await window.api.applyChapterFlags(flags)
+        await bridge.applyChapterFlags(flags)
         await refreshBook(bookId)
       } catch (err) {
         notify({ kind: 'error', text: messageOf(err) })
@@ -80,7 +81,7 @@ export function useOrganize(options: OrganizeOptions): OrganizeState {
     async (chapterIds: string[]) => {
       if (!bookId) return
       try {
-        await window.api.deleteChapters(chapterIds)
+        await bridge.deleteChapters(chapterIds)
         await refreshBook(bookId)
       } catch (err) {
         notify({ kind: 'error', text: messageOf(err) })

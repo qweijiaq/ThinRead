@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useCallback, useEffect, useState } from 'react'
 
 import type { ChapterContent } from '../../shared/types.js'
@@ -38,7 +39,7 @@ export function useTranslation(options: TranslationOptions): TranslationState {
     setError(null)
     if (!chapterId) return
     let cancelled = false
-    void window.api
+    void bridge
       .getChapterAiJobs(chapterId)
       .then((jobs) => {
         if (cancelled) return
@@ -56,13 +57,13 @@ export function useTranslation(options: TranslationOptions): TranslationState {
 
   useEffect(() => {
     if (!chapterId) return
-    const offProgress = window.api.onChapterTranslationProgress((event) => {
+    const offProgress = bridge.onChapterTranslationProgress((event) => {
       if (event.chapterId !== chapterId) return
       setTranslating(true)
       setError(null)
       setProgress({ done: event.done, total: event.total })
     })
-    const offDone = window.api.onChapterTranslated((event) => {
+    const offDone = bridge.onChapterTranslated((event) => {
       if (event.chapterId !== chapterId) return
       setTranslating(false)
       setProgress(null)
@@ -79,7 +80,7 @@ export function useTranslation(options: TranslationOptions): TranslationState {
           : current,
       )
     })
-    const offError = window.api.onChapterTranslationError((event) => {
+    const offError = bridge.onChapterTranslationError((event) => {
       if (event.chapterId !== chapterId) return
       setTranslating(false)
       setProgress(null)
@@ -108,7 +109,7 @@ export function useTranslation(options: TranslationOptions): TranslationState {
       setError(null)
       setProgress(null)
       try {
-        await window.api.translateChapter(chapterId, force ? { force: true } : undefined)
+        await bridge.translateChapter(chapterId, force ? { force: true } : undefined)
       } catch (err) {
         setTranslating(false)
         setError(messageOf(err))
@@ -127,7 +128,7 @@ export function useTranslation(options: TranslationOptions): TranslationState {
 
   const cancel = useCallback(async () => {
     if (!chapterId) return
-    await window.api.cancelTranslation({ chapterId })
+    await bridge.cancelTranslation({ chapterId })
     setTranslating(false)
     setProgress(null)
   }, [chapterId])

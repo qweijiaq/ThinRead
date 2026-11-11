@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useEffect, useRef, useState, type JSX } from 'react'
 import type { ChapterContent, FeynmanResult } from '../../shared/types.js'
 import { onContentCurrent } from '../lib/content-events.js'
@@ -32,7 +33,7 @@ export function FeynmanPanel({ chapter, bookTitle, hasNotes, onSave }: FeynmanPa
     setHydrated(false)
     if (!chapter) return
     let cancelled = false
-    void window.api.getLabArtifact('feynman', chapter.id).then((artifact) => {
+    void bridge.getLabArtifact('feynman', chapter.id).then((artifact) => {
       if (cancelled) return
       if (artifact) {
         try {
@@ -64,8 +65,8 @@ export function FeynmanPanel({ chapter, bookTitle, hasNotes, onSave }: FeynmanPa
     const timer = window.setTimeout(() => {
       const content = JSON.stringify({ explanation, result })
       const task = artifactId
-        ? window.api.updateLabArtifact(artifactId, { title: '讲给我听', content })
-        : window.api
+        ? bridge.updateLabArtifact(artifactId, { title: '讲给我听', content })
+        : bridge
             .saveLabArtifact({
               tool: 'feynman',
               scope: chapter.id,
@@ -90,12 +91,12 @@ export function FeynmanPanel({ chapter, bookTitle, hasNotes, onSave }: FeynmanPa
     setBusy(true)
     setStreamingFeedback('')
     try {
-      const next = await window.api.evaluateExplanationStream(chapterId, explanation, (text) => {
+      const next = await bridge.evaluateExplanationStream(chapterId, explanation, (text) => {
         if (chapterRef.current === chapterId) setStreamingFeedback(text)
       })
       if (chapterRef.current === chapterId) {
         // 每次评估留一版，旧结果可以在内容库里切回。
-        const saved = await window.api
+        const saved = await bridge
           .saveLabArtifact({
             tool: 'feynman',
             scope: chapterId,
@@ -257,7 +258,7 @@ export function FeynmanPanel({ chapter, bookTitle, hasNotes, onSave }: FeynmanPa
                 ]
                   .filter((part) => part !== '')
                   .join('\n')
-                void window.api.copyText(text).then(() => {
+                void bridge.copyText(text).then(() => {
                   setCopied(true)
                   window.setTimeout(() => setCopied(false), 1600)
                 })

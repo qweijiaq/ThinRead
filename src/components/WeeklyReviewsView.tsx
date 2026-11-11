@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useEffect, useMemo, useState, type JSX } from 'react'
 
 import type { WeeklyReviewRecord } from '../../shared/types.js'
@@ -19,7 +20,7 @@ export function WeeklyReviewsView({ onBack }: WeeklyReviewsViewProps): JSX.Eleme
 
   useEffect(() => {
     let cancelled = false
-    void window.api
+    void bridge
       .listWeeklyReviews()
       .then((list) => {
         if (!cancelled) setItems(list.slice(0, 200))
@@ -46,7 +47,7 @@ export function WeeklyReviewsView({ onBack }: WeeklyReviewsViewProps): JSX.Eleme
   const heading = `${t('历次周复盘')} · ${filtered.length}`
 
   async function copyReview(item: WeeklyReviewRecord): Promise<void> {
-    await window.api.copyText(`${item.title}\n\n${item.content}`)
+    await bridge.copyText(`${item.title}\n\n${item.content}`)
     setCopiedId(item.id)
     window.setTimeout(() => setCopiedId(null), 1600)
   }

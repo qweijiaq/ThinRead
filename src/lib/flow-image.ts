@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { getNodesBounds, getViewportForBounds, type Node } from '@xyflow/react'
 
 import type { SaveFileResult } from '../../shared/types.js'
@@ -160,7 +161,7 @@ export async function exportFlowImage(options: {
     offsetY: transform.y,
     pixelRatio: PIXEL_RATIO,
   })
-  return window.api.saveImage(image, options.filename)
+  return bridge.saveImage(image, options.filename)
 }
 
 export function graphImageFilename(prefix: string): string {

@@ -1,3 +1,4 @@
+import { bridge } from './lib/bridge.js'
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 
 import { useBookshelf, type BookshelfActions } from './hooks/useBookshelf.js'
@@ -169,7 +170,7 @@ export function App(): JSX.Element {
   )
 
   const handleBooksChanged = useCallback(() => {
-    void window.api
+    void bridge
       .listBooks()
       .then(setBooks)
       .catch(() => undefined)
@@ -181,14 +182,14 @@ export function App(): JSX.Element {
     const schedule = (): void => {
       if (timer) window.clearTimeout(timer)
       timer = window.setTimeout(() => {
-        void window.api
+        void bridge
           .listBooks()
           .then(setBooks)
           .catch(() => undefined)
       }, 500)
     }
-    const offFormatted = window.api.onChapterFormatted(schedule)
-    const offGenerated = window.api.onGenerationDone(schedule)
+    const offFormatted = bridge.onChapterFormatted(schedule)
+    const offGenerated = bridge.onGenerationDone(schedule)
     return () => {
       offFormatted()
       offGenerated()
@@ -221,7 +222,7 @@ export function App(): JSX.Element {
       setSampleBookId(existing.id)
       return
     }
-    const imported = await window.api.importText(SAMPLE_BOOK)
+    const imported = await bridge.importText(SAMPLE_BOOK)
     setBooks((current) => [imported, ...current.filter((item) => item.id !== imported.id)])
     setSampleBookId(imported.id)
   }, [books, setBooks])
@@ -348,7 +349,7 @@ export function App(): JSX.Element {
   }, [coreMode, setSideTab])
 
   useEffect(() => {
-    return window.api.onDoclingProgress((event) => {
+    return bridge.onDoclingProgress((event) => {
       setDeepParse((current) => (current ? { ...current, progress: event } : current))
     })
   }, [])
@@ -441,8 +442,8 @@ export function App(): JSX.Element {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  useEffect(() => window.api.onSemanticReady(() => setSemanticTick((value) => value + 1)), [])
-  useEffect(() => window.api.onAppNotice((notice) => setToast(notice)), [])
+  useEffect(() => bridge.onSemanticReady(() => setSemanticTick((value) => value + 1)), [])
+  useEffect(() => bridge.onAppNotice((notice) => setToast(notice)), [])
 
   useEffect(() => {
     if (mainView !== 'reader' || !book) setReaderFocus(false)
@@ -452,14 +453,14 @@ export function App(): JSX.Element {
 
   const loadAppData = useCallback(async () => {
     await Promise.all([hydrateReadingStats(), hydratePreferences()])
-    const [nextBooks, nextSettings] = await Promise.all([window.api.listBooks(), window.api.getSettings()])
+    const [nextBooks, nextSettings] = await Promise.all([bridge.listBooks(), bridge.getSettings()])
     setBooks(nextBooks)
     setSettings(nextSettings)
     setBooksLoaded(true)
   }, [setBooks])
 
   useEffect(() => {
-    void window.api
+    void bridge
       .getAppInfo()
       .then((info) => {
         setAppInfo(info)
@@ -481,7 +482,7 @@ export function App(): JSX.Element {
 
   const unlockApp = useCallback(
     async (passcode: string): Promise<boolean> => {
-      const ok = await window.api.verifyAppLock(passcode)
+      const ok = await bridge.verifyAppLock(passcode)
       if (!ok) return false
       await loadAppData()
       setLocked(false)
@@ -518,7 +519,7 @@ export function App(): JSX.Element {
 
   const reparseBook = useCallback(async () => {
     if (!book) return
-    const docling = book.format === 'pdf' ? await window.api.getDoclingStatus().catch(() => null) : null
+    const docling = book.format === 'pdf' ? await bridge.getDoclingStatus().catch(() => null) : null
     const result = await confirmOptionDialog({
       title: t('重新解析目录'),
       message:
@@ -540,7 +541,7 @@ export function App(): JSX.Element {
       setDeepParse({ title: book.title, startedAt: Date.now(), progress: null })
     }
     try {
-      const updated = await window.api.reparseBook(book.id, {
+      const updated = await bridge.reparseBook(book.id, {
         skipReferences: result.checked,
         deepPdf: deep,
       })
@@ -640,7 +641,7 @@ export function App(): JSX.Element {
       return
     }
     let cancelled = false
-    void window.api
+    void bridge
       .listRelatedNotes(book.id, noteTags, relatedQuery)
       .then((items) => {
         if (!cancelled) setCrossBookNotes(items)
@@ -753,19 +754,19 @@ export function App(): JSX.Element {
           const run =
             retry.kind === 'translate'
               ? retry.chapterId
-                ? window.api.translateChapter(retry.chapterId)
-                : window.api.translateBook(retry.bookId, { chapterIds: retry.chapterIds })
+                ? bridge.translateChapter(retry.chapterId)
+                : bridge.translateBook(retry.bookId, { chapterIds: retry.chapterIds })
               : retry.kind === 'compose'
-              ? window.api
+              ? bridge
                   .composeBook(retry.bookId, retry.composeOptions ?? { length: 'tight', voice: 'calm' })
                   .then(() => undefined)
               : retry.chapterId
                 ? retry.kind === 'notes'
-                  ? window.api.generateNotes(retry.chapterId)
-                  : window.api.formatChapter(retry.chapterId, undefined, retry.formatOptions).then(() => undefined)
+                  ? bridge.generateNotes(retry.chapterId)
+                  : bridge.formatChapter(retry.chapterId, undefined, retry.formatOptions).then(() => undefined)
                 : retry.kind === 'notes'
-                  ? window.api.generateBookNotes(retry.bookId, { onlyMissing: resume, chapterIds: retry.chapterIds })
-                  : window.api.formatBook(retry.bookId, { onlyMissing: resume, chapterIds: retry.chapterIds })
+                  ? bridge.generateBookNotes(retry.bookId, { onlyMissing: resume, chapterIds: retry.chapterIds })
+                  : bridge.formatBook(retry.bookId, { onlyMissing: resume, chapterIds: retry.chapterIds })
           void run.catch((err: unknown) => {
             const message = messageOf(err)
             setBackgroundTasks((current) =>
@@ -782,14 +783,14 @@ export function App(): JSX.Element {
             : task.bookId
               ? { bookId: task.bookId }
               : undefined
-          if (task.kind === 'notes') void window.api.cancelGeneration(target)
-          else if (task.kind === 'format') void window.api.cancelFormat(target)
-          else if (task.kind === 'compose') void window.api.cancelBookCompose(target)
-          else if (task.kind === 'translate') void window.api.cancelTranslation(target)
-          else void window.api.cancelOcrImport()
+          if (task.kind === 'notes') void bridge.cancelGeneration(target)
+          else if (task.kind === 'format') void bridge.cancelFormat(target)
+          else if (task.kind === 'compose') void bridge.cancelBookCompose(target)
+          else if (task.kind === 'translate') void bridge.cancelTranslation(target)
+          else void bridge.cancelOcrImport()
         }}
         onDismiss={(id) => {
-          void window.api.dismissAiJob(id)
+          void bridge.dismissAiJob(id)
           setBackgroundTasks((current) => current.filter((task) => task.id !== id))
         }}
         onOpenStats={() => setMainView('stats')}
@@ -834,7 +835,7 @@ export function App(): JSX.Element {
             onOpenWeeklyReviews={() => setMainView('weekly')}
             onSaveWeeklyReview={async (markdown) => {
               const week = isoWeekLabel()
-              await window.api.saveWeeklyReview({
+              await bridge.saveWeeklyReview({
                 week,
                 title: `${t('每周复盘')} · ${week}`,
                 content: markdown,
@@ -1103,7 +1104,7 @@ export function App(): JSX.Element {
           onCompose={(bookId) => void openCompose(bookId)}
           onPlan={setPlanBook}
           onShelfStatus={(bookId, status) => {
-            void window.api
+            void bridge
               .setBookShelfStatus(bookId, status)
               .then((updated) => {
                 setBooks((current) => current.map((book) => (book.id === updated.id ? updated : book)))
@@ -1349,7 +1350,7 @@ export function App(): JSX.Element {
       <BookTrashDialog
         open={bookTrashOpen}
         onClose={() => setBookTrashOpen(false)}
-        onChanged={() => void window.api.listBooks().then(setBooks).catch(() => undefined)}
+        onChanged={() => void bridge.listBooks().then(setBooks).catch(() => undefined)}
       />
 
       <ChapterTrashDialog
@@ -1357,7 +1358,7 @@ export function App(): JSX.Element {
         onClose={() => setChapterTrashOpen(false)}
         onChanged={() => {
           if (book) void refreshBook(book.id)
-          void window.api.listBooks().then(setBooks).catch(() => undefined)
+          void bridge.listBooks().then(setBooks).catch(() => undefined)
         }}
       />
 

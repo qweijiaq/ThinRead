@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { ChapterContent, ReaderStyle } from '../../shared/types.js'
@@ -44,7 +45,7 @@ export function useFormatPanel(options: FormatPanelOptions): FormatPanelState {
   useEffect(() => {
     if (!chapterId) return
     let cancelled = false
-    void window.api
+    void bridge
       .getChapterAiJobs(chapterId)
       .then((jobs) => {
         if (cancelled) return
@@ -75,7 +76,7 @@ export function useFormatPanel(options: FormatPanelOptions): FormatPanelState {
   }, [chapterId, attachKey])
 
   useEffect(() => {
-    const off = window.api.onChapterFormatted((event) => {
+    const off = bridge.onChapterFormatted((event) => {
       if (event.chapterId !== chapterId) return
       setBusy(false)
       setNote(event.note)
@@ -101,7 +102,7 @@ export function useFormatPanel(options: FormatPanelOptions): FormatPanelState {
         setMessages((previous) => [...previous, { role: 'user', text: instruction.trim() }])
       }
       try {
-        const result = await window.api.formatChapter(chapterId, instruction, options)
+        const result = await bridge.formatChapter(chapterId, instruction, options)
         if (token !== tokenRef.current) return
         setChapter((current) =>
           current && current.id === chapterId
@@ -131,7 +132,7 @@ export function useFormatPanel(options: FormatPanelOptions): FormatPanelState {
     setNote(null)
     setMessages([])
     try {
-      const chars = await window.api.resetChapterFormat(chapterId)
+      const chars = await bridge.resetChapterFormat(chapterId)
       setChapter((current) =>
         current && current.id === chapterId ? { ...current, formattedHtml: null, removed: [], chars } : current,
       )

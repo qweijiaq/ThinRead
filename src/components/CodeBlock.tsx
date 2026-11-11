@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useEffect, useRef, useState, type JSX } from 'react'
 
 import { detectCodeLanguage, shouldCollapseCode } from '../lib/code-language.js'
@@ -43,7 +44,7 @@ export function CodeBlock({ code, className }: CodeBlockProps): JSX.Element {
 
   async function copy(): Promise<void> {
     try {
-      const copyText = window.api?.copyText
+      const copyText = bridge?.copyText
       if (!copyText) return
       await copyText(source)
       setCopied(true)

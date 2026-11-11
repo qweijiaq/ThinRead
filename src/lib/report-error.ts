@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import type { RendererErrorReport } from '../../shared/types.js'
 
 /**
@@ -18,7 +19,7 @@ export function reportRendererError(
     url: typeof window === 'undefined' ? null : window.location.href,
   }
   try {
-    const api = window.api as
+    const api = bridge as
       | { logRendererError?: (value: RendererErrorReport) => Promise<void> }
       | undefined
     void api?.logRendererError?.(report)

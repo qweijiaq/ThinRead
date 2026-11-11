@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useEffect, useState, type JSX } from 'react'
 import type { BookSummary, LabReport } from '../../shared/types.js'
 import { Markdown } from './Markdown.js'
@@ -17,7 +18,7 @@ export function LabPdfPage({ books }: LabPdfPageProps): JSX.Element {
 
   useEffect(() => {
     let cancelled = false
-    void window.api.getLabArtifact('lab-pdf-page').then((artifact) => {
+    void bridge.getLabArtifact('lab-pdf-page').then((artifact) => {
       if (cancelled || !artifact) {
         return
       }
@@ -44,7 +45,7 @@ export function LabPdfPage({ books }: LabPdfPageProps): JSX.Element {
     const pageNumber = Number(page)
     if (!Number.isFinite(pageNumber) || pageNumber < 1) return
     let cancelled = false
-    void window.api
+    void bridge
       .getLabArtifact('lab-pdf-page', `pdf:${bookId}:${pageNumber}`)
       .then((artifact) => {
         if (cancelled) return
@@ -71,9 +72,9 @@ export function LabPdfPage({ books }: LabPdfPageProps): JSX.Element {
     setError(null)
     setResult(null)
     try {
-      const next = await window.api.analyzePdfPage(bookId, pageNumber)
+      const next = await bridge.analyzePdfPage(bookId, pageNumber)
       setResult(next)
-      void window.api
+      void bridge
         .saveLabArtifact({
           tool: 'lab-pdf-page',
           scope: `pdf:${bookId}:${pageNumber}`,
@@ -112,7 +113,7 @@ export function LabPdfPage({ books }: LabPdfPageProps): JSX.Element {
           {busy ? '识别中…' : result ? '重新识别' : '理解这一页'}
         </button>
         {busy ? (
-          <button type="button" className="ghost-button small" onClick={() => void window.api.cancelLab()}>
+          <button type="button" className="ghost-button small" onClick={() => void bridge.cancelLab()}>
             取消
           </button>
         ) : null}
@@ -123,7 +124,7 @@ export function LabPdfPage({ books }: LabPdfPageProps): JSX.Element {
         <div className="lab-result">
           <div className="lab-result-head">
             <h3>{result.title}</h3>
-            <button type="button" className="text-button" onClick={() => void window.api.copyText(result.markdown)}>
+            <button type="button" className="text-button" onClick={() => void bridge.copyText(result.markdown)}>
               复制全文
             </button>
           </div>

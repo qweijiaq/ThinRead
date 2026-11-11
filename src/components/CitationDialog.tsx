@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useEffect, useMemo, useState, type JSX } from 'react'
 
 import type { CitationMeta, CitationStyle } from '../../shared/types.js'
@@ -48,7 +49,7 @@ export function CitationDialog({ open, title, author, onClose }: CitationDialogP
 
   async function copy(): Promise<void> {
     try {
-      await window.api.copyText(preview)
+      await bridge.copyText(preview)
       setStatus(t('已复制引用'))
     } catch {
       setStatus(t('复制失败'))
@@ -57,7 +58,7 @@ export function CitationDialog({ open, title, author, onClose }: CitationDialogP
 
   async function exportFile(): Promise<void> {
     try {
-      const result = await window.api.saveTextFile(
+      const result = await bridge.saveTextFile(
         citationFilename(style, meta),
         preview,
         citationExtension(style),

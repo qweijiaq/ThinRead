@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type JSX } from 'react'
 
 import type {
@@ -445,7 +446,7 @@ export function Reader({
             ? `${t('理解图片中')} ${index + 1}/${targets.length}`
             : t('理解图片中…'),
         )
-        const result = await window.api.understandChapterImage(chapter.id, targets[index]!)
+        const result = await bridge.understandChapterImage(chapter.id, targets[index]!)
         if (result.html) setLocalHtml(result.html)
         usedModel = result.model || usedModel
         understood += result.understood
@@ -479,7 +480,7 @@ export function Reader({
         model: '',
       })
       try {
-        const result = await window.api.codeAssist(chapter.id, input.code, 'review', input.language)
+        const result = await bridge.codeAssist(chapter.id, input.code, 'review', input.language)
         setCodeReview((current) =>
           current
             ? { ...current, loading: false, review: result.text, model: result.model ?? '' }
@@ -496,7 +497,7 @@ export function Reader({
 
     if (input.action === 'fix') {
       try {
-        const result = await window.api.codeAssist(chapter.id, input.code, 'fix', input.language)
+        const result = await bridge.codeAssist(chapter.id, input.code, 'fix', input.language)
         if (result.html) setLocalHtml(result.html)
         onNotify?.({
           kind: 'info',
@@ -513,7 +514,7 @@ export function Reader({
     }
 
     try {
-      const result = await window.api.codeAssist(chapter.id, input.code, 'explain', input.language)
+      const result = await bridge.codeAssist(chapter.id, input.code, 'explain', input.language)
       if (result.html) setLocalHtml(result.html)
       onNotify?.({
         kind: 'info',
@@ -628,7 +629,7 @@ export function Reader({
       let ratio = 0
       if (positionTarget && positionTarget.chapterId === chapter.id) ratio = positionTarget.ratio
       else {
-        const position = await window.api.getReadingPosition(chapter.id).catch(() => null)
+        const position = await bridge.getReadingPosition(chapter.id).catch(() => null)
         ratio = position?.scrollRatio ?? 0
       }
       if (cancelled) return
@@ -694,7 +695,7 @@ export function Reader({
     const bookId = chapter.bookId
     const chapterId = chapter.id
     positionTimerRef.current = window.setTimeout(() => {
-      void window.api
+      void bridge
         .saveReadingPosition({ bookId, chapterId, scrollRatio: ratio, scrollTop })
         .catch(() => undefined)
     }, 350)
@@ -859,7 +860,7 @@ export function Reader({
     if (!chapter || !contentRef.current || savingBody) return
     setSavingBody(true)
     try {
-      const result = await window.api.saveChapterContent(chapter.id, contentRef.current.innerHTML)
+      const result = await bridge.saveChapterContent(chapter.id, contentRef.current.innerHTML)
       setLocalHtml(result.html)
       setEditing(false)
       onNotify?.({ kind: 'info', text: t('已保存正文') })
@@ -1203,7 +1204,7 @@ export function Reader({
                         role="menuitem"
                         onClick={() => {
                           setMoreOpen(false)
-                          void window.api.copyText(`${chapter.title}\n\n${chapter.text}`).then(() => {
+                          void bridge.copyText(`${chapter.title}\n\n${chapter.text}`).then(() => {
                             setFullCopied(true)
                             window.setTimeout(() => setFullCopied(false), 1600)
                           })
@@ -1217,7 +1218,7 @@ export function Reader({
                         role="menuitem"
                         onClick={() => {
                           setMoreOpen(false)
-                          void window.api.copyText(`thinread://book/${chapter.bookId}/chapter/${chapter.id}`)
+                          void bridge.copyText(`thinread://book/${chapter.bookId}/chapter/${chapter.id}`)
                           setLinkCopied(true)
                           window.setTimeout(() => setLinkCopied(false), 1600)
                         }}

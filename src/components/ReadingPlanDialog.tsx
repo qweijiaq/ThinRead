@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useEffect, useMemo, useState, type JSX } from 'react'
 
 import type { BookSummary, ChapterMeta, ReadingPlanRecord } from '../../shared/types.js'
@@ -80,8 +81,8 @@ export function ReadingPlanDialog({ book, onOpenChapter, onClose }: ReadingPlanD
     void (async () => {
       try {
         const [opened, saved] = await Promise.all([
-          window.api.openBook(book.id),
-          window.api.getReadingPlan(book.id),
+          bridge.openBook(book.id),
+          bridge.getReadingPlan(book.id),
         ])
         if (cancelled) return
         setChapters(opened.chapters)
@@ -103,7 +104,7 @@ export function ReadingPlanDialog({ book, onOpenChapter, onClose }: ReadingPlanD
         }
         setPlan(draft)
         if (days.length > 0) {
-          const stored = await window.api.saveReadingPlan(planInput(draft))
+          const stored = await bridge.saveReadingPlan(planInput(draft))
           if (!cancelled) setPlan(stored)
         }
       } catch (err) {
@@ -133,7 +134,7 @@ export function ReadingPlanDialog({ book, onOpenChapter, onClose }: ReadingPlanD
     setSaving(true)
     setError(null)
     try {
-      const stored = await window.api.saveReadingPlan(planInput(next))
+      const stored = await bridge.saveReadingPlan(planInput(next))
       setPlan(stored)
       return true
     } catch (err) {
@@ -182,7 +183,7 @@ export function ReadingPlanDialog({ book, onOpenChapter, onClose }: ReadingPlanD
     })
     if (!confirmed) return
     try {
-      await window.api.deleteReadingPlan(book.id)
+      await bridge.deleteReadingPlan(book.id)
       onClose()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))

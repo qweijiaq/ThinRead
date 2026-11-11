@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useEffect, useMemo, useState, type JSX } from 'react'
 import { t, useLocale } from '../lib/i18n.js'
 import { useDialogFocus } from '../lib/useDialogFocus.js'
@@ -43,7 +44,7 @@ export function SplitBookDialog({ open, book, chapters, onClose, onSplit }: Spli
     setBusy(true)
     setError(null)
     try {
-      const next = await window.api.splitBook(book.id, fromChapterId, title.trim() || `${book.title} · ${t('下篇')}`)
+      const next = await bridge.splitBook(book.id, fromChapterId, title.trim() || `${book.title} · ${t('下篇')}`)
       onSplit(next)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))

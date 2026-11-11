@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 
 import type { ChapterMeta, Note, XhsCoverageAudit } from '../../shared/types.js'
@@ -84,8 +85,8 @@ export function XhsCarouselDialog({
     setTitle(scope === 'chapter' ? selectedChapter?.title ?? bookTitle : bookTitle)
     const request =
       scope === 'chapter' && selectedChapterId
-        ? window.api.listNotes(bookId, selectedChapterId)
-        : window.api.listNotes(bookId)
+        ? bridge.listNotes(bookId, selectedChapterId)
+        : bridge.listNotes(bookId)
     request
       .then((items) => {
         if (cancelled) return
@@ -188,7 +189,7 @@ export function XhsCarouselDialog({
     const cardChars = plan.cards.reduce((sum, card) => sum + (card.body || card.heading).length, 0)
     const inputTokens = Math.ceil((chapterChars + Math.min(12_000, cardChars)) * 0.7)
     const outputTokens = 2_000
-    const settings = await window.api.getSettings().catch(() => null)
+    const settings = await bridge.getSettings().catch(() => null)
     const price = settings ? settings.aiPricing[settings.notesModel || settings.model] : null
     const costHint = price
       ? `，${t('估算约')} ¥${(
@@ -206,7 +207,7 @@ export function XhsCarouselDialog({
     setError(null)
     setNotice(null)
     try {
-      const result = await window.api.auditXhsCoverage({
+      const result = await bridge.auditXhsCoverage({
         bookId,
         chapterId: scope === 'chapter' ? selectedChapterId ?? null : null,
         cards: plan.cards.map((card) => ({
@@ -259,7 +260,7 @@ export function XhsCarouselDialog({
     setError(null)
     setNotice(null)
     try {
-      const result = await window.api.saveImages(
+      const result = await bridge.saveImages(
         previews.map((dataUrl, pageIndex) => ({ dataUrl, name: xhsPageFilename(plan, pageIndex) })),
         `${plan.title} - 小红书`,
       )
@@ -277,7 +278,7 @@ export function XhsCarouselDialog({
     setError(null)
     setNotice(null)
     try {
-      const result = await window.api.saveImage(currentPreview, xhsPageFilename(plan, index))
+      const result = await bridge.saveImage(currentPreview, xhsPageFilename(plan, index))
       if (result.saved) setNotice(`${t('已保存到')} ${result.path}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -292,7 +293,7 @@ export function XhsCarouselDialog({
     setError(null)
     setNotice(null)
     try {
-      await window.api.copyImage(currentPreview)
+      await bridge.copyImage(currentPreview)
       setNotice(`${t('第')} ${index + 1} ${t('张已复制。')}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))

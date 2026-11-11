@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useCallback, useState } from 'react'
 
 import type { BookSummary, ChapterContent, ChapterMeta } from '../../shared/types.js'
@@ -51,7 +52,7 @@ export function useRename(options: RenameOptions): RenameState {
       const title = value.replace(/\s+/g, ' ').trim()
       if (!title) throw new Error('标题不能为空。')
       if (renameTarget.kind === 'book') {
-        const updated = await window.api.renameBook(
+        const updated = await bridge.renameBook(
           renameTarget.bookId,
           title,
           secondary === undefined ? renameTarget.author : secondary.trim(),
@@ -61,14 +62,14 @@ export function useRename(options: RenameOptions): RenameState {
         return
       }
       if (renameTarget.kind === 'chapter') {
-        await window.api.renameChapter(renameTarget.chapterId, title)
+        await bridge.renameChapter(renameTarget.chapterId, title)
         setChapters((current) =>
           current.map((item) => (item.id === renameTarget.chapterId ? { ...item, title } : item)),
         )
         setChapter((current) => (current && current.id === renameTarget.chapterId ? { ...current, title } : current))
         return
       }
-      await window.api.renamePart(renameTarget.bookId, renameTarget.partIndex, title)
+      await bridge.renamePart(renameTarget.bookId, renameTarget.partIndex, title)
       setChapters((current) =>
         current.map((item) => (item.partIndex === renameTarget.partIndex ? { ...item, partTitle: title } : item)),
       )

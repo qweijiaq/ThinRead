@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useCallback, useEffect, useState } from 'react'
 
 import type { BookSummary, ChapterContent, ChapterMeta, Note, ReaderMarkStyle } from '../../shared/types.js'
@@ -74,7 +75,7 @@ export function useReaderSession(options: ReaderSessionOptions): ReaderSessionSt
 
   const refreshBookmarks = useCallback(async (bookId: string) => {
     try {
-      setBookmarks(await window.api.listBookmarks(bookId))
+      setBookmarks(await bridge.listBookmarks(bookId))
     } catch {
       setBookmarks([])
     }
@@ -84,7 +85,7 @@ export function useReaderSession(options: ReaderSessionOptions): ReaderSessionSt
     async (style: ReaderMarkStyle, text: string) => {
       if (!chapter) return
       try {
-        const mark = await window.api.createChapterMark({ chapterId: chapter.id, quote: text, style })
+        const mark = await bridge.createChapterMark({ chapterId: chapter.id, quote: text, style })
         setReaderMarks((current) => [...current, mark])
       } catch (err) {
         notify({ kind: 'error', text: messageOf(err) })
@@ -96,7 +97,7 @@ export function useReaderSession(options: ReaderSessionOptions): ReaderSessionSt
   const clearReaderMarks = useCallback(
     async (ids: string[]) => {
       try {
-        await Promise.all(ids.map((id) => window.api.deleteChapterMark(id)))
+        await Promise.all(ids.map((id) => bridge.deleteChapterMark(id)))
         setReaderMarks((current) => current.filter((mark) => !ids.includes(mark.id)))
       } catch (err) {
         notify({ kind: 'error', text: messageOf(err) })
@@ -155,7 +156,7 @@ export function useReaderSession(options: ReaderSessionOptions): ReaderSessionSt
   const createReaderBookmark = useCallback(
     async (draft: BookmarkDraft) => {
       try {
-        await window.api.createBookmark(draft)
+        await bridge.createBookmark(draft)
         if (book) await refreshBookmarks(book.id)
         notify({ kind: 'info', text: t('已添加书签。') })
       } catch (err) {
@@ -168,7 +169,7 @@ export function useReaderSession(options: ReaderSessionOptions): ReaderSessionSt
   const deleteReaderBookmark = useCallback(
     async (id: string) => {
       try {
-        await window.api.deleteBookmark(id)
+        await bridge.deleteBookmark(id)
         if (book) await refreshBookmarks(book.id)
       } catch (err) {
         notify({ kind: 'error', text: messageOf(err) })

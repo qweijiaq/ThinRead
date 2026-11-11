@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useEffect, useRef, useState, type JSX } from 'react'
 import type { ChapterContent, ChatCitation, ChatMode, ChatTurn } from '../../shared/types.js'
 import { onContentCurrent } from '../lib/content-events.js'
@@ -43,7 +44,7 @@ export function ChatPanel({ chapter, bookTitle, seed, onJumpQuote, onSave }: Cha
     setSaved(null)
     if (!chapter) return
     let cancelled = false
-    void window.api.getLabArtifact('chapter-chat', chapter.id).then((artifact) => {
+    void bridge.getLabArtifact('chapter-chat', chapter.id).then((artifact) => {
       if (cancelled || !artifact) return
       try {
         const parsed = JSON.parse(artifact.content) as { turns?: Turn[]; mode?: ChatMode }
@@ -86,7 +87,7 @@ export function ChatPanel({ chapter, bookTitle, seed, onJumpQuote, onSave }: Cha
     setError(null)
     if (chapter) {
       setArtifactId(null)
-      void window.api
+      void bridge
         .saveLabArtifact({
           tool: 'chapter-chat',
           scope: chapter.id,
@@ -103,8 +104,8 @@ export function ChatPanel({ chapter, bookTitle, seed, onJumpQuote, onSave }: Cha
     if (!chapter) return
     const content = JSON.stringify({ turns: finalTurns, mode: chatMode })
     const task = artifactId
-      ? window.api.updateLabArtifact(artifactId, { title: t('章节问答'), content })
-      : window.api
+      ? bridge.updateLabArtifact(artifactId, { title: t('章节问答'), content })
+      : bridge
           .saveLabArtifact({
             tool: 'chapter-chat',
             scope: chapter.id,
@@ -132,7 +133,7 @@ export function ChatPanel({ chapter, bookTitle, seed, onJumpQuote, onSave }: Cha
     setBusy(true)
     setStreamingAnswer('')
     try {
-      const result = await window.api.askChapterStream(chapter.id, text, history, mode, (delta) => {
+      const result = await bridge.askChapterStream(chapter.id, text, history, mode, (delta) => {
         if (session === sessionRef.current) setStreamingAnswer(delta)
       })
       if (session === sessionRef.current) {
@@ -170,7 +171,7 @@ export function ChatPanel({ chapter, bookTitle, seed, onJumpQuote, onSave }: Cha
     setError(null)
     setStreamingAnswer('')
     try {
-      const result = await window.api.askChapterStream(chapter.id, question, history, mode, (delta) => {
+      const result = await bridge.askChapterStream(chapter.id, question, history, mode, (delta) => {
         if (session === sessionRef.current) setStreamingAnswer(delta)
       })
       if (session !== sessionRef.current) return

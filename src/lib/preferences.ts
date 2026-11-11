@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 const AUTO_NEXT_KEY = 'reading-notes-auto-next'
 const DAILY_GOAL_KEY = 'reading-notes-daily-goal'
 const PREFERENCE_EVENT = 'reading-notes-preferences'
@@ -28,9 +29,9 @@ function readDailyGoalRaw(): string | null {
 
 /** 启动时合并主进程保存的偏好；本机已有值时优先保留本机，避免首次迁移丢失。 */
 export async function hydratePreferences(): Promise<void> {
-  if (typeof window === 'undefined' || !window.api?.getUiPreferences) return
+  if (typeof window === 'undefined' || !bridge?.getUiPreferences) return
   try {
-    const remote = await window.api.getUiPreferences()
+    const remote = await bridge.getUiPreferences()
     const localAuto = readAutoNextRaw()
     const localGoal = readDailyGoalRaw()
     const autoNext = remote.configured
@@ -51,7 +52,7 @@ export async function hydratePreferences(): Promise<void> {
     } catch {
       // 本地缓存写不进去时仍然使用合并后的值。
     }
-    await window.api.saveUiPreferences({ autoNext, dailyGoal })
+    await bridge.saveUiPreferences({ autoNext, dailyGoal })
     notify()
   } catch {
     // 偏好同步失败不阻塞启动。
@@ -68,8 +69,8 @@ export function setAutoNext(enabled: boolean): void {
   } catch {
     // 偏好保存失败只影响下次打开。
   }
-  if (typeof window !== 'undefined' && window.api?.saveUiPreferences) {
-    void window.api.saveUiPreferences({ autoNext: enabled }).catch(() => undefined)
+  if (typeof window !== 'undefined' && bridge?.saveUiPreferences) {
+    void bridge.saveUiPreferences({ autoNext: enabled }).catch(() => undefined)
   }
   notify()
 }
@@ -89,8 +90,8 @@ export function setDailyGoal(minutes: number): void {
   } catch {
     // 同上。
   }
-  if (typeof window !== 'undefined' && window.api?.saveUiPreferences) {
-    void window.api.saveUiPreferences({ dailyGoal: next }).catch(() => undefined)
+  if (typeof window !== 'undefined' && bridge?.saveUiPreferences) {
+    void bridge.saveUiPreferences({ dailyGoal: next }).catch(() => undefined)
   }
   notify()
 }

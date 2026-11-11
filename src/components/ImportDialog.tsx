@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useEffect, useState, type JSX } from 'react'
 import { t, useLocale } from '../lib/i18n.js'
 import { useDialogFocus } from '../lib/useDialogFocus.js'
@@ -46,7 +47,7 @@ export function ImportDialog({
     if (!open) return
     let cancelled = false
     setDoclingStatus(null)
-    void window.api
+    void bridge
       .getDoclingStatus()
       .then((status) => {
         if (!cancelled) setDoclingStatus(status)
@@ -61,7 +62,7 @@ export function ImportDialog({
 
   useEffect(() => {
     if (!open) return
-    return window.api.onDoclingProgress((event) => setDoclingProgress(event))
+    return bridge.onDoclingProgress((event) => setDoclingProgress(event))
   }, [open])
 
   useEffect(() => {
@@ -76,7 +77,7 @@ export function ImportDialog({
     setMergeHighlights(false)
     setSkipReferences(false)
     setError(null)
-    void window.api.listOcrJobs().then(setOcrJobs).catch(() => setOcrJobs([]))
+    void bridge.listOcrJobs().then(setOcrJobs).catch(() => setOcrJobs([]))
   }, [open])
 
   useEffect(() => {
@@ -120,7 +121,7 @@ export function ImportDialog({
     setBusy(true)
     setError(null)
     try {
-      const result = await window.api.importScannedPdf(
+      const result = await bridge.importScannedPdf(
         startPage > 0 || endPage > 0
           ? {
               ...(startPage > 0 ? { startPage } : {}),
@@ -143,7 +144,7 @@ export function ImportDialog({
     setBusy(true)
     setError(null)
     try {
-      const result = await window.api.syncReadwise()
+      const result = await bridge.syncReadwise()
       onHighlightsImported(result)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -156,7 +157,7 @@ export function ImportDialog({
     setBusy(true)
     setError(null)
     try {
-      const result = await window.api.resumeOcrJob(job.id)
+      const result = await bridge.resumeOcrJob(job.id)
       if (result?.started) {
         onOcrStarted(result.fileName)
         onClose()
@@ -172,7 +173,7 @@ export function ImportDialog({
     setBusy(true)
     setError(null)
     try {
-      const result = await window.api.importHighlights({ mergeExisting: mergeHighlights })
+      const result = await bridge.importHighlights({ mergeExisting: mergeHighlights })
       if (result) onHighlightsImported(result)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -185,7 +186,7 @@ export function ImportDialog({
     setBusy(true)
     setError(null)
     try {
-      const result = await window.api.importWechatHighlights({ mergeExisting: mergeHighlights })
+      const result = await bridge.importWechatHighlights({ mergeExisting: mergeHighlights })
       if (result) onHighlightsImported(result)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -199,7 +200,7 @@ export function ImportDialog({
     setBusy(true)
     setError(null)
     try {
-      const book = await window.api.importText({
+      const book = await bridge.importText({
         title: title.trim(),
         author: author.trim(),
         text,
@@ -218,7 +219,7 @@ export function ImportDialog({
     setBusy(true)
     setError(null)
     try {
-      const book = await window.api.importUrl(url.trim(), { skipReferences })
+      const book = await bridge.importUrl(url.trim(), { skipReferences })
       onImported(book)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))

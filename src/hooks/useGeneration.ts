@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useCallback, useEffect, useState } from 'react'
 
 import type { BookSummary, ChapterContent, GeneratePartial, Note, ReaderStyle } from '../../shared/types.js'
@@ -48,7 +49,7 @@ export function useGeneration(options: GenerationOptions): GenerationState {
   useEffect(() => {
     if (!chapterId) return
     let cancelled = false
-    void window.api
+    void bridge
       .getChapterAiJobs(chapterId)
       .then((jobs) => {
         if (cancelled) return
@@ -81,13 +82,13 @@ export function useGeneration(options: GenerationOptions): GenerationState {
   }, [chapterId, attachKey])
 
   useEffect(() => {
-    const offPartial = window.api.onGenerationPartial((event) => {
+    const offPartial = bridge.onGenerationPartial((event) => {
       if (event.chapterId !== chapterId) return
       setGenerating(true)
       setPartial(event.partial)
       setError(null)
     })
-    const offDone = window.api.onGenerationDone((event) => {
+    const offDone = bridge.onGenerationDone((event) => {
       if (event.chapterId === chapterId) {
         setGenerating(false)
         setPartial(null)
@@ -97,7 +98,7 @@ export function useGeneration(options: GenerationOptions): GenerationState {
         )
       }
       if (bookId) {
-        void window.api
+        void bridge
           .listNotes(bookId)
           .then((items) => {
             setAllNotes(items)
@@ -108,13 +109,13 @@ export function useGeneration(options: GenerationOptions): GenerationState {
           .catch(() => undefined)
       }
     })
-    const offError = window.api.onGenerationError((event) => {
+    const offError = bridge.onGenerationError((event) => {
       if (event.chapterId !== chapterId) return
       setGenerating(false)
       setPartial(null)
       setError(event.message)
     })
-    const offFormatted = window.api.onChapterFormatted((event) => {
+    const offFormatted = bridge.onChapterFormatted((event) => {
       if (event.chapterId !== chapterId) return
       setChapter((current) =>
         current && current.id === event.chapterId
@@ -123,7 +124,7 @@ export function useGeneration(options: GenerationOptions): GenerationState {
       )
       applyStyle(event.style)
     })
-    const offBookDone = window.api.onBookGenerationDone((event) => {
+    const offBookDone = bridge.onBookGenerationDone((event) => {
       if (event.bookId !== bookId) return
       notify({
         kind: event.failed.length > 0 ? 'error' : 'info',
@@ -131,7 +132,7 @@ export function useGeneration(options: GenerationOptions): GenerationState {
           ? '整本生成已取消。'
           : `整本生成完成：新生成 ${event.generated} 节${event.failed.length > 0 ? `，失败 ${event.failed.length} 节` : ''}。`,
       })
-      void window.api
+      void bridge
         .listNotes(event.bookId)
         .then((items) => {
           setAllNotes(items)
@@ -156,7 +157,7 @@ export function useGeneration(options: GenerationOptions): GenerationState {
     setGenerating(true)
     setPartial(null)
     try {
-      await window.api.generateNotes(chapterId, { fresh })
+      await bridge.generateNotes(chapterId, { fresh })
     } catch (err) {
       setGenerating(false)
       setPartial(null)
@@ -165,7 +166,7 @@ export function useGeneration(options: GenerationOptions): GenerationState {
   }, [chapterId])
 
   const cancelGeneration = useCallback(async () => {
-    if (chapterId) await window.api.cancelGeneration({ chapterId })
+    if (chapterId) await bridge.cancelGeneration({ chapterId })
     setGenerating(false)
     setPartial(null)
   }, [chapterId])

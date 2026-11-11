@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useEffect, useRef, useState, type JSX, type MouseEvent as ReactMouseEvent } from 'react'
 import type { PDFDocumentProxy, RenderTask } from 'pdfjs-dist'
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
@@ -63,8 +64,8 @@ export function PdfOriginalView({ bookId, chapterId, title, initialPage, onClose
     void (async () => {
       try {
         const [bytes, position] = await Promise.all([
-          window.api.readBookFile(bookId),
-          chapterId ? window.api.getReadingPosition(chapterId).catch(() => null) : Promise.resolve(null),
+          bridge.readBookFile(bookId),
+          chapterId ? bridge.getReadingPosition(chapterId).catch(() => null) : Promise.resolve(null),
         ])
         const pdfjs = await import('pdfjs-dist')
         pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
@@ -96,14 +97,14 @@ export function PdfOriginalView({ bookId, chapterId, title, initialPage, onClose
 
   useEffect(() => {
     if (!doc || !chapterId) return
-    void window.api.saveReadingPage(chapterId, bookId, page).catch(() => undefined)
+    void bridge.saveReadingPage(chapterId, bookId, page).catch(() => undefined)
   }, [bookId, chapterId, doc, page])
 
   useEffect(() => {
     let cancelled = false
     setSelectedId(null)
     setDraft(null)
-    void window.api
+    void bridge
       .listPdfAnnotations(bookId, page)
       .then((rows) => {
         if (!cancelled) setAnnotations(rows)
@@ -213,7 +214,7 @@ export function PdfOriginalView({ bookId, chapterId, title, initialPage, onClose
       setDraft(null)
       return
     }
-    void window.api
+    void bridge
       .savePdfAnnotation({ bookId, page, ...rect, color })
       .then((saved) => {
         setAnnotations((current) => [...current, saved])
@@ -233,7 +234,7 @@ export function PdfOriginalView({ bookId, chapterId, title, initialPage, onClose
   function saveNote(): void {
     if (!selected) return
     setSavingNote(true)
-    void window.api
+    void bridge
       .updatePdfAnnotation(selected.id, { note: noteDraft, color })
       .then((updated) => {
         setAnnotations((current) => current.map((item) => (item.id === updated.id ? updated : item)))
@@ -244,7 +245,7 @@ export function PdfOriginalView({ bookId, chapterId, title, initialPage, onClose
 
   function removeAnnotation(): void {
     if (!selected) return
-    void window.api
+    void bridge
       .deletePdfAnnotation(selected.id)
       .then(() => {
         setAnnotations((current) => current.filter((item) => item.id !== selected.id))

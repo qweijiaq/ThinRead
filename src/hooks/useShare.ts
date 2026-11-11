@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useCallback, useState } from 'react'
 
 import type { BookSummary, ChapterContent, ChapterMeta, LibraryNote, Note } from '../../shared/types.js'
@@ -113,7 +114,7 @@ export function useShare(options: ShareOptions): ShareState {
   const shareCurrentBook = useCallback(async () => {
     if (!book) return
     try {
-      const all = await window.api.listNotes(book.id)
+      const all = await bridge.listNotes(book.id)
       const points = all.filter((note) => note.kind === 'point' || note.kind === 'claim')
       const fallback = all.filter(
         (note) => note.kind === 'summary' || note.kind === 'condensed' || note.kind === 'thought',

@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useEffect, useMemo, useState, type JSX } from 'react'
 import { t, useLocale } from '../lib/i18n.js'
 import { useDialogFocus } from '../lib/useDialogFocus.js'
@@ -38,7 +39,7 @@ export function MergeBooksDialog({ open, books, onClose, onMerged }: MergeBooksD
     setBusy(true)
     setError(null)
     try {
-      const merged = await window.api.mergeBooks(
+      const merged = await bridge.mergeBooks(
         chosen.map((book) => book.id),
         title.trim() || chosen[0]!.title,
         author.trim() || chosen[0]!.author,

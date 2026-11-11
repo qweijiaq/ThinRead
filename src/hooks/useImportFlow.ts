@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useCallback, useState } from 'react'
 
 import type { BookSummary, HighlightImportResult, ImportBookOptions } from '../../shared/types.js'
@@ -43,7 +44,7 @@ export function useImportFlow(options: ImportFlowOptions): ImportFlowState {
   const importFile = useCallback(async (options?: ImportBookOptions): Promise<BookSummary | null> => {
     setImporting(true)
     try {
-      return await window.api.importBook(options)
+      return await bridge.importBook(options)
     } finally {
       setImporting(false)
     }
@@ -101,7 +102,7 @@ export function useImportFlow(options: ImportFlowOptions): ImportFlowState {
 
   const handleHighlightsImported = useCallback(
     async (result: HighlightImportResult) => {
-      setBooks(await window.api.listBooks())
+      setBooks(await bridge.listBooks())
       notify({
         kind: 'info',
         text: `${t('已导入')} ${result.books.length} ${t('本书的')} ${result.highlights} ${t('条划线。')}`,
@@ -115,7 +116,7 @@ export function useImportFlow(options: ImportFlowOptions): ImportFlowState {
   const handleMerged = useCallback(
     async (merged: BookSummary) => {
       try {
-        setBooks(await window.api.listBooks())
+        setBooks(await bridge.listBooks())
         setMergeOpen(false)
         notify({ kind: 'info', text: `${t('已合并为')}《${merged.title}》。` })
         await openBook(merged.id)
@@ -129,7 +130,7 @@ export function useImportFlow(options: ImportFlowOptions): ImportFlowState {
   const handleSplit = useCallback(
     async (newBook: BookSummary) => {
       try {
-        setBooks(await window.api.listBooks())
+        setBooks(await bridge.listBooks())
         setSplitOpen(false)
         notify({ kind: 'info', text: `${t('已拆出')}《${newBook.title}》。` })
         if (bookId) await refreshBook(bookId)

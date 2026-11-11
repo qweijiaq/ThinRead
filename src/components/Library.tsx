@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useEffect, useMemo, useState, useSyncExternalStore, type JSX } from 'react'
 import type { BookShelfStatus, BookSummary, ReadingPlanRecord } from '../../shared/types.js'
 import { bookGenreLabel } from '../lib/genres.js'
@@ -56,7 +57,7 @@ export function Library({ books, importing, onOpen, onImport, onOpenTrash, onDel
       return
     }
     void Promise.all(
-      candidates.map(async (book) => [book.id, await window.api.getBookCover(book.id)] as const),
+      candidates.map(async (book) => [book.id, await bridge.getBookCover(book.id)] as const),
     ).then((entries) => {
       if (cancelled) return
       setCovers(Object.fromEntries(entries.filter((entry): entry is readonly [string, string] => Boolean(entry[1]))))
@@ -69,7 +70,7 @@ export function Library({ books, importing, onOpen, onImport, onOpenTrash, onDel
   const [plans, setPlans] = useState<ReadingPlanRecord[]>([])
   useEffect(() => {
     let cancelled = false
-    void window.api
+    void bridge
       .listReadingPlans()
       .then((items) => {
         if (!cancelled) setPlans(Array.isArray(items) ? items : [])

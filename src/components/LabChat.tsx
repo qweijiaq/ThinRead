@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useEffect, useRef, useState, type JSX } from 'react'
 import type { ChatTurn, LabToolId } from '../../shared/types.js'
 import { t } from '../lib/i18n.js'
@@ -87,7 +88,7 @@ export function LabChat({ tool, bookIds, chapterId }: LabChatProps): JSX.Element
   function saveTurns(finalTurns: Turn[]): void {
     const content = JSON.stringify({ turns: finalTurns })
     const task = artifactId
-      ? window.api.updateLabArtifact(artifactId, { title: t('对话'), content })
+      ? bridge.updateLabArtifact(artifactId, { title: t('对话'), content })
       : saveLabArtifact(tool, t('对话'), content, { sourceKey: scope }, scope).then((artifact) => {
           setArtifactId(artifact.id)
           return artifact
@@ -121,7 +122,7 @@ export function LabChat({ tool, bookIds, chapterId }: LabChatProps): JSX.Element
     setError(null)
     setStreamingAnswer('')
     try {
-      const answer = await window.api.labChatStream(request(text), history, (delta) => setStreamingAnswer(delta))
+      const answer = await bridge.labChatStream(request(text), history, (delta) => setStreamingAnswer(delta))
       const finalTurns: Turn[] = [
         ...turns,
         { role: 'user', content: text },
@@ -154,7 +155,7 @@ export function LabChat({ tool, bookIds, chapterId }: LabChatProps): JSX.Element
     setError(null)
     setStreamingAnswer('')
     try {
-      const answer = await window.api.labChatStream(request(question), history, (delta) => setStreamingAnswer(delta))
+      const answer = await bridge.labChatStream(request(question), history, (delta) => setStreamingAnswer(delta))
       const finalTurns: Turn[] = [
         ...before,
         { role: 'user', content: question },
@@ -240,7 +241,7 @@ export function LabChat({ tool, bookIds, chapterId }: LabChatProps): JSX.Element
             <div className={`lab-chat-bubble${streamingAnswer ? '' : ' lab-chat-thinking'}`}>
               {streamingAnswer ? <Markdown text={streamingAnswer} /> : <span className="spinner" />}
               {streamingAnswer ? null : t('正在整理…')}
-              <button type="button" className="text-button lab-chat-cancel" onClick={() => void window.api.cancelLab()}>
+              <button type="button" className="text-button lab-chat-cancel" onClick={() => void bridge.cancelLab()}>
                 {t('取消')}
               </button>
             </div>

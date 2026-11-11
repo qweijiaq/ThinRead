@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 
 import type { SettingsView, TtsStatus } from '../../shared/types.js'
@@ -110,8 +111,8 @@ export function ListenPanel({
     else setVoiceB(value)
     voiceSaveRef.current = voiceSaveRef.current
       .then(async () => {
-        const current = await window.api.getSettings()
-        const saved = await window.api.saveSettings({
+        const current = await bridge.getSettings()
+        const saved = await bridge.saveSettings({
           provider: current.provider,
           baseUrl: current.baseUrl,
           model: current.model,
@@ -140,7 +141,7 @@ export function ListenPanel({
     const inFlight = audioInFlight.current.get(key)
     if (inFlight) return inFlight
     const promise = (async () => {
-      const audio = await window.api.synthesizeTts({ text: segment.text, voice })
+      const audio = await bridge.synthesizeTts({ text: segment.text, voice })
       const binary = atob(audio.base64)
       const bytes = new Uint8Array(binary.length)
       for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
@@ -158,7 +159,7 @@ export function ListenPanel({
   }
 
   useEffect(() => {
-    void window.api
+    void bridge
       .getTtsStatus()
       .then((status) => {
         setTtsStatus(status)
@@ -414,7 +415,7 @@ export function ListenPanel({
       for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex++) {
         if (exportCancelRef.current) throw new Error('cancelled')
         const segment = segments[segmentIndex]!
-        const audio = await window.api.synthesizeTts({
+        const audio = await bridge.synthesizeTts({
           text: segment.text,
           voice: remoteVoice(segment.speaker, segment.text),
         })
@@ -448,7 +449,7 @@ export function ListenPanel({
   async function saveFullAudio(): Promise<void> {
     if (!fullAudioBase64) return
     try {
-      const result = await window.api.saveAudio(fullAudioBase64, `页边-${title}-整章.wav`)
+      const result = await bridge.saveAudio(fullAudioBase64, `页边-${title}-整章.wav`)
       if (result.saved) setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -458,7 +459,7 @@ export function ListenPanel({
   async function saveFullAudioMp3(): Promise<void> {
     if (!fullAudioMp3Base64) return
     try {
-      const result = await window.api.saveAudio(fullAudioMp3Base64, `页边-${title}-整章.mp3`)
+      const result = await bridge.saveAudio(fullAudioMp3Base64, `页边-${title}-整章.mp3`)
       if (result.saved) setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))

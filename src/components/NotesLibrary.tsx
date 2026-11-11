@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useEffect, useState, type JSX } from 'react'
 import type { BookSummary, LibraryNote, LibraryNoteAudit, NoteAuditFilter, NoteKind, TagCount } from '../../shared/types.js'
 import { countUnit, t, useLocale } from '../lib/i18n.js'
@@ -59,7 +60,7 @@ export function NotesLibrary({ books, onBack, onOpen, onShare, onShareDeck }: No
   const [refreshTick, setRefreshTick] = useState(0)
 
   useEffect(() => {
-    void window.api
+    void bridge
       .listLibraryTags(bookId || null)
       .then(setTags)
       .catch(() => setTags([]))
@@ -67,7 +68,7 @@ export function NotesLibrary({ books, onBack, onOpen, onShare, onShareDeck }: No
 
   useEffect(() => {
     let cancelled = false
-    void window.api
+    void bridge
       .getLibraryNoteAudit({
         bookId: bookId || null,
         kind: kind || null,
@@ -98,7 +99,7 @@ export function NotesLibrary({ books, onBack, onOpen, onShare, onShareDeck }: No
     let cancelled = false
     setLoading(true)
     const timer = window.setTimeout(() => {
-      void window.api
+      void bridge
         .listLibraryNotesPage({
           bookId: bookId || null,
           kind: kind || null,
@@ -159,7 +160,7 @@ export function NotesLibrary({ books, onBack, onOpen, onShare, onShareDeck }: No
     setError(null)
     setNotice(null)
     try {
-      const result = await window.api.exportNotesMarkdown({
+      const result = await bridge.exportNotesMarkdown({
         bookId: bookId || null,
         kind: kind || null,
         tag,

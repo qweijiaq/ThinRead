@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useCallback, useEffect, useRef, useState, type JSX } from 'react'
 
 import type { SessionSummary } from '../../shared/types.js'
@@ -39,7 +40,7 @@ export function ReadingSummaryDialog({
     setError(null)
     setSaved(false)
     try {
-      const next = await window.api.generateSessionSummary({ chapterId, minutes })
+      const next = await bridge.generateSessionSummary({ chapterId, minutes })
       if (token !== requestRef.current) return
       setSummary(next)
     } catch (err) {
@@ -66,7 +67,7 @@ export function ReadingSummaryDialog({
     return () => {
       cancelTimerRef.current = window.setTimeout(() => {
         cancelTimerRef.current = null
-        void window.api.cancelSessionSummary()
+        void bridge.cancelSessionSummary()
       }, 0)
     }
   }, [load])
@@ -88,7 +89,7 @@ export function ReadingSummaryDialog({
   async function copy(): Promise<void> {
     if (!summary) return
     try {
-      await window.api.copyText(summary.markdown)
+      await bridge.copyText(summary.markdown)
       setCopied(true)
       window.setTimeout(() => setCopied(false), 1600)
     } catch (err) {

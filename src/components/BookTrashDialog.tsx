@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useEffect, useState, type JSX } from 'react'
 
 import type { TrashedBook } from '../../shared/types.js'
@@ -29,7 +30,7 @@ export function BookTrashDialog({ open, onClose, onChanged }: BookTrashDialogPro
     let cancelled = false
     setLoading(true)
     setError(null)
-    void window.api
+    void bridge
       .listTrashedBooks()
       .then((items) => {
         if (!cancelled) setBooks(items)
@@ -52,7 +53,7 @@ export function BookTrashDialog({ open, onClose, onChanged }: BookTrashDialogPro
     setBusy(item.id)
     setError(null)
     try {
-      const book = await window.api.restoreTrashedBook(item.id)
+      const book = await bridge.restoreTrashedBook(item.id)
       if (!book) throw new Error(t('这本书已经存在，无法恢复。'))
       setBooks((current) => current.filter((entry) => entry.id !== item.id))
       onChanged()
@@ -75,7 +76,7 @@ export function BookTrashDialog({ open, onClose, onChanged }: BookTrashDialogPro
     setBusy(item.id)
     setError(null)
     try {
-      await window.api.purgeTrashedBook(item.id)
+      await bridge.purgeTrashedBook(item.id)
       setBooks((current) => current.filter((entry) => entry.id !== item.id))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -96,7 +97,7 @@ export function BookTrashDialog({ open, onClose, onChanged }: BookTrashDialogPro
     setBusy('empty')
     setError(null)
     try {
-      await window.api.emptyBookTrash()
+      await bridge.emptyBookTrash()
       setBooks([])
       onChanged()
     } catch (err) {

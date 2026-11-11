@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 
 import { countUnit, t, useLocale } from '../lib/i18n.js'
@@ -135,7 +136,7 @@ export function BookCompose({
   useEffect(() => {
     let cancelled = false
     setLoadingNotes(true)
-    void window.api
+    void bridge
       .listNotes(book.id)
       .then((items) => {
         if (!cancelled) setNotes(items)
@@ -155,8 +156,8 @@ export function BookCompose({
     const scope = `book:${book.id}`
     try {
       const [latest, versions] = await Promise.all([
-        window.api.getLabArtifact('book-compose', scope),
-        window.api.listLabArtifacts('book-compose', 40),
+        bridge.getLabArtifact('book-compose', scope),
+        bridge.listLabArtifacts('book-compose', 40),
       ])
       const scoped = versions.filter((artifact) => artifact.scope === scope)
       setHistory(scoped)
@@ -204,13 +205,13 @@ export function BookCompose({
         setError(job.error)
       }
     }
-    void window.api
+    void bridge
       .getBookAiJobs(book.id)
       .then((jobs) => {
         if (!cancelled) apply(jobs.compose, false)
       })
       .catch(() => undefined)
-    const off = window.api.onAiJobUpdate((job) => {
+    const off = bridge.onAiJobUpdate((job) => {
       if (job.kind !== 'compose' || job.bookId !== book.id) return
       apply(job, true)
     })
@@ -223,7 +224,7 @@ export function BookCompose({
   // 整本生成/排版也可能在切走期间继续跑，回来后恢复进度卡片。
   useEffect(() => {
     let cancelled = false
-    void window.api
+    void bridge
       .listBackgroundTasks()
       .then((records) => {
         if (cancelled) return
@@ -269,7 +270,7 @@ export function BookCompose({
   )
 
   useEffect(() => {
-    const offPartial = window.api.onGenerationPartial((event) => {
+    const offPartial = bridge.onGenerationPartial((event) => {
       const phase = event.partial.progress?.phase
       const label =
         phase === 'condense'
@@ -281,7 +282,7 @@ export function BookCompose({
               : t('AI 正在读这一章')
       setGeneration((current) => (current.running ? { ...current, message: label } : current))
     })
-    const offProgress = window.api.onBookGenerationProgress((event) => {
+    const offProgress = bridge.onBookGenerationProgress((event) => {
       if (event.bookId !== book.id) return
       setGeneration({
         running: true,
@@ -293,7 +294,7 @@ export function BookCompose({
       })
       if (event.status === 'done' || event.status === 'skipped') setNotesTick((value) => value + 1)
     })
-    const offDone = window.api.onBookGenerationDone((event) => {
+    const offDone = bridge.onBookGenerationDone((event) => {
       if (event.bookId !== book.id) return
       setGeneration((current) => ({ ...current, running: false }))
       setGenerationResult(event)
@@ -305,7 +306,7 @@ export function BookCompose({
         }
       }
     })
-    const offCompose = window.api.onBookComposeProgress((event) => {
+    const offCompose = bridge.onBookComposeProgress((event) => {
       setComposeProgress(event)
     })
     return () => {
@@ -340,7 +341,7 @@ export function BookCompose({
       message: t('正在准备排版'),
     })
     try {
-      await window.api.formatBook(book.id, { skipReferences: result.checked })
+      await bridge.formatBook(book.id, { skipReferences: result.checked })
     } catch (err) {
       setFormatting(false)
       setFormatProgress(null)
@@ -349,7 +350,7 @@ export function BookCompose({
   }
 
   async function cancelFormat(): Promise<void> {
-    await window.api.cancelFormat({ bookId: book.id })
+    await bridge.cancelFormat({ bookId: book.id })
     setFormatting(false)
     setFormatProgress(null)
   }
@@ -358,7 +359,7 @@ export function BookCompose({
     const previous = genre
     setGenre(next)
     try {
-      await window.api.setBookGenre(book.id, next)
+      await bridge.setBookGenre(book.id, next)
       setNotice(`${t('书籍类型已改为')}「${t(bookGenreLabel(next))}」${t('，之后生成的笔记、成稿和关系图会使用它。')}`)
     } catch (err) {
       setGenre(previous)
@@ -394,7 +395,7 @@ export function BookCompose({
       message: onlyMissing ? t('正在准备生成未完成的章节') : t('正在准备重新生成整本书'),
     })
     try {
-      await window.api.generateBookNotes(book.id, { onlyMissing })
+      await bridge.generateBookNotes(book.id, { onlyMissing })
     } catch (err) {
       autoComposeRef.current = false
       setGeneration((current) => ({ ...current, running: false }))
@@ -406,7 +407,7 @@ export function BookCompose({
 
   async function cancelGeneration(): Promise<void> {
     autoComposeRef.current = false
-    await window.api.cancelGeneration({ bookId: book.id })
+    await bridge.cancelGeneration({ bookId: book.id })
     setGeneration((current) => ({ ...current, running: false }))
   }
 
@@ -422,7 +423,7 @@ export function BookCompose({
       message: t('正在收齐读薄稿'),
     })
     try {
-      const next = await window.api.composeBook(book.id, composeOptionsRef.current)
+      const next = await bridge.composeBook(book.id, composeOptionsRef.current)
       setResult(next)
       setArticle(next.markdown)
       setDirty(false)
@@ -439,7 +440,7 @@ export function BookCompose({
   }
 
   async function cancelCompose(): Promise<void> {
-    await window.api.cancelBookCompose({ bookId: book.id })
+    await bridge.cancelBookCompose({ bookId: book.id })
     setComposing(false)
     setComposeProgress(null)
   }
@@ -461,7 +462,7 @@ export function BookCompose({
     setError(null)
     try {
       const next = { ...result, markdown: article, outputChars: article.length }
-      await window.api.saveLabArtifact({
+      await bridge.saveLabArtifact({
         tool: 'book-compose',
         scope: `book:${book.id}`,
         title: next.title,
@@ -488,7 +489,7 @@ export function BookCompose({
     setError(null)
     setNotice(null)
     try {
-      const rewritten = await window.api.rewriteComposeSection({
+      const rewritten = await bridge.rewriteComposeSection({
         bookId: book.id,
         fullText: article,
         start: selection.start,
@@ -525,7 +526,7 @@ export function BookCompose({
     setCompareBusy(true)
     setCompareError(null)
     try {
-      const result = await window.api.compareBookCompose({
+      const result = await bridge.compareBookCompose({
         bookId: book.id,
         model,
         options: composeOptions,
@@ -548,7 +549,7 @@ export function BookCompose({
     setError(null)
     try {
       const next = { ...result, markdown: article, outputChars: article.length }
-      await window.api.saveLabArtifact({
+      await bridge.saveLabArtifact({
         tool: 'book-compose',
         scope: `book:${book.id}`,
         title: next.title,
@@ -568,7 +569,7 @@ export function BookCompose({
     setBusyAction('copy')
     setError(null)
     try {
-      await window.api.copyText(article)
+      await bridge.copyText(article)
       setNotice(t('整本笔记已复制，可以直接贴到博客编辑器。'))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -583,7 +584,7 @@ export function BookCompose({
     setError(null)
     try {
       const name = `${book.title} 整本读书笔记.md`.replace(/[\\/:*?"<>|#%{}]/g, ' ').replace(/\s+/g, ' ').trim()
-      const saved = await window.api.saveMarkdown(name, article)
+      const saved = await bridge.saveMarkdown(name, article)
       if (saved.saved) setNotice(`${t('已导出到')} ${saved.path}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -617,7 +618,7 @@ export function BookCompose({
     try {
       const { bookHtmlFilename } = await import('../lib/blog-export.js')
       const html = await buildShareHtml()
-      const saved = await window.api.saveHtml(bookHtmlFilename(book.title), html)
+      const saved = await bridge.saveHtml(bookHtmlFilename(book.title), html)
       if (saved.saved) setNotice(`${t('分享页已导出到')} ${saved.path}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -633,7 +634,7 @@ export function BookCompose({
     try {
       const { bookPdfFilename } = await import('../lib/blog-export.js')
       const html = await buildShareHtml()
-      const saved = await window.api.savePdf(bookPdfFilename(book.title), html)
+      const saved = await bridge.savePdf(bookPdfFilename(book.title), html)
       if (saved.saved) setNotice(`${t('排版 PDF 已导出到')} ${saved.path}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))

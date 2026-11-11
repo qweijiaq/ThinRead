@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useEffect, useState, type JSX } from 'react'
 
 import type { TrashedNote } from '../../shared/types.js'
@@ -40,7 +41,7 @@ export function NoteTrashDialog({ open, onClose, onChanged }: NoteTrashDialogPro
     let cancelled = false
     setLoading(true)
     setError(null)
-    void window.api
+    void bridge
       .listTrashedNotes()
       .then((items) => {
         if (!cancelled) setNotes(items)
@@ -63,7 +64,7 @@ export function NoteTrashDialog({ open, onClose, onChanged }: NoteTrashDialogPro
     setBusy(item.id)
     setError(null)
     try {
-      const note = await window.api.restoreNote(item.id)
+      const note = await bridge.restoreNote(item.id)
       if (!note) throw new Error(t('原书或章节已经不存在，无法恢复这条笔记。'))
       setNotes((current) => current.filter((entry) => entry.id !== item.id))
       onChanged()
@@ -86,7 +87,7 @@ export function NoteTrashDialog({ open, onClose, onChanged }: NoteTrashDialogPro
     setBusy(item.id)
     setError(null)
     try {
-      await window.api.purgeTrashedNote(item.id)
+      await bridge.purgeTrashedNote(item.id)
       setNotes((current) => current.filter((entry) => entry.id !== item.id))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -107,7 +108,7 @@ export function NoteTrashDialog({ open, onClose, onChanged }: NoteTrashDialogPro
     setBusy('empty')
     setError(null)
     try {
-      await window.api.emptyNoteTrash()
+      await bridge.emptyNoteTrash()
       setNotes([])
       onChanged()
     } catch (err) {

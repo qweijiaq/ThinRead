@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useEffect, useMemo, useState, type JSX } from 'react'
 import { t, useLocale } from '../lib/i18n.js'
 import { useDialogFocus } from '../lib/useDialogFocus.js'
@@ -113,7 +114,7 @@ export function PublishDialog({ open, book, title, markdown, onClose }: PublishD
         includeMarkdown,
         coverStyle,
       })
-      const saved = await window.api.saveBinary(pkg.fileName, bytesToBase64(pkg.archive))
+      const saved = await bridge.saveBinary(pkg.fileName, bytesToBase64(pkg.archive))
       if (saved.saved) setNotice(`${t('发布包已导出到')} ${saved.path}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))

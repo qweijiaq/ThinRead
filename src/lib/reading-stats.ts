@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 const STORAGE_KEY = 'reading-notes-reading-stats'
 const RECENT_DAYS = 14
 
@@ -69,16 +70,16 @@ function mergeStats(left: StoredStats, right: Partial<StoredStats>): StoredStats
 
 /** 应用启动时同步统计：数据库为空时用本机缓存做首次迁移；否则以数据库为准，保证备份恢复可回滚。 */
 export async function hydrateReadingStats(): Promise<void> {
-  if (typeof window === 'undefined' || !window.api?.getReadingStats) return
+  if (typeof window === 'undefined' || !bridge?.getReadingStats) return
   try {
     const local = load()
-    const remote = await window.api.getReadingStats()
+    const remote = await bridge.getReadingStats()
     const hasRemote =
       remote.total > 0 || Object.keys(remote.days).length > 0 || Object.keys(remote.books).length > 0
     if (!hasRemote) {
       const merged = mergeStats(local, remote)
       save(merged)
-      await window.api.mergeReadingStats(merged)
+      await bridge.mergeReadingStats(merged)
       return
     }
     save({
@@ -101,8 +102,8 @@ export function addReadingSeconds(seconds: number, bookId?: string | null): void
   stats.days[key] = (stats.days[key] ?? 0) + seconds
   if (bookId) stats.books[bookId] = (stats.books[bookId] ?? 0) + seconds
   save(stats)
-  if (typeof window !== 'undefined' && window.api?.recordReading) {
-    void window.api.recordReading(key, seconds, bookId ?? null).catch(() => undefined)
+  if (typeof window !== 'undefined' && bridge?.recordReading) {
+    void bridge.recordReading(key, seconds, bookId ?? null).catch(() => undefined)
   }
 }
 

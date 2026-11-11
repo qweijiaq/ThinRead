@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { memo, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 
 import type { Note, NoteKind, NotePatch } from '../../shared/types.js'
@@ -146,7 +147,7 @@ function NoteCardImpl({
     setRewriting(true)
     setSaveError(null)
     try {
-      const rewritten = await window.api.rewriteComposeSection({
+      const rewritten = await bridge.rewriteComposeSection({
         bookId: note.bookId,
         fullText: draftContent,
         start: selection.start,

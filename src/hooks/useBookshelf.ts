@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useCallback, useState, type MutableRefObject } from 'react'
 
 import { DEFAULT_READER_STYLE, type BookSummary,
@@ -79,13 +80,13 @@ export function useBookshelf(actions: MutableRefObject<BookshelfActions>): Books
       setReaderMarks([])
       try {
         const [content, marks] = await Promise.all([
-          window.api.getChapter(meta.id),
-          window.api.listChapterMarks(meta.id),
+          bridge.getChapter(meta.id),
+          bridge.listChapterMarks(meta.id),
         ])
         setChapter(content)
         setReaderMarks(marks)
         await helpers.refreshNotes(bookId, meta.id)
-        await window.api.setProgress(bookId, meta.id)
+        await bridge.setProgress(bookId, meta.id)
         const visible = chapterList.filter((item) => !item.hidden)
         const position = visible.findIndex((item) => item.id === meta.id)
         const progress = visible.length === 0 ? 0 : position >= 0 ? (position + 1) / visible.length : 0
@@ -102,7 +103,7 @@ export function useBookshelf(actions: MutableRefObject<BookshelfActions>): Books
   const openBookAt = useCallback(
     async (bookId: string, chapterId?: string | null): Promise<ChapterMeta | null> => {
       try {
-        const opened = await window.api.openBook(bookId)
+        const opened = await bridge.openBook(bookId)
         const helpers = actions.current
         setBook(opened.book)
         setChapters(opened.chapters)
@@ -148,7 +149,7 @@ export function useBookshelf(actions: MutableRefObject<BookshelfActions>): Books
   const refreshBook = useCallback(
     async (bookId: string) => {
       const helpers = actions.current
-      const opened = await window.api.openBook(bookId)
+      const opened = await bridge.openBook(bookId)
       setBook(opened.book)
       setChapters(opened.chapters)
       helpers.refreshBookmarks(bookId)
@@ -177,7 +178,7 @@ export function useBookshelf(actions: MutableRefObject<BookshelfActions>): Books
     async (bookId: string) => {
       const helpers = actions.current
       try {
-        await window.api.deleteBook(bookId)
+        await bridge.deleteBook(bookId)
         setBooks((current) => current.filter((item) => item.id !== bookId))
         if (book?.id === bookId) {
           clearBook()

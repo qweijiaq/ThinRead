@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { Component, type ErrorInfo, type ReactNode } from 'react'
 
 import { reportRendererError } from '../lib/report-error.js'
@@ -39,7 +40,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     const text = [error?.name, error?.message, error?.stack, componentStack].filter(Boolean).join('\n\n')
     const done = (): void => this.setState({ copied: true })
     const fallback = (): void => {
-      const api = window.api as { copyText?: (value: string) => Promise<void> } | undefined
+      const api = bridge as { copyText?: (value: string) => Promise<void> } | undefined
       void api?.copyText?.(text).then(done).catch(() => undefined)
     }
     if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {

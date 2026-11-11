@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useEffect, useState, type FormEvent, type JSX } from 'react'
 
 import { t } from '../lib/i18n.js'
@@ -25,7 +26,7 @@ export function CompareModelDialog({
 
   useEffect(() => {
     let cancelled = false
-    void window.api
+    void bridge
       .listAiModels()
       .then((result) => {
         if (cancelled || result.models.length === 0) return

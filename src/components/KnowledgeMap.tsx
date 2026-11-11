@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX, type MouseEvent as ReactMouseEvent } from 'react'
 
 import { t, useLocale } from '../lib/i18n.js'
@@ -232,7 +233,7 @@ export function KnowledgeMap({ books, onBack, onOpenNote, onOpenBook }: Knowledg
     setLoading(true)
     setError(null)
     try {
-      setData(await window.api.getKnowledgeMap())
+      setData(await bridge.getKnowledgeMap())
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -524,7 +525,7 @@ export function KnowledgeMap({ books, onBack, onOpenNote, onOpenBook }: Knowledg
           ? { untagged: true, limit: 60 }
           : { tag: selectedNode.label, limit: 60 }
         : { bookId: selectedNode.bookId, limit: 60 }
-    void window.api
+    void bridge
       .listLibraryNotes(filter)
       .then((notes) => {
         if (!cancelled) setDetailNotes(notes)
@@ -617,7 +618,7 @@ export function KnowledgeMap({ books, onBack, onOpenNote, onOpenBook }: Knowledg
     if (!data) return
     const text = mermaidFence(knowledgeMapToMermaid(data))
     try {
-      await window.api.copyText(text)
+      await bridge.copyText(text)
       setMapNotice(t('Mermaid 已复制'))
       window.setTimeout(() => setMapNotice(null), 1800)
     } catch {

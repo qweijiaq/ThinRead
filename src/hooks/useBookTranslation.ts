@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type {
@@ -36,7 +37,7 @@ export function useBookTranslation(
       return
     }
     try {
-      const next = await window.api.getBookTranslationInfo(bookId)
+      const next = await bridge.getBookTranslationInfo(bookId)
       if (bookIdRef.current === bookId) setInfo(next)
     } catch {
       // 翻译状态只影响入口显示；读取失败时保持上一次结果。
@@ -52,13 +53,13 @@ export function useBookTranslation(
 
   useEffect(() => {
     if (!bookId) return
-    const offProgress = window.api.onBookTranslationProgress((event) => {
+    const offProgress = bridge.onBookTranslationProgress((event) => {
       if (event.bookId !== bookId) return
       setRunning(true)
       setProgress(event)
       setInfo((current) => (current ? { ...current, translated: event.translated } : current))
     })
-    const offDone = window.api.onBookTranslationDone((event) => {
+    const offDone = bridge.onBookTranslationDone((event) => {
       if (event.bookId !== bookId) return
       setRunning(false)
       setProgress(null)
@@ -73,7 +74,7 @@ export function useBookTranslation(
       }
     })
     // 单章翻译或全书翻译完成一章后，都刷新入口上的「还可翻译 N 章」。
-    const offChapter = window.api.onChapterTranslated(() => {
+    const offChapter = bridge.onChapterTranslated(() => {
       void refresh()
     })
     return () => {
@@ -89,7 +90,7 @@ export function useBookTranslation(
       setRunning(true)
       setProgress(null)
       try {
-        await window.api.translateBook(bookId, options)
+        await bridge.translateBook(bookId, options)
       } catch (error) {
         setRunning(false)
         const message = messageOf(error)

@@ -1,3 +1,4 @@
+import { bridge } from '../lib/bridge.js'
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX, type MouseEvent as ReactMouseEvent } from 'react'
 
 import { t, useLocale } from '../lib/i18n.js'
@@ -253,7 +254,7 @@ export function LabRelationGraph({ bookId, bookTitle }: LabRelationGraphProps): 
     setError(null)
     setNotice(null)
     if (!bookId) return
-    void window.api.getLabArtifact('relation-graph', `book:${bookId}`).then((artifact) => {
+    void bridge.getLabArtifact('relation-graph', `book:${bookId}`).then((artifact) => {
       if (cancelled || !artifact) return
       try {
         const parsed = JSON.parse(artifact.content) as RelationGraph
@@ -277,7 +278,7 @@ export function LabRelationGraph({ bookId, bookTitle }: LabRelationGraphProps): 
   }, [notice])
 
   useEffect(() => {
-    const unsubscribe = window.api.onRelationGraphProgress?.((stage) => setPhase(stage))
+    const unsubscribe = bridge.onRelationGraphProgress?.((stage) => setPhase(stage))
     return () => {
       if (typeof unsubscribe === 'function') unsubscribe()
     }
@@ -688,7 +689,7 @@ export function LabRelationGraph({ bookId, bookTitle }: LabRelationGraphProps): 
       .join('\n')
     try {
       const filename = `${graph.title.replace(/[\\/:*?"<>|#%{}]/g, ' ').replace(/\s+/g, ' ').trim() || '关系图'}.md`
-      await window.api.saveMarkdown(filename, markdown)
+      await bridge.saveMarkdown(filename, markdown)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
@@ -698,7 +699,7 @@ export function LabRelationGraph({ bookId, bookTitle }: LabRelationGraphProps): 
     if (!mermaidSource) return
     setError(null)
     try {
-      await window.api.copyText(mermaidSource)
+      await bridge.copyText(mermaidSource)
       setNotice(t('Mermaid 代码已复制，可粘贴到支持 Mermaid 的 Markdown 或 HTML。'))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -726,7 +727,7 @@ export function LabRelationGraph({ bookId, bookTitle }: LabRelationGraphProps): 
 
   async function generate(): Promise<void> {
     if (!bookId || busy) return
-    const settings = await window.api.getSettings().catch(() => null)
+    const settings = await bridge.getSettings().catch(() => null)
     const price = settings ? settings.aiPricing[settings.labModel || settings.model] : null
     const costHint = price
       ? `，${t('估算约')} ¥${(
@@ -744,7 +745,7 @@ export function LabRelationGraph({ bookId, bookTitle }: LabRelationGraphProps): 
     setError(null)
     setNotice(null)
     try {
-      const next = await window.api.generateRelationGraph(bookId)
+      const next = await bridge.generateRelationGraph(bookId)
       setGraph(next)
       setSelectedId(next.nodes[0]?.id ?? null)
       setSelectedEdgeId(null)
@@ -786,7 +787,7 @@ export function LabRelationGraph({ bookId, bookTitle }: LabRelationGraphProps): 
             {busy ? t('抽取中…') : graph ? t('重新生成') : t('生成关系图')}
           </button>
           {busy ? (
-            <button type="button" className="ghost-button small" onClick={() => void window.api.cancelLab()}>
+            <button type="button" className="ghost-button small" onClick={() => void bridge.cancelLab()}>
               {t('取消')}
             </button>
           ) : null}
