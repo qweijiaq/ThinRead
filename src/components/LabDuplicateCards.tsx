@@ -1,3 +1,4 @@
+import { t } from '../lib/i18n.js'
 import { bridge } from '../lib/bridge.js'
 import { useEffect, useState, type JSX } from 'react'
 import type { LabDuplicatePair } from '../../shared/types.js'
@@ -99,15 +100,15 @@ export function LabDuplicateCards(): JSX.Element {
         ) : null}
       </div>
       {error ? <div className="inline-error" role="alert">{error}</div> : null}
-      {loading && pairs.length === 0 ? <p className="lab-empty">正在扫描相似卡片…</p> : null}
-      {!loading && pairs.length === 0 ? <p className="lab-empty">没有发现同一章内足够相似的知识点卡片。</p> : null}
+      {loading && pairs.length === 0 ? <p className="lab-empty">{t('正在扫描相似卡片…')}</p> : null}
+      {!loading && pairs.length === 0 ? <p className="lab-empty">{t('没有发现同一章内足够相似的知识点卡片。')}</p> : null}
       <div className="lab-dedupe-list">
         {pairs.map((pair, index) => (
           <article key={`${pair.keepId}:${pair.mergeId}`} className="lab-dedupe-card">
             <div className="lab-dedupe-score">综合相似度 {Math.round(pair.score * 100)}% · 请对照正文确认</div>
             <div className="lab-dedupe-pair">
               <div>
-                <span>保留</span>
+                <span>{t('保留')}</span>
                 <strong>{pair.keepTitle}</strong>
                 <em>
                   {pair.keepBookTitle}
@@ -117,7 +118,7 @@ export function LabDuplicateCards(): JSX.Element {
               </div>
               <span className="lab-dedupe-arrow">+</span>
               <div>
-                <span>并入</span>
+                <span>{t('并入')}</span>
                 <strong>{pair.mergeTitle}</strong>
                 <em>
                   {pair.mergeBookTitle}

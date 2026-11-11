@@ -262,7 +262,7 @@ export function PdfOriginalView({ bookId, chapterId, title, initialPage, onClose
         className="pdf-viewer"
         role="dialog"
         aria-modal="true"
-        aria-label="PDF 原版阅读"
+        aria-label={t('PDF 原版阅读')}
         onMouseDown={(event) => event.stopPropagation()}
         onKeyDown={(event) => {
           if (event.key === 'ArrowLeft' && page > 1) {
@@ -287,7 +287,7 @@ export function PdfOriginalView({ bookId, chapterId, title, initialPage, onClose
       >
         <div className="pdf-toolbar">
           <div className="pdf-toolbar-title">
-            <strong>原版 PDF</strong>
+            <strong>{t('原版 PDF')}</strong>
             <span>{title}</span>
           </div>
           <div className="pdf-toolbar-controls">
@@ -295,7 +295,7 @@ export function PdfOriginalView({ bookId, chapterId, title, initialPage, onClose
               上一页
             </button>
             <label>
-              <span className="sr-only">页码</span>
+              <span className="sr-only">{t('页码')}</span>
               <input
                 type="number"
                 min={1}
@@ -309,11 +309,11 @@ export function PdfOriginalView({ bookId, chapterId, title, initialPage, onClose
               下一页
             </button>
             <span className="pdf-toolbar-divider" />
-            <button type="button" onClick={() => setZoom((current) => Math.max(MIN_ZOOM, current - 0.1))} aria-label="缩小">
+            <button type="button" onClick={() => setZoom((current) => Math.max(MIN_ZOOM, current - 0.1))} aria-label={t('缩小')}>
               −
             </button>
             <span className="pdf-zoom">{Math.round(zoom * 100)}%</span>
-            <button type="button" onClick={() => setZoom((current) => Math.min(MAX_ZOOM, current + 0.1))} aria-label="放大">
+            <button type="button" onClick={() => setZoom((current) => Math.min(MAX_ZOOM, current + 0.1))} aria-label={t('放大')}>
               ＋
             </button>
             <button type="button" className="ghost-button small" onClick={() => setZoom(1)}>
@@ -338,7 +338,7 @@ export function PdfOriginalView({ bookId, chapterId, title, initialPage, onClose
           </div>
         </div>
         <div className="pdf-canvas-wrap" ref={wrapRef}>
-          {loading ? <p className="pdf-status">正在打开 PDF…</p> : null}
+          {loading ? <p className="pdf-status">{t('正在打开 PDF…')}</p> : null}
           {error ? <p className="inline-error" role="alert">{error}</p> : null}
           <div className="pdf-page-stage" ref={stageRef}>
             <canvas ref={canvasRef} className="pdf-canvas" aria-label={`PDF 第 ${page} 页`} />
@@ -382,7 +382,7 @@ export function PdfOriginalView({ bookId, chapterId, title, initialPage, onClose
               ) : null}
             </div>
           </div>
-          {rendering && !loading ? <span className="pdf-rendering">正在渲染…</span> : null}
+          {rendering && !loading ? <span className="pdf-rendering">{t('正在渲染…')}</span> : null}
         </div>
 
         {selected ? (

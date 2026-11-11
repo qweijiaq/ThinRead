@@ -1,3 +1,4 @@
+import { t } from '../lib/i18n.js'
 import { bridge } from '../lib/bridge.js'
 import { useEffect, useState, type JSX } from 'react'
 import { useDialogFocus } from '../lib/useDialogFocus.js'
@@ -61,20 +62,20 @@ export function MarginNoteDialog({ chapter, quote, onSave, onClose }: MarginNote
         className="modal margin-note-modal"
         role="dialog"
         aria-modal="true"
-        aria-label="AI 边注"
+        aria-label={t('AI 边注')}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="modal-head">
           <div>
-            <h2>AI 边注</h2>
+            <h2>{t('AI 边注')}</h2>
             <p className="modal-subtitle">{chapter.title}</p>
           </div>
-          <button type="button" className="icon-button" onClick={onClose} aria-label="关闭">
+          <button type="button" className="icon-button" onClick={onClose} aria-label={t('关闭')}>
             ×
           </button>
         </div>
         <blockquote className="margin-note-quote">“{quote}”</blockquote>
-        {loading ? <p className="lab-empty">正在读上下文…</p> : null}
+        {loading ? <p className="lab-empty">{t('正在读上下文…')}</p> : null}
         {error ? <div className="inline-error" role="alert">{error}</div> : null}
         {result ? (
           <div className="margin-note-result">
@@ -82,7 +83,7 @@ export function MarginNoteDialog({ chapter, quote, onSave, onClose }: MarginNote
           </div>
         ) : null}
         <div className="modal-footer">
-          <span className="modal-meta">边注会保存为一条带原文引用的笔记</span>
+          <span className="modal-meta">{t('边注会保存为一条带原文引用的笔记')}</span>
           <div className="modal-footer-actions">
             <button
               type="button"

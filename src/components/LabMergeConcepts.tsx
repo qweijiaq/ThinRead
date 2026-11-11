@@ -1,3 +1,4 @@
+import { t } from '../lib/i18n.js'
 import { bridge } from '../lib/bridge.js'
 import { useEffect, useState, type JSX } from 'react'
 import type { LabMergeGroup } from '../../shared/types.js'
@@ -99,8 +100,8 @@ export function LabMergeConcepts(): JSX.Element {
         ) : null}
       </div>
       {error ? <div className="inline-error" role="alert">{error}</div> : null}
-      {loading && groups.length === 0 ? <p className="lab-empty">正在找近义标签…</p> : null}
-      {!loading && groups.length === 0 ? <p className="lab-empty">没有发现需要合并的标签。</p> : null}
+      {loading && groups.length === 0 ? <p className="lab-empty">{t('正在找近义标签…')}</p> : null}
+      {!loading && groups.length === 0 ? <p className="lab-empty">{t('没有发现需要合并的标签。')}</p> : null}
       <div className="lab-merge-list">
         {groups.map((group, index) => (
           <article key={`${group.canonical}-${index}`} className="lab-merge-card">

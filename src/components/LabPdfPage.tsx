@@ -1,3 +1,4 @@
+import { t } from '../lib/i18n.js'
 import { bridge } from '../lib/bridge.js'
 import { useEffect, useState, type JSX } from 'react'
 import type { BookSummary, LabReport } from '../../shared/types.js'
@@ -90,7 +91,7 @@ export function LabPdfPage({ books }: LabPdfPageProps): JSX.Element {
   }
 
   if (pdfs.length === 0) {
-    return <p className="lab-empty">书库里还没有 PDF。导入一本扫描版或带图表的 PDF 后，可以在这里按页理解。</p>
+    return <p className="lab-empty">{t('书库里还没有 PDF。导入一本扫描版或带图表的 PDF 后，可以在这里按页理解。')}</p>
   }
 
   return (
@@ -118,7 +119,7 @@ export function LabPdfPage({ books }: LabPdfPageProps): JSX.Element {
           </button>
         ) : null}
       </div>
-      <p className="lab-run-hint">用 macOS Vision 在本机渲染并识别这一页；图表会按坐标轴、关键数据和趋势解释。</p>
+      <p className="lab-run-hint">{t('用 macOS Vision 在本机渲染并识别这一页；图表会按坐标轴、关键数据和趋势解释。')}</p>
       {error ? <div className="inline-error" role="alert">{error}</div> : null}
       {result ? (
         <div className="lab-result">

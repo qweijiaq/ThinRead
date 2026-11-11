@@ -1,3 +1,4 @@
+import { t } from '../lib/i18n.js'
 import { bridge } from '../lib/bridge.js'
 import { Component, type ErrorInfo, type ReactNode } from 'react'
 
@@ -57,8 +58,8 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     return (
       <div className="crash-screen" role="alert">
         <div className="crash-card">
-          <p className="crash-eyebrow">页边 · ThinRead</p>
-          <h1>界面遇到了问题</h1>
+          <p className="crash-eyebrow">{t('页边 · ThinRead')}</p>
+          <h1>{t('界面遇到了问题')}</h1>
           <p className="crash-lead">
             这一步的界面没能渲染出来。书和笔记都还在本地，重新加载通常可以恢复；如果反复出现，先导出诊断包再反馈。
           </p>
@@ -71,7 +72,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             </button>
           </div>
           <details className="crash-details">
-            <summary>查看错误详情</summary>
+            <summary>{t('查看错误详情')}</summary>
             <pre>
               {[error.name, error.message, error.stack, componentStack].filter(Boolean).join('\n\n')}
             </pre>

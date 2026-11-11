@@ -1,3 +1,4 @@
+import { t } from '../lib/i18n.js'
 import { useEffect, useRef, useState, type JSX } from 'react'
 import { useDialogFocus } from '../lib/useDialogFocus.js'
 
@@ -66,7 +67,7 @@ export function RenameDialog({ open, title, label, value, secondaryLabel, second
       >
         <div className="modal-head">
           <h2>{title}</h2>
-          <button type="button" className="icon-button" onClick={onClose} aria-label="关闭">
+          <button type="button" className="icon-button" onClick={onClose} aria-label={t('关闭')}>
             ×
           </button>
         </div>
@@ -94,13 +95,13 @@ export function RenameDialog({ open, title, label, value, secondaryLabel, second
               }}
               maxLength={200}
               aria-label={secondaryLabel}
-              placeholder="留空表示未知作者"
+              placeholder={t('留空表示未知作者')}
             />
           </div>
         ) : null}
         {error ? <div className="inline-error" role="alert">{error}</div> : null}
         <div className="modal-footer">
-          <span className="modal-meta">最多 200 个字</span>
+          <span className="modal-meta">{t('最多 200 个字')}</span>
           <div className="modal-footer-actions">
             <button type="button" className="ghost-button" onClick={onClose}>
               取消

@@ -1,3 +1,4 @@
+import { t } from '../lib/i18n.js'
 import { useEffect, useLayoutEffect, useRef, useState, type JSX } from 'react'
 import { createPortal } from 'react-dom'
 
@@ -213,14 +214,14 @@ export function Select({
                         triggerRef.current?.focus()
                       }
                     }}
-                    placeholder="搜索模型…"
+                    placeholder={t('搜索模型…')}
                     spellCheck={false}
                     autoComplete="off"
                   />
                 </div>
               ) : null}
               {filteredOptions.length === 0 ? (
-                <p className="ui-select-empty">没有匹配的选项</p>
+                <p className="ui-select-empty">{t('没有匹配的选项')}</p>
               ) : null}
               {filteredOptions.map((option, index) => (
                 <button

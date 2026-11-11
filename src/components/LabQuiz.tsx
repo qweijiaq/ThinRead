@@ -1,3 +1,4 @@
+import { t } from '../lib/i18n.js'
 import { bridge } from '../lib/bridge.js'
 import { useEffect, useState, type JSX } from 'react'
 import type { LabAnswerCheck, LabArtifact, LabQuiz as LabQuizData } from '../../shared/types.js'
@@ -156,7 +157,7 @@ export function LabQuiz({ chapterId, bookTitle, chapterTitle }: LabQuizProps): J
       </div>
       {history.length > 1 ? (
         <div className="lab-history">
-          <span>历史题目</span>
+          <span>{t('历史题目')}</span>
           <Select
             value={selectedHistoryId}
             onChange={(value) => {
@@ -224,7 +225,7 @@ export function LabQuiz({ chapterId, bookTitle, chapterTitle }: LabQuizProps): J
                       return next
                     })
                   }}
-                  placeholder="先不看答案，用自己的话回答…"
+                  placeholder={t('先不看答案，用自己的话回答…')}
                   rows={3}
                 />
                 <div className="lab-quiz-actions">

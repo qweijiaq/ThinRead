@@ -1,3 +1,4 @@
+import { t } from '../lib/i18n.js'
 import { bridge } from '../lib/bridge.js'
 import { useEffect, useRef, useState, type JSX } from 'react'
 import type { ChapterContent, FeynmanResult } from '../../shared/types.js'
@@ -146,7 +147,7 @@ export function FeynmanPanel({ chapter, bookTitle, hasNotes, onSave }: FeynmanPa
     <div className="feynman-panel">
       <div className="feynman-head">
         <div>
-          <h2>讲给我听</h2>
+          <h2>{t('讲给我听')}</h2>
           <p>{bookTitle ? `${bookTitle} · ` : ''}{chapter?.title ?? '选择一章开始'}</p>
         </div>
         <button
@@ -166,13 +167,13 @@ export function FeynmanPanel({ chapter, bookTitle, hasNotes, onSave }: FeynmanPa
       <p className="feynman-hint">
         不看笔记，用自己的话把这一章讲清楚。AI 会对照读薄稿和卡片，指出讲对、漏掉和理解偏的地方。
       </p>
-      {!hasNotes ? <p className="feynman-warning">这一章还没有读薄稿。先生成笔记，检查会更准确；也可以先凭记忆试一次。</p> : null}
+      {!hasNotes ? <p className="feynman-warning">{t('这一章还没有读薄稿。先生成笔记，检查会更准确；也可以先凭记忆试一次。')}</p> : null}
 
       <textarea
         className="feynman-input"
         value={explanation}
         onChange={(event) => setExplanation(event.target.value)}
-        placeholder="例如：这一章主要讲了三件事……"
+        placeholder={t('例如：这一章主要讲了三件事……')}
         rows={7}
         disabled={!chapter || busy}
       />
@@ -202,7 +203,7 @@ export function FeynmanPanel({ chapter, bookTitle, hasNotes, onSave }: FeynmanPa
         <div className="feynman-result">
           <div className="feynman-score">
             <div>
-              <span>覆盖度</span>
+              <span>{t('覆盖度')}</span>
               <strong>{coverage == null ? '—' : `${coverage}%`}</strong>
             </div>
             <div className="feynman-meter">
@@ -212,7 +213,7 @@ export function FeynmanPanel({ chapter, bookTitle, hasNotes, onSave }: FeynmanPa
           <p className="feynman-feedback">{result.feedback}</p>
           {result.covered.length > 0 ? (
             <section className="feynman-group covered">
-              <h3>讲到了</h3>
+              <h3>{t('讲到了')}</h3>
               <ul>
                 {result.covered.map((item) => (
                   <li key={item}>{item}</li>
@@ -222,7 +223,7 @@ export function FeynmanPanel({ chapter, bookTitle, hasNotes, onSave }: FeynmanPa
           ) : null}
           {result.missing.length > 0 ? (
             <section className="feynman-group missing">
-              <h3>还缺</h3>
+              <h3>{t('还缺')}</h3>
               <ul>
                 {result.missing.map((item) => (
                   <li key={item}>{item}</li>
@@ -232,7 +233,7 @@ export function FeynmanPanel({ chapter, bookTitle, hasNotes, onSave }: FeynmanPa
           ) : null}
           {result.misconceptions.length > 0 ? (
             <section className="feynman-group wrong">
-              <h3>需要纠正</h3>
+              <h3>{t('需要纠正')}</h3>
               <ul>
                 {result.misconceptions.map((item) => (
                   <li key={item}>{item}</li>
