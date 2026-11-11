@@ -1102,6 +1102,14 @@ export function App(): JSX.Element {
           onRename={startRenameBook}
           onCompose={(bookId) => void openCompose(bookId)}
           onPlan={setPlanBook}
+          onShelfStatus={(bookId, status) => {
+            void window.api
+              .setBookShelfStatus(bookId, status)
+              .then((updated) => {
+                setBooks((current) => current.map((book) => (book.id === updated.id ? updated : book)))
+              })
+              .catch(() => undefined)
+          }}
           onOpenPlan={(bookId, chapterId) => void openBookAt(bookId, chapterId)}
           planVersion={planVersion}
           onMerge={() => setMergeOpen(true)}

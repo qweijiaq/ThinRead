@@ -13,6 +13,7 @@ export * from './tasks.js'
 import type {
   BookFormat,
   BookGenre,
+  BookShelfStatus,
   BookSummary,
   BookTranslationInfo,
   ChapterContent,
@@ -26,6 +27,7 @@ import type {
   NoteDraft,
   NoteKind,
   NotePatch,
+  NoteQualitySummary,
   NoteReport,
   DegradedStep,
   GenerationMode,
@@ -116,6 +118,7 @@ interface BookRow {
   total_chars: number
   read_chars: number | null
   current_chapter_idx: number | null
+  shelf_status?: string | null
 }
 
 interface ChapterRow {
@@ -686,6 +689,7 @@ function migrateBooks(conn: DatabaseSync): void {
     (conn.prepare('PRAGMA table_info(books)').all() as unknown as Array<{ name: string }>).map((row) => row.name),
   )
   if (!columns.has('style_json')) conn.exec('ALTER TABLE books ADD COLUMN style_json TEXT')
+  if (!columns.has('shelf_status')) conn.exec("ALTER TABLE books ADD COLUMN shelf_status TEXT NOT NULL DEFAULT 'reading'")
   if (!columns.has('genre')) conn.exec("ALTER TABLE books ADD COLUMN genre TEXT NOT NULL DEFAULT 'auto'")
   if (!columns.has('cover_path')) conn.exec('ALTER TABLE books ADD COLUMN cover_path TEXT')
 }
@@ -906,6 +910,47 @@ export function listBooks(): BookSummary[] {
   return rows.map(mapBook)
 }
 
+const SHELF_STATUSES = new Set(['inbox', 'reading', 'finished', 'archived'])
+
+export function getNoteQuality(): NoteQualitySummary {
+  const row = database()
+    .prepare(
+      `SELECT COUNT(*) AS total,
+              SUM(CASE WHEN author = 'ai' THEN 1 ELSE 0 END) AS ai,
+              SUM(CASE WHEN edited = 1 THEN 1 ELSE 0 END) AS edited,
+              SUM(CASE WHEN quote IS NOT NULL AND TRIM(quote) != '' THEN 1 ELSE 0 END) AS quoted,
+              SUM(CASE WHEN quote IS NOT NULL AND TRIM(quote) != '' AND quote_verified = 1 THEN 1 ELSE 0 END) AS verified
+       FROM notes`,
+    )
+    .get() as unknown as {
+    total: number | null
+    ai: number | null
+    edited: number | null
+    quoted: number | null
+    verified: number | null
+  }
+  const total = Number(row.total ?? 0)
+  const quoted = Number(row.quoted ?? 0)
+  const verified = Number(row.verified ?? 0)
+  return {
+    total,
+    ai: Number(row.ai ?? 0),
+    edited: Number(row.edited ?? 0),
+    quoted,
+    verified,
+    verifiedRate: quoted === 0 ? 0 : verified / quoted,
+  }
+}
+
+export function setBookShelfStatus(bookId: string, status: BookShelfStatus): BookSummary {
+  if (!SHELF_STATUSES.has(status)) throw new Error('书架状态无效。')
+  const result = database().prepare('UPDATE books SET shelf_status = ? WHERE id = ?').run(status, bookId)
+  if (Number(result.changes) === 0) throw new Error('这本书不存在。')
+  const updated = getBookSummary(bookId)
+  if (!updated) throw new Error('这本书不存在。')
+  return updated
+}
+
 export function getBookSummary(bookId: string): BookSummary | null {
   const row = database().prepare(`${BOOK_SELECT} WHERE b.id = ?`).get(bookId) as unknown as
     | BookRow
@@ -1052,6 +1097,7 @@ function mapBook(row: BookRow): BookSummary {
     currentChapterId: row.current_chapter_id,
     currentChapterIdx: currentIdx,
     progress: chapterCount === 0 ? 0 : Math.min(1, readCount / chapterCount),
+    shelfStatus: (row.shelf_status as BookShelfStatus) || 'reading',
   }
 }
 

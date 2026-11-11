@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type JSX } from 'react'
 
-import type { AiUsageSummary, BookSummary } from '../../shared/types.js'
+import type { AiUsageSummary, BookSummary, NoteQualitySummary } from '../../shared/types.js'
 import { sharePalette, type ShareTheme } from '../lib/share-card.js'
 import { t, useLocale } from '../lib/i18n.js'
 import {
@@ -233,6 +233,7 @@ export function StatsView({ books, onBack, onOpenWeeklyReview, onOpenWeeklyRevie
   })
   const [notice, setNotice] = useState<string | null>(null)
   const [aiUsage, setAiUsage] = useState<AiUsageSummary | null>(null)
+  const [noteQuality, setNoteQuality] = useState<NoteQualitySummary | null>(null)
   const summary = useMemo(() => getReadingSummary(), [])
   const month = useMemo(() => getReadingMonth(offset), [offset])
   const year = useMemo(() => getReadingYear(yearOffset), [yearOffset])
@@ -251,6 +252,14 @@ export function StatsView({ books, onBack, onOpenWeeklyReview, onOpenWeeklyRevie
       })
       .catch(() => {
         if (!cancelled) setAiUsage(null)
+      })
+    void window.api
+      .getNoteQuality()
+      .then((quality) => {
+        if (!cancelled) setNoteQuality(quality)
+      })
+      .catch(() => {
+        if (!cancelled) setNoteQuality(null)
       })
     return () => {
       cancelled = true
@@ -616,6 +625,39 @@ export function StatsView({ books, onBack, onOpenWeeklyReview, onOpenWeeklyRevie
               </div>
             ))}
           </div>
+        )}
+      </section>
+
+      <section className="stats-section">
+        <h3>{t('笔记质量')}</h3>
+        {noteQuality && noteQuality.total > 0 ? (
+          <>
+            <div className="stats-cards">
+              <div className="stats-card">
+                <span>{t('笔记总数')}</span>
+                <strong>{noteQuality.total.toLocaleString()}</strong>
+              </div>
+              <div className="stats-card">
+                <span>{t('AI 生成')}</span>
+                <strong>{noteQuality.ai.toLocaleString()}</strong>
+              </div>
+              <div className="stats-card">
+                <span>{t('引用核对通过率')}</span>
+                <strong>{Math.round(noteQuality.verifiedRate * 100)}%</strong>
+              </div>
+              <div className="stats-card">
+                <span>{t('人工修改')}</span>
+                <strong>{noteQuality.edited.toLocaleString()}</strong>
+              </div>
+            </div>
+            <p className="field-hint">
+              {t('核对通过率只统计带原文依据的笔记：')}
+              {noteQuality.verified.toLocaleString()} / {noteQuality.quoted.toLocaleString()}
+              {t(' 条能在原文里逐字找到。')}
+            </p>
+          </>
+        ) : (
+          <p className="muted">{t('还没有笔记。')}</p>
         )}
       </section>
 

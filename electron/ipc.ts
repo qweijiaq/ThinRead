@@ -88,6 +88,8 @@ import {
   replaceBookChapters,
   resetChapterFormat,
   renameBook,
+  getNoteQuality,
+  setBookShelfStatus,
   renameChapter,
   renamePart,
   saveBookStyle,
@@ -234,6 +236,7 @@ import {
   saveTextFileArgs,
   splitBookArgs,
   textImportArgs,
+  bookShelfStatusArgs,
 } from '../shared/ipc-schemas.js'
 
 /** 校验一组 IPC 参数；失败时写日志并抛出可读错误，不把原始 zod 错误抛给渲染层。 */
@@ -826,6 +829,11 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
   ipcMain.handle('books:rename', (_event, bookId: string, title: string, author?: string) =>
     renameBook(bookId, title, typeof author === 'string' ? author : undefined),
   )
+
+  ipcMain.handle('books:set-shelf-status', (_event, bookId: unknown, status: unknown) => {
+    const [id, next] = parseIpc('books:set-shelf-status', bookShelfStatusArgs, [bookId, status])
+    return setBookShelfStatus(id, next)
+  })
 
   ipcMain.handle('books:genre', (_event, bookId: string, genre: BookGenre) => setBookGenre(bookId, genre))
 
@@ -2734,6 +2742,8 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
   })
 
   ipcMain.handle('ai:usage', (_event, days?: number) => readAiUsage(dataDir, days, getAiPricing()))
+
+  ipcMain.handle('stats:note-quality', () => getNoteQuality())
 
   ipcMain.handle('app:info', () => ({
     version: app.getVersion(),

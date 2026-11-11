@@ -2,6 +2,9 @@ import type { DeepLinkTarget } from './deep-link.js'
 
 export type BookFormat = 'epub' | 'pdf' | 'pdf-ocr' | 'mobi' | 'url' | 'text'
 
+/** 书架状态：待读 / 在读 / 读完 / 归档。 */
+export type BookShelfStatus = 'inbox' | 'reading' | 'finished' | 'archived'
+
 /** 书籍体裁只作为生成提示，不限制任何功能。 */
 export type BookGenre =
   | 'auto'
@@ -56,6 +59,7 @@ export interface BookSummary {
   currentChapterId: string | null
   currentChapterIdx: number
   progress: number
+  shelfStatus: BookShelfStatus
 }
 
 export interface ChapterMeta {
@@ -513,6 +517,15 @@ export interface AiUsageRow {
   cacheHits: number
   cacheTokens: number
   cacheSavings: number
+}
+
+export interface NoteQualitySummary {
+  total: number
+  ai: number
+  edited: number
+  quoted: number
+  verified: number
+  verifiedRate: number
 }
 
 export interface AiUsageSummary {
@@ -1548,6 +1561,7 @@ export interface ReadingApi {
   saveReadingPlan(input: ReadingPlanInput): Promise<ReadingPlanRecord>
   deleteReadingPlan(bookId: string): Promise<void>
   renameBook(bookId: string, title: string, author?: string): Promise<BookSummary>
+  setBookShelfStatus(bookId: string, status: BookShelfStatus): Promise<BookSummary>
   setBookGenre(bookId: string, genre: BookGenre): Promise<BookSummary>
   renameChapter(chapterId: string, title: string): Promise<void>
   renamePart(bookId: string, partIndex: number, title: string): Promise<void>
@@ -1703,6 +1717,7 @@ export interface ReadingApi {
   testConnection(): Promise<TestResult>
   getAppInfo(): Promise<AppInfo>
   getAiUsage(days?: number): Promise<AiUsageSummary>
+  getNoteQuality(): Promise<NoteQualitySummary>
   openDataDir(): Promise<void>
   createBackup(): Promise<BackupInfo>
   listBackups(): Promise<BackupInfo[]>

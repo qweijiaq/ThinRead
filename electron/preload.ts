@@ -7,6 +7,7 @@ import type {
   AiJobCancelTarget,
   AiJobSnapshot,
   AiUsageSummary,
+  NoteQualitySummary,
   AppNotice,
   AppInfo,
   BackupInfo,
@@ -23,6 +24,7 @@ import type {
   BookGenerationOptions,
   BookGenerationProgress,
   BookGenre,
+  BookShelfStatus,
   BookSummary,
   ChapterContent,
   ChapterAiJobs,
@@ -184,6 +186,8 @@ const api: ReadingApi = {
   deleteReadingPlan: (bookId: string) => ipcRenderer.invoke('reading-plan:delete', bookId) as Promise<void>,
   renameBook: (bookId: string, title: string, author?: string) =>
     ipcRenderer.invoke('books:rename', bookId, title, author) as Promise<BookSummary>,
+  setBookShelfStatus: (bookId: string, status: BookShelfStatus) =>
+    ipcRenderer.invoke('books:set-shelf-status', bookId, status) as Promise<BookSummary>,
   setBookGenre: (bookId: string, genre: BookGenre) =>
     ipcRenderer.invoke('books:genre', bookId, genre) as Promise<BookSummary>,
   renameChapter: (chapterId: string, title: string) =>
@@ -285,6 +289,7 @@ const api: ReadingApi = {
   testConnection: () => ipcRenderer.invoke('settings:test') as Promise<TestResult>,
   getAppInfo: () => ipcRenderer.invoke('app:info') as Promise<AppInfo>,
   getAiUsage: (days?: number) => ipcRenderer.invoke('ai:usage', days) as Promise<AiUsageSummary>,
+  getNoteQuality: () => ipcRenderer.invoke('stats:note-quality') as Promise<NoteQualitySummary>,
   openDataDir: () => ipcRenderer.invoke('app:open-data') as Promise<void>,
   createBackup: () => ipcRenderer.invoke('backup:create') as Promise<BackupInfo>,
   listBackups: () => ipcRenderer.invoke('backup:list') as Promise<BackupInfo[]>,

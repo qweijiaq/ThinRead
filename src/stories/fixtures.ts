@@ -290,6 +290,7 @@ export const libraryBooks: BookSummary[] = [
     currentChapterId: 'chapter-3',
     currentChapterIdx: 3,
     progress: 0.42,
+    shelfStatus: 'reading',
   },
   {
     id: 'book-atomic-habits',
@@ -308,6 +309,7 @@ export const libraryBooks: BookSummary[] = [
     currentChapterId: 'chapter-20',
     currentChapterIdx: 20,
     progress: 1,
+    shelfStatus: 'finished',
   },
   {
     id: 'book-night-train',
@@ -326,6 +328,7 @@ export const libraryBooks: BookSummary[] = [
     currentChapterId: null,
     currentChapterIdx: 0,
     progress: 0,
+    shelfStatus: 'inbox',
   },
 ]
 

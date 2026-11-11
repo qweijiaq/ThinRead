@@ -29,6 +29,11 @@ const MAX_SAVE_CONTENT = 20_000_000
 
 export const bookIdArgs = z.tuple([idSchema])
 
+export const bookShelfStatusArgs = z.tuple([
+  idSchema,
+  z.enum(['inbox', 'reading', 'finished', 'archived']),
+])
+
 export const chapterIdArgs = z.tuple([idSchema])
 
 export const chapterIdsArgs = z.tuple([

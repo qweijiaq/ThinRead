@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useSyncExternalStore, type JSX } from 'react'
-import type { BookSummary, ReadingPlanRecord } from '../../shared/types.js'
+import type { BookShelfStatus, BookSummary, ReadingPlanRecord } from '../../shared/types.js'
 import { bookGenreLabel } from '../lib/genres.js'
 import { countUnit, getLocale, t, useLocale } from '../lib/i18n.js'
 import { getDailyGoal, subscribePreferences } from '../lib/preferences.js'
@@ -18,6 +18,7 @@ interface LibraryProps {
   onRename(book: BookSummary): void
   onCompose(bookId: string): void
   onPlan(book: BookSummary): void
+  onShelfStatus(bookId: string, status: BookShelfStatus): void
   onOpenPlan(bookId: string, chapterId: string): void
   planVersion: number
   onMerge(): void
@@ -39,10 +40,11 @@ function formatWords(value: number): string {
 
 type LibrarySort = 'recent' | 'title' | 'progress' | 'chars'
 
-export function Library({ books, importing, onOpen, onImport, onOpenTrash, onDelete, onRename, onCompose, onPlan, onOpenPlan, planVersion, onMerge, onSettings, onStats, demo }: LibraryProps): JSX.Element {
+export function Library({ books, importing, onOpen, onImport, onOpenTrash, onDelete, onRename, onCompose, onPlan, onShelfStatus, onOpenPlan, planVersion, onMerge, onSettings, onStats, demo }: LibraryProps): JSX.Element {
   useLocale()
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState<LibrarySort>('recent')
+  const [shelfFilter, setShelfFilter] = useState<'all' | BookShelfStatus>('all')
   const [covers, setCovers] = useState<Record<string, string>>({})
   const reading = getReadingSummary()
   const goalMinutes = useSyncExternalStore(subscribePreferences, getDailyGoal, getDailyGoal)
@@ -119,9 +121,10 @@ export function Library({ books, importing, onOpen, onImport, onOpenTrash, onDel
 
   const visibleBooks = useMemo(() => {
     const term = query.trim().toLowerCase()
+    const shelfBooks = shelfFilter === 'all' ? books : books.filter((book) => book.shelfStatus === shelfFilter)
     const filtered = term
-      ? books.filter((book) => `${book.title} ${book.author}`.toLowerCase().includes(term))
-      : books
+      ? shelfBooks.filter((book) => `${book.title} ${book.author}`.toLowerCase().includes(term))
+      : shelfBooks
     // SQLite 返回的顺序已经按最近打开时间排序，这里只重排用户明确选择的维度。
     return [...filtered].sort((a, b) => {
       if (sort === 'title') return a.title.localeCompare(b.title, 'zh-CN')
@@ -129,7 +132,7 @@ export function Library({ books, importing, onOpen, onImport, onOpenTrash, onDel
       if (sort === 'chars') return b.totalChars - a.totalChars
       return 0
     })
-  }, [books, query, sort])
+  }, [books, query, sort, shelfFilter])
 
   if (books.length === 0) {
     return (
@@ -230,6 +233,27 @@ export function Library({ books, importing, onOpen, onImport, onOpenTrash, onDel
         />
         <span>{visibleBooks.length} {t('本')}</span>
       </div>
+      <div className="library-shelf-filter" role="group" aria-label={t('按阅读状态筛选')}>
+        {([
+          ['all', t('全部')],
+          ['inbox', t('待读')],
+          ['reading', t('在读')],
+          ['finished', t('读完')],
+        ] as const).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            className={`filter-chip${shelfFilter === value ? ' is-active' : ''}`}
+            aria-pressed={shelfFilter === value}
+            onClick={() => setShelfFilter(value)}
+          >
+            {label}
+            <span className="filter-chip-count">
+              {value === 'all' ? books.length : books.filter((book) => book.shelfStatus === value).length}
+            </span>
+          </button>
+        ))}
+      </div>
       {todayPlans.length > 0 ? (
         <section className="library-plan" aria-label={t('今日阅读计划')}>
           <div className="library-plan-head">
@@ -312,6 +336,19 @@ export function Library({ books, importing, onOpen, onImport, onOpenTrash, onDel
                     : t('尚未开始')}
                 </span>
                 <span className="book-action-buttons">
+                  <button
+                    type="button"
+                    className="text-button"
+                    title={t('切换阅读状态')}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      const next: BookShelfStatus =
+                        book.shelfStatus === 'inbox' ? 'reading' : book.shelfStatus === 'reading' ? 'finished' : 'inbox'
+                      onShelfStatus(book.id, next)
+                    }}
+                  >
+                    {t(book.shelfStatus === 'inbox' ? '待读' : book.shelfStatus === 'finished' ? '读完' : book.shelfStatus === 'archived' ? '已归档' : '在读')}
+                  </button>
                   <button
                     type="button"
                     className="text-button"

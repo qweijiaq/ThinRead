@@ -1247,7 +1247,7 @@
   "保存 MP3": "Save MP3",
   "笔记审计": "Note audit",
   "无引用": "No quote",
-  "人工修改": "Edited",
+  "人工修改": "Hand-edited",
   "有笔记": "With notes",
   "读薄覆盖": "Condensed coverage",
   "版本对比": "Version comparison",
@@ -1613,5 +1613,17 @@
   "还没有可用的语音合成：配置千问 TTS Key，或使用 macOS 内置语音。": "No speech engine is available yet: configure a Qwen TTS key, or use the built-in macOS voices.",
   "还没有可用的语音合成": "No speech engine is available yet",
   "macOS 内置语音": "Built-in macOS voices",
-  "使用 macOS 内置语音，完全在本机合成，不产生费用。": "Uses built-in macOS voices. Synthesis happens entirely on this Mac and costs nothing."
+  "使用 macOS 内置语音，完全在本机合成，不产生费用。": "Uses built-in macOS voices. Synthesis happens entirely on this Mac and costs nothing.",
+  "按阅读状态筛选": "Filter by reading status",
+  "待读": "To read",
+  "在读": "Reading",
+  "读完": "Finished",
+  "切换阅读状态": "Toggle reading status",
+  "笔记质量": "Note quality",
+  "笔记总数": "Total notes",
+  "AI 生成": "AI-generated",
+  "引用核对通过率": "Citation pass rate",
+  "核对通过率只统计带原文依据的笔记：": "The pass rate counts only notes that carry a source quote:",
+  " 条能在原文里逐字找到。": " notes were found verbatim in the source.",
+  "还没有笔记。": "No notes yet."
 }

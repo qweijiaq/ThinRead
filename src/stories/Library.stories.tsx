@@ -27,6 +27,7 @@ const meta = {
     onRename: fn(),
     onCompose: fn(),
     onPlan: fn(),
+    onShelfStatus: fn(),
     onOpenPlan: fn(),
     planVersion: 0,
     onMerge: fn(),
