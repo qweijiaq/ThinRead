@@ -57,6 +57,8 @@ export function PdfOriginalView({ bookId, chapterId, title, initialPage, onClose
   const [noteDraft, setNoteDraft] = useState('')
   const [color, setColor] = useState<PdfAnnotationColor>('yellow')
   const [savingNote, setSavingNote] = useState(false)
+  const [showList, setShowList] = useState(false)
+  const [allAnnotations, setAllAnnotations] = useState<PdfAnnotation[]>([])
 
   useEffect(() => {
     let cancelled = false
@@ -116,6 +118,10 @@ export function PdfOriginalView({ bookId, chapterId, title, initialPage, onClose
       cancelled = true
     }
   }, [bookId, page])
+
+  useEffect(() => {
+    refreshAll()
+  }, [bookId])
 
   useEffect(() => {
     const element = wrapRef.current
@@ -180,6 +186,13 @@ export function PdfOriginalView({ bookId, chapterId, title, initialPage, onClose
     }
   }
 
+  function refreshAll(): void {
+    void bridge
+      .listPdfAnnotationsForBook(bookId)
+      .then(setAllAnnotations)
+      .catch(() => setAllAnnotations([]))
+  }
+
   function onPointerDown(event: ReactMouseEvent): void {
     if (!annotating || event.button !== 0) return
     const point = pointOf(event)
@@ -218,6 +231,7 @@ export function PdfOriginalView({ bookId, chapterId, title, initialPage, onClose
       .savePdfAnnotation({ bookId, page, ...rect, color })
       .then((saved) => {
         setAnnotations((current) => [...current, saved])
+        refreshAll()
         setSelectedId(saved.id)
         setNoteDraft(saved.note)
         setDraft(null)
@@ -238,6 +252,7 @@ export function PdfOriginalView({ bookId, chapterId, title, initialPage, onClose
       .updatePdfAnnotation(selected.id, { note: noteDraft, color })
       .then((updated) => {
         setAnnotations((current) => current.map((item) => (item.id === updated.id ? updated : item)))
+        refreshAll()
       })
       .catch((err) => setError(err instanceof Error ? err.message : String(err)))
       .finally(() => setSavingNote(false))
@@ -249,6 +264,7 @@ export function PdfOriginalView({ bookId, chapterId, title, initialPage, onClose
       .deletePdfAnnotation(selected.id)
       .then(() => {
         setAnnotations((current) => current.filter((item) => item.id !== selected.id))
+        refreshAll()
         setSelectedId(null)
         setNoteDraft('')
       })
@@ -332,11 +348,58 @@ export function PdfOriginalView({ bookId, chapterId, title, initialPage, onClose
             >
               {t('标注')}{annotations.length > 0 ? ` · ${annotations.length}` : ''}
             </button>
+            <button
+              type="button"
+              className={`ghost-button small${showList ? ' is-active' : ''}`}
+              aria-pressed={showList}
+              onClick={() => {
+                setShowList((current) => !current)
+                refreshAll()
+              }}
+            >
+              {t('标注列表')}{allAnnotations.length > 0 ? ` · ${allAnnotations.length}` : ''}
+            </button>
             <button type="button" className="ghost-button small" onClick={onClose}>
               {t('关闭')}
             </button>
           </div>
         </div>
+        {showList ? (
+          <aside className="pdf-annotation-list" aria-label={t('标注列表')}>
+            <div className="pdf-annotation-list-head">
+              <strong>{t('标注列表')}</strong>
+              <button type="button" className="icon-button" onClick={() => setShowList(false)} aria-label={t('关闭')}>
+                ×
+              </button>
+            </div>
+            {allAnnotations.length === 0 ? (
+              <p className="muted">{t('还没有标注。')}</p>
+            ) : (
+              <ul>
+                {allAnnotations.map((item) => (
+                  <li key={item.id}>
+                    <button
+                      type="button"
+                      className={`pdf-annotation-list-item is-${item.color}`}
+                      onClick={() => {
+                        setPage(item.page)
+                        setSelectedId(item.id)
+                        setNoteDraft(item.note)
+                        setColor(item.color)
+                        setShowList(false)
+                      }}
+                    >
+                      <span className="pdf-annotation-list-page">
+                        {t('第')} {item.page} {t('页')}
+                      </span>
+                      <span className="pdf-annotation-list-note">{item.note || t('无备注')}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </aside>
+        ) : null}
         <div className="pdf-canvas-wrap" ref={wrapRef}>
           {loading ? <p className="pdf-status">{t('正在打开 PDF…')}</p> : null}
           {error ? <p className="inline-error" role="alert">{error}</p> : null}

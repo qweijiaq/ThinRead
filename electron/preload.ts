@@ -297,6 +297,8 @@ const api: ReadingApi = {
   getNoteQuality: () => ipcRenderer.invoke('stats:note-quality') as Promise<NoteQualitySummary>,
   listPdfAnnotations: (bookId: string, page: number) =>
     ipcRenderer.invoke('pdf:annotations', bookId, page) as Promise<PdfAnnotation[]>,
+  listPdfAnnotationsForBook: (bookId: string) =>
+    ipcRenderer.invoke('pdf:annotations-all', bookId) as Promise<PdfAnnotation[]>,
   savePdfAnnotation: (input: {
     bookId: string
     page: number

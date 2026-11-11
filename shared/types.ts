@@ -1762,6 +1762,7 @@ export interface ReadingApi {
   getAppInfo(): Promise<AppInfo>
   getAiUsage(days?: number): Promise<AiUsageSummary>
   listPdfAnnotations(bookId: string, page: number): Promise<PdfAnnotation[]>
+  listPdfAnnotationsForBook(bookId: string): Promise<PdfAnnotation[]>
   savePdfAnnotation(input: {
     bookId: string
     page: number

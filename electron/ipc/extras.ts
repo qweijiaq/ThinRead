@@ -2,6 +2,7 @@ import { dialog, ipcMain, shell } from 'electron'
 import type { BrowserWindow, OpenDialogOptions } from 'electron'
 
 import {
+  bookIdArgs,
   bookShelfStatusArgs,
   idArgs,
   pdfAnnotationSaveArgs,
@@ -9,7 +10,13 @@ import {
   pdfAnnotationsArgs,
 } from '../../shared/ipc-schemas.js'
 import { getNoteQuality, setBookShelfStatus } from '../db.js'
-import { deletePdfAnnotation, listPdfAnnotations, savePdfAnnotation, updatePdfAnnotation } from '../db-pdf.js'
+import {
+  deletePdfAnnotation,
+  listPdfAnnotations,
+  listPdfAnnotationsForBook,
+  savePdfAnnotation,
+  updatePdfAnnotation,
+} from '../db-pdf.js'
 import { readAiUsage } from '../ai/usage.js'
 import { getAiPricing } from '../settings.js'
 import { chooseSyncFolder, deleteSyncSnapshot, getSyncStatus, mergeSyncSnapshot, pullSyncSnapshot, pushSyncSnapshot } from '../sync.js'
@@ -76,6 +83,11 @@ export function registerExtrasIpc({ getWindow, dataDir, cancelAllAiJobs }: Extra
     const window = getWindow()
     setTimeout(() => window?.webContents.reload(), 250)
     return { ok: true }
+  })
+
+  ipcMain.handle('pdf:annotations-all', (_event, bookId: unknown) => {
+    const [id] = parseIpc('pdf:annotations-all', bookIdArgs, [bookId])
+    return listPdfAnnotationsForBook(id)
   })
 
   ipcMain.handle('pdf:annotations', (_event, bookId: unknown, page: unknown) => {

@@ -244,7 +244,7 @@ You can assign separate models to condensing, composition, and the workbench, an
 - **Code block tools**: review conventions and error characters, one-click fix for definite errors, comment out prose that leaked into a code block using the language's own comment marker, and have the model explain code inline.
 - **Image understanding**: a vision model inserts 2–6 sentences into the body. It tries the current model first and, only on an explicit image-capability error, auto-selects another configured vision model — cheapest first.
 - **Layout preferences**: font, size, leading, paragraph spacing, first-line indent, and measure are stored per book as structured config applied through CSS variables. The model never emits arbitrary CSS.
-- **PDF annotations**: in the original-layout PDF viewer, drag a region to highlight it, with yellow / green / blue colors and a note. Annotations are stored per book and page and survive reopening.
+- **PDF annotations**: in the original-layout PDF viewer, drag a region to highlight it, with yellow / green / blue colors and a note. Annotations are stored per book and page and survive reopening. The toolbar's annotation list shows every annotation in the book and jumps to its page.
 - **Annotate while reading**: selecting text surfaces highlight, underline, strikethrough, clear, ask AI, AI margin note, share, read aloud, and copy.
 
 ### Condensing, cards, and Q&A

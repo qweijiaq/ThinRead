@@ -106,3 +106,11 @@ export function updatePdfAnnotation(
 export function deletePdfAnnotation(id: string): void {
   getDb().prepare('DELETE FROM pdf_annotations WHERE id = ?').run(id)
 }
+
+
+export function listPdfAnnotationsForBook(bookId: string): PdfAnnotation[] {
+  const rows = getDb()
+    .prepare('SELECT * FROM pdf_annotations WHERE book_id = ? ORDER BY page, created_at')
+    .all(bookId) as unknown as Array<Parameters<typeof mapPdfAnnotation>[0]>
+  return rows.map(mapPdfAnnotation)
+}

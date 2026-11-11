@@ -1781,5 +1781,8 @@
   "整章": "full chapter",
   "打开同步文件夹": "Open sync folder",
   "删除同步快照": "Delete sync snapshot",
-  "删除这个同步快照？删除后无法恢复。": "Delete this sync snapshot? This cannot be undone."
+  "删除这个同步快照？删除后无法恢复。": "Delete this sync snapshot? This cannot be undone.",
+  "标注列表": "Annotations",
+  "还没有标注。": "No annotations yet.",
+  "无备注": "No note"
 }
