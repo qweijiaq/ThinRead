@@ -282,7 +282,7 @@ You can assign separate models to condensing, composition, and the workbench, an
 - **Zero-config listening**: without a Qwen TTS key, ThinRead falls back to built-in macOS voices synthesized entirely on-device at no cost; with a key it still uses Qwen, with the same voices and cost estimates.
 - **Reading data**: time tracking, daily goals, streaks, 7/30/100-day milestone badges, monthly and yearly stats, weekly reviews, CSV export, plus note quality and citation pass rate.
 - **Backup and restore**: manual and automatic backups, whole-library export/import, app lock, and a diagnostics bundle.
-- **Folder sync**: pick an iCloud Drive / Dropbox / NAS folder, push a full-library snapshot, and restore it on another device. An optional passphrase encrypts the snapshot with AES-256-GCM into a `.thinsync` file; the passphrase is never stored. Besides a full restore, you can merge only the newer notes, PDF annotations, and bookmarks from a snapshot into the current library without overwriting local content. No self-hosted server; the current state is backed up before restoring.
+- **Folder sync**: pick an iCloud Drive / Dropbox / NAS folder, push a full-library snapshot, and restore it on another device. An optional passphrase encrypts the snapshot with AES-256-GCM into a `.thinsync` file; the passphrase is never stored. Besides a full restore, you can merge only the newer notes, PDF annotations, bookmarks, reading positions, reading statistics, reading plans, and weekly reviews from a snapshot into the current library without overwriting local content. No self-hosted server; the current state is backed up before restoring.
 
 ---
 
