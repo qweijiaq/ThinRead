@@ -338,7 +338,7 @@ export function XhsCarouselDialog({
               <div className="xhs-empty error-text">{error}</div>
             ) : !plan || plan.totalCards === 0 || plan.pages.length === 0 ? (
               <div className="xhs-empty">
-                <strong>{t('还没有核心知识点')}</strong>
+                <strong>{t('还没有核心观点')}</strong>
                 <span>{emptyHint}</span>
               </div>
             ) : (

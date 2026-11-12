@@ -349,7 +349,7 @@ export function planXhsCarousel(input: PlanInput): XhsCarouselPlan {
   ]
   const covered = new Set(effectivePages.flatMap((page) => page.parts.map((part) => part.cardId))).size
   const warnings: string[] = []
-  if (selectedCards.length === 0) warnings.push(t('还没有核心知识点卡片。'))
+  if (selectedCards.length === 0) warnings.push(t('还没有核心观点卡片。'))
   if (pages.length > 18) warnings.push(`${t('共 ')}${pages.length}${t(' 页，小红书单篇最多 18 张，建议按章节生成或分多篇发布。')}`)
   if (selectedCards.length > 60) warnings.push(t('知识点较多，整套图会很长，建议按章节拆分。'))
   if (covered !== selectedCards.length) warnings.push(`${t('有 ')}${selectedCards.length - covered}${t(' 个知识点没有排进页面。')}`)

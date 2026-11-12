@@ -1892,5 +1892,13 @@
   "从头开始": "From the beginning",
   "只合并已有稿": "Merge existing drafts only",
   "跳到模型服务": "Jump to model service",
-  "这里用示例结果展示效果；配置真实模型后会按你的书重新生成。": "This uses a sample result to show the effect; configure a real model to generate from your own book."
+  "这里用示例结果展示效果；配置真实模型后会按你的书重新生成。": "This uses a sample result to show the effect; configure a real model to generate from your own book.",
+  "跳到": "Jump to",
+  "核对": "Verify",
+  "对比原文": "Compare with source",
+  "收起对照": "Hide comparison",
+  "核心观点": "Core ideas",
+  "还没有核心观点": "No core ideas yet",
+  "还没有核心观点卡片。": "No core idea cards yet.",
+  "AI 批注": "AI annotation"
 }

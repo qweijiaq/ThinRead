@@ -93,7 +93,7 @@ export function ReaderSelectionToolbar({
           close()
         }}
       >
-        {t('AI 边注')}
+        {t('AI 批注')}
       </button>
       <button
         type="button"

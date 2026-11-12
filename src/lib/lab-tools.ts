@@ -114,7 +114,7 @@ export const LAB_TOOLS: LabTool[] = [
   {
     id: 'margin-note',
     group: '深读',
-    title: 'AI 边注',
+    title: 'AI 批注',
     description: '粘贴一句原文，生成一条解释、呼应或反例的边注。',
     kind: 'report',
     books: 'single',

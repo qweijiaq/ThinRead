@@ -62,12 +62,12 @@ export function MarginNoteDialog({ chapter, quote, onSave, onClose }: MarginNote
         className="modal margin-note-modal"
         role="dialog"
         aria-modal="true"
-        aria-label={t('AI 边注')}
+        aria-label={t('AI 批注')}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="modal-head">
           <div>
-            <h2>{t('AI 边注')}</h2>
+            <h2>{t('AI 批注')}</h2>
             <p className="modal-subtitle">{chapter.title}</p>
           </div>
           <button type="button" className="icon-button" onClick={onClose} aria-label={t('关闭')}>

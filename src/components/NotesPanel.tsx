@@ -187,6 +187,7 @@ function NotesPanelImpl({
   const mineNotes = notes.filter((note) => note.kind === 'highlight' || note.kind === 'thought')
   const [verifyOnly, setVerifyOnly] = useState(false)
   const [sentenceCheck, setSentenceCheck] = useState(false)
+  const [compareOriginal, setCompareOriginal] = useState(false)
   const evidenceNotes = pointNotes.filter((note) => note.author === 'ai')
   const evidenceWithQuote = evidenceNotes.filter((note) => note.quote?.trim())
   const evidenceVerified = evidenceWithQuote.filter((note) => note.quoteVerified)
@@ -317,6 +318,10 @@ function NotesPanelImpl({
     })
   }
 
+  function jumpTo(id: string): void {
+    document.getElementById(id)?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+  }
+
   return (
     <div className="notes-panel">
       <div className="notes-head">
@@ -346,6 +351,14 @@ function NotesPanelImpl({
           <strong>{t('演示模式')}</strong>
           <span>{t('这里用示例结果展示效果；配置真实模型后会按你的书重新生成。')}</span>
         </div>
+      ) : null}
+
+      {notes.length > 0 ? (
+        <nav className="notes-jump" aria-label={t('跳到')}>
+          <button type="button" onClick={() => jumpTo('notes-draft')}>{t('草稿')}</button>
+          <button type="button" onClick={() => jumpTo('notes-cards')}>{t('卡片')}</button>
+          <button type="button" onClick={() => jumpTo('notes-audit')}>{t('核对')}</button>
+        </nav>
       ) : null}
 
       {chapter && compareModels.length > 0 ? (
@@ -433,7 +446,7 @@ function NotesPanelImpl({
       ) : null}
 
       {!generating && notes.length === 0 ? (
-        <div className="notes-empty">
+        <div className="notes-empty" id="notes-draft">
           <p className="notes-empty-title">{t('这一章还没有读薄稿')}</p>
           <p>{t('AI 会先把这一章重写成可发博客的读薄稿（保留断言、写成连贯行文，压缩幅度由内容密度决定），再从稿子里按「不知道它是否影响全文理解」的标准提炼核心卡片，最后做最多 3 条延伸。')}</p>
           <p className="field-hint">
@@ -451,7 +464,7 @@ function NotesPanelImpl({
       ) : null}
 
       {condensedNote ? (
-        <section className="condensed-section">
+        <section className="condensed-section" id="notes-draft">
           <div className="note-group-head">
             <span>{t('读薄稿')}</span>
             <div className="condensed-tools">
@@ -469,6 +482,14 @@ function NotesPanelImpl({
                 onClick={() => setSentenceCheck((value) => !value)}
               >
                 {sentenceCheck ? t('显示全文') : t('逐句核对')}
+              </button>
+              <button
+                type="button"
+                className="text-button"
+                aria-pressed={compareOriginal}
+                onClick={() => setCompareOriginal((value) => !value)}
+              >
+                {compareOriginal ? t('收起对照') : t('对比原文')}
               </button>
               <button
                 type="button"
@@ -491,6 +512,18 @@ function NotesPanelImpl({
             </div>
           </div>
           {exportError ? <div className="inline-error" role="alert">{exportError}</div> : null}
+          {compareOriginal ? (
+            <div className="draft-compare">
+              <div>
+                <span>{t('原文')}</span>
+                <p>{chapter?.text ?? ''}</p>
+              </div>
+              <div>
+                <span>{t('改写后')}</span>
+                <p>{condensedNote.content.replace(/^#{1,4}\s+/gm, '')}</p>
+              </div>
+            </div>
+          ) : null}
           {renderCard(condensedNote, true)}
         </section>
       ) : null}
@@ -521,7 +554,7 @@ function NotesPanelImpl({
 
       {renderGroup(t('摘要'), summaryNotes)}
       {evidenceNotes.length > 0 ? (
-        <section className="evidence-summary" aria-label={t('原文依据核查')}>
+        <section className="evidence-summary" id="notes-audit" aria-label={t('原文依据核查')}>
           <div>
             <strong>{t('依据核查')}</strong>
             <span>
@@ -533,7 +566,7 @@ function NotesPanelImpl({
           </button>
         </section>
       ) : null}
-      {renderGroup(t('核心知识点'), pointNotesForDisplay)}
+      <div id="notes-cards">{renderGroup(t('核心观点'), pointNotesForDisplay)}</div>
       {verifyOnly && pointNotesForDisplay.length === 0 ? <p className="note-empty">{t('这张章节没有待核对的知识点。')}</p> : null}
       {renderGroup(t('问题'), questionNotes)}
       {renderGroup(t('我的笔记'), mineNotes)}
