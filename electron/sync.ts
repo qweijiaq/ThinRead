@@ -5,7 +5,7 @@ import path from 'node:path'
 import { unzipSync } from 'fflate'
 
 import type { SyncSnapshot, SyncStatus } from '../shared/types.js'
-import { createBackup, exportBackup, importBackupArchive, restoreBackup } from './backup.js'
+import { createBackup, exportSelfContainedBackup, importBackupArchive, restoreBackup } from './backup.js'
 import { mergeSnapshotDatabase, type MergeSnapshotResult } from './db-merge.js'
 import { getSettingsView, setSyncFolder, setSyncMeta } from './settings.js'
 import { decryptSnapshot, encryptSnapshot, isEncryptedSnapshot } from './sync-crypto.js'
@@ -77,13 +77,13 @@ export function pushSyncSnapshot(dataDir: string, passphrase = ''): SyncSnapshot
   if (secret) {
     const temp = path.join(os.tmpdir(), `${PREFIX}${stamp}.zip`)
     try {
-      exportBackup(dataDir, info.id, temp)
+      exportSelfContainedBackup(dataDir, info.id, temp)
       encryptSnapshot(temp, destination, secret)
     } finally {
       fs.rmSync(temp, { force: true })
     }
   } else {
-    exportBackup(dataDir, info.id, destination)
+    exportSelfContainedBackup(dataDir, info.id, destination)
   }
 
   const stat = fs.statSync(destination)

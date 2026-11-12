@@ -289,6 +289,31 @@ export function exportBackup(dataDir: string, id: string, destination: string): 
   fs.copyFileSync(archivePath, destination)
 }
 
+/**
+ * 导出一份自带书文件的快照。
+ *
+ * 本地备份用 blob 去重，只存 hash 清单；换设备恢复时本机没有这些 blob，
+ * 所以同步快照必须把被引用的 blob 一起打进 zip，否则会提示「备份缺少书文件」。
+ */
+export function exportSelfContainedBackup(dataDir: string, id: string, destination: string): void {
+  const archivePath = archivePathFor(dataDir, id)
+  const files = unzipBackup(archivePath)
+  const manifestRaw = files['books-manifest.json']
+  if (manifestRaw) {
+    const parsed = JSON.parse(new TextDecoder().decode(manifestRaw)) as Record<string, unknown>
+    const blobs = backupBlobsDir(dataDir)
+    for (const value of Object.values(parsed)) {
+      const ref = value as Partial<BookFileRef> | null
+      if (!ref || typeof ref.hash !== 'string') continue
+      const blob = path.join(blobs, ref.hash)
+      if (!fs.existsSync(blob)) throw new Error('备份缺少书文件，无法生成自包含快照。')
+      files[`blobs/${ref.hash}`] = new Uint8Array(fs.readFileSync(blob))
+    }
+  }
+  fs.mkdirSync(path.dirname(destination), { recursive: true })
+  fs.writeFileSync(destination, zipSync(files, { level: 6 }))
+}
+
 /** 把外部 .zip 整库包导入本机备份目录，供恢复流程使用。 */
 export function importBackupArchive(dataDir: string, sourcePath: string): BackupInfo {
   const files = unzipBackup(sourcePath, new Set(['db/reading-notes.db']))
@@ -557,8 +582,15 @@ export function restoreBackup(dataDir: string, id: string, options?: { safetyBac
       const blobs = backupBlobsDir(dataDir)
       for (const [archivePath, ref] of Object.entries(manifest)) {
         const target = safeArchivePath(staging, archivePath)
-        const blob = path.join(blobs, ref.hash)
-        if (!fs.existsSync(blob)) throw new Error(`备份缺少书文件：${archivePath}`)
+        let blob = path.join(blobs, ref.hash)
+        if (!fs.existsSync(blob)) {
+          const archived = files[`blobs/${ref.hash}`]
+          if (!archived) throw new Error(`备份缺少书文件：${archivePath}`)
+          ensureDir(blobs)
+          const temp = `${blob}.${process.pid}.tmp`
+          fs.writeFileSync(temp, archived)
+          fs.renameSync(temp, blob)
+        }
         ensureDir(path.dirname(target))
         fs.copyFileSync(blob, target)
         if (fs.statSync(target).size !== ref.size || hashFile(target) !== ref.hash) {
