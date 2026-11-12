@@ -73,7 +73,7 @@ export function LabQuiz({ chapterId, bookTitle, chapterTitle }: LabQuizProps): J
     if (!hydrated || !quiz) return
     const timer = window.setTimeout(() => {
       const content = JSON.stringify({ quiz, answers, checks, revealed: [...revealed] })
-      const title = chapterTitle ? `自适应出题 · ${chapterTitle}` : t('自适应出题')
+      const title = chapterTitle ? `${t('自适应出题')} · ${chapterTitle}` : t('自适应出题')
       const task = artifactId
         ? bridge.updateLabArtifact(artifactId, { title, content }).then((updated) => {
             setHistory((current) => current.map((item) => (item.id === updated.id ? updated : item)))
@@ -200,7 +200,7 @@ export function LabQuiz({ chapterId, bookTitle, chapterTitle }: LabQuizProps): J
       {error ? <div className="inline-error" role="alert">{error}</div> : null}
       {!quiz && !busy ? (
         <p className="lab-empty">
-          {chapterTitle ? `当前章节：${chapterTitle}。` : t('选好章节后点「开始出题」。')}
+          {chapterTitle ? t('当前章节：{title}。').replace('{title}', chapterTitle) : t('选好章节后点「开始出题」。')}
         </p>
       ) : null}
       {quiz ? (

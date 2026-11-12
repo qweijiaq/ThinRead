@@ -1787,5 +1787,16 @@
   "无备注": "No note",
   "位置": "positions",
   "统计": "stats",
-  "复盘": "reviews"
+  "复盘": "reviews",
+  "原文依据：": "Source:",
+  "反馈：": "Feedback:",
+  "已覆盖：": "Covered:",
+  "理解偏差：": "Misread:",
+  "费曼检查": "Feynman check",
+  "当前章节：{title}。": "Current chapter: {title}.",
+  "组卡片。": "card groups.",
+  "已更新": "Updated",
+  "条笔记的标签。": "notes’ tags.",
+  "全书翻译有": "Whole-book translation:",
+  "章失败，可在任务中心继续重试。": "chapters failed; retry from the task center."
 }

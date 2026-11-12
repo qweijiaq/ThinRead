@@ -192,7 +192,7 @@ export function ChatPanel({ chapter, bookTitle, seed, onJumpQuote, onSave }: Cha
 
   async function save(index: number, turn: Turn): Promise<void> {
     const citations = turn.citations?.length
-      ? `\n\n原文依据：\n${turn.citations.map((item) => `“${item.quote}”`).join('\n')}`
+      ? `\n\n${t('原文依据：')}\n${turn.citations.map((item) => `“${item.quote}”`).join('\n')}`
       : ''
     try {
       await onSave(`${turn.content}${citations}`)

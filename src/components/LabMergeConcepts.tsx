@@ -88,7 +88,7 @@ export function LabMergeConcepts(): JSX.Element {
     <div className="lab-merge">
       <div className="lab-run-row">
         <span className="lab-run-hint">
-          {done != null ? `已更新 ${done} 条笔记的标签。` : t('AI 只给建议，合并前可以改标准名。')}
+          {done != null ? `${t('已更新')} ${done} ${t('条笔记的标签。')}` : t('AI 只给建议，合并前可以改标准名。')}
         </span>
         <button type="button" className="ghost-button small" onClick={() => void load()} disabled={loading}>
           {loading ? t('分析中…') : t('重新分析')}

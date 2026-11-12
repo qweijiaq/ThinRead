@@ -1,3 +1,4 @@
+import { t } from '../lib/i18n.js'
 import { bridge } from '../lib/bridge.js'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
@@ -69,7 +70,7 @@ export function useBookTranslation(
       } else if (!event.cancelled && event.failed.length > 0) {
         notify({
           kind: 'error',
-          text: `全书翻译有 ${event.failed.length} 章失败，可在任务中心继续重试。`,
+          text: `${t('全书翻译有')} ${event.failed.length} ${t('章失败，可在任务中心继续重试。')}`,
         })
       }
     })

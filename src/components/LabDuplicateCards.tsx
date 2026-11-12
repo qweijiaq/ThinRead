@@ -87,7 +87,7 @@ export function LabDuplicateCards(): JSX.Element {
       <div className="lab-run-row">
         <span className="lab-run-hint">
           {done > 0
-            ? `已合并 ${done} 组卡片。`
+            ? `${t('已合并')} ${done} ${t('组卡片。')}`
             : t('只扫描同一章里的知识点 / 论点卡片；跨章相近内容不会被合并。合并后保留左边这张。')}
         </span>
         <button type="button" className="ghost-button small" onClick={() => void load()} disabled={loading}>

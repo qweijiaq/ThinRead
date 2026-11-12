@@ -105,7 +105,7 @@ export function useNoteActions(options: NoteActionsOptions): NoteActions {
         bookId: chapter.bookId,
         chapterId: chapter.id,
         kind: 'thought',
-        title: `AI 边注 · ${marginQuote.slice(0, 16)}`,
+        title: `${t('AI 边注')} · ${marginQuote.slice(0, 16)}`,
         content: markdown,
         quote: marginQuote,
       })

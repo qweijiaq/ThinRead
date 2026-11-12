@@ -125,10 +125,10 @@ export function FeynmanPanel({ chapter, bookTitle, hasNotes, onSave }: FeynmanPa
       t('我的解释：'),
       explanation.trim(),
       '',
-      `反馈：${result.feedback}`,
-      result.covered.length ? `已覆盖：${result.covered.join('；')}` : '',
-      result.missing.length ? `还缺：${result.missing.join('；')}` : '',
-      result.misconceptions.length ? `理解偏差：${result.misconceptions.join('；')}` : '',
+      `${t('反馈：')}${result.feedback}`,
+      result.covered.length ? `${t('已覆盖：')}${result.covered.join('；')}` : '',
+      result.missing.length ? `${t('还缺：')}${result.missing.join('；')}` : '',
+      result.misconceptions.length ? `${t('理解偏差：')}${result.misconceptions.join('；')}` : '',
     ]
       .filter(Boolean)
       .join('\n')
@@ -247,14 +247,14 @@ export function FeynmanPanel({ chapter, bookTitle, hasNotes, onSave }: FeynmanPa
               className="text-button"
               onClick={() => {
                 const text = [
-                  `# ${chapter?.title ?? ''} · 费曼检查`,
+                  `# ${chapter?.title ?? ''} · ${t('费曼检查')}`,
                   '',
                   result.feedback,
                   '',
-                  result.covered.length > 0 ? `## 讲到了\n${result.covered.map((item) => `- ${item}`).join('\n')}` : '',
-                  result.missing.length > 0 ? `## 还缺\n${result.missing.map((item) => `- ${item}`).join('\n')}` : '',
+                  result.covered.length > 0 ? `## ${t('讲到了')}\n${result.covered.map((item) => `- ${item}`).join('\n')}` : '',
+                  result.missing.length > 0 ? `## ${t('还缺')}\n${result.missing.map((item) => `- ${item}`).join('\n')}` : '',
                   result.misconceptions.length > 0
-                    ? `## 需要纠正\n${result.misconceptions.map((item) => `- ${item}`).join('\n')}`
+                    ? `## ${t('需要纠正')}\n${result.misconceptions.map((item) => `- ${item}`).join('\n')}`
                     : '',
                 ]
                   .filter((part) => part !== '')
