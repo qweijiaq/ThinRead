@@ -1,3 +1,4 @@
+import { t } from './i18n.js'
 export type PublishCoverStyle = 'paper' | 'ink' | 'minimal'
 
 export interface PublishCoverInput {
@@ -116,12 +117,12 @@ export function renderPublishCover(input: PublishCoverInput): string {
 
   ctx.fillStyle = palette.accent
   ctx.font = `600 18px ${SANS}`
-  ctx.fillText('页边 · THINREAD', 120, 92)
+  ctx.fillText(t('页边 · THINREAD'), 120, 92)
   ctx.fillStyle = palette.muted
   ctx.font = `400 15px ${SANS}`
-  ctx.fillText('读书笔记', 120, 116)
+  ctx.fillText(t('读书笔记'), 120, 116)
 
-  const title = input.title.replace(/\s+/g, ' ').trim() || '未命名读书笔记'
+  const title = input.title.replace(/\s+/g, ' ').trim() || t('未命名读书笔记')
   const fitted = fitTitle(ctx, title, 900, 250)
   const titleTop = 174
   ctx.fillStyle = palette.ink
@@ -158,7 +159,7 @@ export function renderPublishCover(input: PublishCoverInput): string {
   ctx.fillStyle = palette.accent
   ctx.font = `500 16px ${SANS}`
   ctx.textAlign = 'right'
-  ctx.fillText('把一本书读成自己的', 1080, 574)
+  ctx.fillText(t('把一本书读成自己的'), 1080, 574)
   ctx.textAlign = 'left'
 
   return canvas.toDataURL('image/png')

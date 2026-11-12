@@ -1,3 +1,4 @@
+import { t } from './i18n.js'
 import type { KnowledgeMapData, KnowledgeMapEdge, RelationGraph, RelationNodeKind } from '../../shared/types.js'
 
 function escapeLabel(value: string, max = 28): string {
@@ -10,9 +11,9 @@ function nodeId(index: number): string {
 }
 
 function edgeLabel(kind: KnowledgeMapEdge['kind']): string {
-  if (kind === 'book') return '书'
-  if (kind === 'tag') return '标签'
-  return '语义'
+  if (kind === 'book') return t('书')
+  if (kind === 'tag') return t('标签')
+  return t('语义')
 }
 
 export function knowledgeMapToMermaid(data: KnowledgeMapData): string {
@@ -31,7 +32,7 @@ export function knowledgeMapToMermaid(data: KnowledgeMapData): string {
     const key = `${source}:${target}:${edge.kind}`
     if (seen.has(key)) continue
     seen.add(key)
-    lines.push(`  ${source} -->|${edgeLabel(edge.kind)}${edge.cross ? ' · 跨书' : ''}| ${target}`)
+    lines.push(`  ${source} -->|${edgeLabel(edge.kind)}${edge.cross ? ` · ${t('跨书')}` : ''}| ${target}`)
   }
   lines.push('  classDef book fill:#e7ebf4,stroke:#264f8a,color:#1b1a15')
   lines.push('  classDef concept fill:#fbf8ef,stroke:#d7d0c0,color:#1b1a15')

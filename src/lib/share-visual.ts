@@ -1,3 +1,4 @@
+import { t } from './i18n.js'
 export type ShareTheme = 'paper' | 'ink' | 'sage'
 
 export interface SharePalette {
@@ -209,7 +210,7 @@ export function drawMasthead(
   top = 62,
   rightLabel?: string,
 ): void {
-  drawTracked(ctx, '页边 THINREAD', left, top, `500 12px ${SHARE_MONO}`, palette.muted, 2.4)
+  drawTracked(ctx, t('页边 THINREAD'), left, top, `500 12px ${SHARE_MONO}`, palette.muted, 2.4)
   if (rightLabel) {
     drawTrackedRight(ctx, rightLabel, right, top, `500 11px ${SHARE_MONO}`, palette.accent, 2)
   }

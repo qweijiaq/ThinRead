@@ -71,7 +71,7 @@ export async function buildPublishPackage(input: PublishPackageInput): Promise<P
           author: input.author,
           description: input.description.trim() || bookDescription(input.markdown, 300),
           date: input.date,
-          source: '页边 ThinRead',
+          source: t('页边 ThinRead'),
           cover: coverSrc ?? null,
           coverStyle: input.coverStyle ?? 'paper',
         },

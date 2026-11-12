@@ -1,3 +1,4 @@
+import { t } from './i18n.js'
 import type { MermaidConfig } from 'mermaid'
 
 type MermaidInstance = (typeof import('mermaid'))['default']
@@ -124,7 +125,7 @@ export async function renderMermaidSvg(source: string): Promise<string> {
   const mermaid = await loadMermaid()
   mermaid.initialize(mermaidConfig())
   const parsed = await mermaid.parse(source, { suppressErrors: true })
-  if (!parsed) throw new Error('Mermaid 图表语法无法解析')
+  if (!parsed) throw new Error(t('Mermaid 图表语法无法解析'))
   const id = `mermaid-diagram-${++sequence}`
   const { svg } = await mermaid.render(id, source)
   return svg

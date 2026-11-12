@@ -1864,5 +1864,9 @@
   "地图里还没有可以导出的节点。": "The map has no nodes to export.",
   "找不到地图画布。": "Could not find the map canvas.",
   "## 节点": "## Nodes",
-  "## 关系": "## Relationships"
+  "## 关系": "## Relationships",
+  "页边 · THINREAD": "THINREAD",
+  "未命名读书笔记": "Untitled reading notes",
+  "标签": "Tag",
+  "Mermaid 图表语法无法解析": "Could not parse the Mermaid diagram."
 }
