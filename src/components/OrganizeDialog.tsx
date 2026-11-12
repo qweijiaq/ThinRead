@@ -38,7 +38,7 @@ interface OrganizeDialogProps {
 }
 
 function formatChars(chars: number): string {
-  return chars >= 10_000 ? `${(chars / 10_000).toFixed(1)} 万字` : `${chars} 字`
+  return chars >= 10_000 ? `${(chars / 10_000).toFixed(1)}${t(' 万字')}` : `${chars}${t(' 字')}`
 }
 
 export function OrganizeDialog({

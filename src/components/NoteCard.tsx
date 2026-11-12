@@ -56,7 +56,7 @@ function titleFromContent(content: string): string {
 function formatTime(iso: string): string {
   const date = new Date(iso)
   if (getLocale() === 'en') return `${date.getMonth() + 1}/${date.getDate()}`
-  return `${date.getMonth() + 1}月${date.getDate()}日`
+  return `${date.getMonth() + 1}${t('月')}${date.getDate()}${t('日')}`
 }
 
 function NoteCardImpl({
@@ -111,7 +111,7 @@ function NoteCardImpl({
     const title =
       titleUnchanged && repeatsTitle
         ? titleFromContent(draftContent)
-        : draftTitle.trim() && draftTitle.trim() !== '未命名笔记'
+        : draftTitle.trim() && draftTitle.trim() !== t('未命名笔记')
           ? draftTitle.trim()
           : titleFromContent(draftContent)
     setSaving(true)

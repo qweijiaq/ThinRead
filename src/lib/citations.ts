@@ -1,3 +1,4 @@
+import { t } from '../lib/i18n.js'
 export interface CitationInput {
   title: string
   author: string
@@ -14,7 +15,7 @@ function clean(value: string): string {
 }
 
 export function apaCitation(input: CitationInput): string {
-  const author = clean(input.author) || '佚名'
+  const author = clean(input.author) || t('佚名')
   return `${author}. (${yearOf(input.date)}). ${clean(input.title)}.`
 }
 

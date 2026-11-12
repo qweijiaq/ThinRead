@@ -1,3 +1,4 @@
+import { t } from '../lib/i18n.js'
 import { bridge } from '../lib/bridge.js'
 import { useCallback, useState } from 'react'
 
@@ -50,7 +51,7 @@ export function useRename(options: RenameOptions): RenameState {
     async (value: string, secondary?: string) => {
       if (!renameTarget) return
       const title = value.replace(/\s+/g, ' ').trim()
-      if (!title) throw new Error('标题不能为空。')
+      if (!title) throw new Error(t('标题不能为空。'))
       if (renameTarget.kind === 'book') {
         const updated = await bridge.renameBook(
           renameTarget.bookId,

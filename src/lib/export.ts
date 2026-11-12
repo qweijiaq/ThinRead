@@ -3,9 +3,9 @@ import { t } from './i18n.js'
 import { noteDisplayTitle, titleRepeatsContent } from './note-display.js'
 
 const DIVERGENCE_LABELS: Record<string, string> = {
-  boundary: '边界',
-  crossbook: '跨书',
-  transfer: '触类',
+  boundary: t('边界'),
+  crossbook: t('跨书'),
+  transfer: t('触类'),
 }
 
 export interface MarkdownExportArgs {

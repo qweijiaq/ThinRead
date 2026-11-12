@@ -1,3 +1,4 @@
+import { t } from './i18n.js'
 import { Mp3Encoder } from '@breezystack/lamejs'
 
 export interface AudioSegment {
@@ -111,11 +112,11 @@ export async function combineAudioSegments(
   gapSeconds = 0,
   sampleRate = TARGET_SAMPLE_RATE,
 ): Promise<{ wav: ArrayBuffer; base64: string; mp3Base64: string; duration: number }> {
-  if (segments.length === 0) throw new Error('没有可合并的音频。')
+  if (segments.length === 0) throw new Error(t('没有可合并的音频。'))
   const AudioContextCtor =
     window.AudioContext ||
     (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
-  if (!AudioContextCtor) throw new Error('当前系统不支持音频合并。')
+  if (!AudioContextCtor) throw new Error(t('当前系统不支持音频合并。'))
   const context = new AudioContextCtor()
   const parts: Float32Array[] = []
   let totalSamples = 0
@@ -134,7 +135,7 @@ export async function combineAudioSegments(
         totalSamples += silence.length
       }
       if (totalSamples / sampleRate > MAX_DURATION_SECONDS) {
-        throw new Error(`音频超过 ${MAX_DURATION_SECONDS / 60} 分钟，建议按章节分开导出。`)
+        throw new Error(`${t('音频超过 ')}${MAX_DURATION_SECONDS / 60}${t(' 分钟，建议按章节分开导出。')}`)
       }
       if (index % 5 === 0) await new Promise((resolve) => window.setTimeout(resolve, 0))
     }

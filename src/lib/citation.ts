@@ -1,3 +1,4 @@
+import { t } from '../lib/i18n.js'
 import type { CitationMeta, CitationStyle } from '../../shared/types.js'
 
 function clean(value: string | null | undefined): string {
@@ -25,8 +26,8 @@ function citationKey(meta: CitationMeta): string {
 }
 
 export function formatCitation(style: CitationStyle, meta: CitationMeta): string {
-  const title = trimTrailingDot(clean(meta.title)) || '未命名'
-  const author = trimTrailingDot(clean(meta.author)) || '佚名'
+  const title = trimTrailingDot(clean(meta.title)) || t('未命名')
+  const author = trimTrailingDot(clean(meta.author)) || t('佚名')
   const year = clean(meta.year) || 'n.d.'
   const publisher = trimTrailingDot(clean(meta.publisher))
   const url = clean(meta.url)

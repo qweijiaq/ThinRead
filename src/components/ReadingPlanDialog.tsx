@@ -29,13 +29,13 @@ function formatChars(value: number): string {
   }
   if (value >= 10000) {
     const wan = value / 10000
-    return `${wan >= 100 ? Math.round(wan) : wan.toFixed(1)} 万字`
+    return `${wan >= 100 ? Math.round(wan) : wan.toFixed(1)}${t(' 万字')}`
   }
-  return `${value.toLocaleString()} 字`
+  return `${value.toLocaleString()}${t(' 字')}`
 }
 
 function planDayLabel(index: number, date: string): string {
-  const day = getLocale() === 'en' ? `Day ${index + 1}` : `第 ${index + 1} 天`
+  const day = getLocale() === 'en' ? `Day ${index + 1}` : `${t('第 ')}${index + 1}${t(' 天')}`
   return date === readingPlanDateKey() ? `${day} · ${t('今天')}` : `${day} · ${date.slice(5).replace('-', '/')}`
 }
 

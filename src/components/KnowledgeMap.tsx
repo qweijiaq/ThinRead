@@ -826,7 +826,7 @@ export function KnowledgeMap({ books, onBack, onOpenNote, onOpenBook }: Knowledg
           className="filter-select"
           value={bookFilter}
           onChange={setBookFilter}
-          ariaLabel="按书筛选"
+          ariaLabel={t('按书筛选')}
           options={[
             { value: '', label: t('全部书') },
             ...bookOptions.map((book) => ({ value: book.bookId, label: book.label })),

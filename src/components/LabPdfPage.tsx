@@ -102,7 +102,7 @@ export function LabPdfPage({ books }: LabPdfPageProps): JSX.Element {
           <Select
             value={bookId}
             onChange={setBookId}
-            ariaLabel="选择 PDF"
+            ariaLabel={t('选择 PDF')}
             options={pdfs.map((book) => ({ value: book.id, label: book.title }))}
           />
         </label>

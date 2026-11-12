@@ -196,7 +196,7 @@ export function ChapterList({
                   type="button"
                   className="chapter-rename part-rename"
                   title={t('重命名分篇')}
-                  aria-label={`重命名 ${block.title}`}
+                  aria-label={`${t('重命名 ')}${block.title}`}
                   onClick={() => {
                     const partIndex = block.chapters[0]?.chapter.partIndex
                     if (partIndex != null) onRenamePart(partIndex, block.title)

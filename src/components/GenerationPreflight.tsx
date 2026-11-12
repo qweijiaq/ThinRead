@@ -77,7 +77,7 @@ export function GenerationPreflight({
           <span>{t('预计输出')}</span>
           <strong>~{outputTokens.toLocaleString()} tokens</strong>
           <span>{t('预计费用')}</span>
-          <strong>{cost === null ? t('未填写价格，无法估算') : cost < 0.01 ? `< ¥0.01` : `约 ¥${cost.toFixed(2)}`}</strong>
+          <strong>{cost === null ? t('未填写价格，无法估算') : cost < 0.01 ? `< ¥0.01` : `${t('约 ¥')}${cost.toFixed(2)}`}</strong>
         </div>
 
         <div className="preflight-notice">

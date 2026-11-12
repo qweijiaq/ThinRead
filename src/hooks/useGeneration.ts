@@ -1,3 +1,4 @@
+import { t } from '../lib/i18n.js'
 import { bridge } from '../lib/bridge.js'
 import { useCallback, useEffect, useState } from 'react'
 
@@ -129,8 +130,8 @@ export function useGeneration(options: GenerationOptions): GenerationState {
       notify({
         kind: event.failed.length > 0 ? 'error' : 'info',
         text: event.cancelled
-          ? '整本生成已取消。'
-          : `整本生成完成：新生成 ${event.generated} 节${event.failed.length > 0 ? `，失败 ${event.failed.length} 节` : ''}。`,
+          ? t('整本生成已取消。')
+          : `${t('整本生成完成：新生成 ')}${event.generated}${t(' 节')}${event.failed.length > 0 ? `${t('，失败 ')}${event.failed.length}${t(' 节')}` : ''}。`,
       })
       void bridge
         .listNotes(event.bookId)

@@ -1,3 +1,4 @@
+import { t } from '../lib/i18n.js'
 import { bridge } from '../lib/bridge.js'
 import { getNodesBounds, getViewportForBounds, type Node } from '@xyflow/react'
 
@@ -83,7 +84,7 @@ async function composePaperBackground(
   const image = await new Promise<HTMLImageElement>((resolve, reject) => {
     const element = new Image()
     element.onload = () => resolve(element)
-    element.onerror = () => reject(new Error('导出图片解码失败。'))
+    element.onerror = () => reject(new Error(t('导出图片解码失败。')))
     element.src = dataUrl
   })
   const canvas = document.createElement('canvas')
@@ -128,10 +129,10 @@ export async function exportFlowImage(options: {
   nodes: Node[]
   filename: string
 }): Promise<SaveFileResult> {
-  if (!options.root) throw new Error('地图还没有准备好。')
-  if (options.nodes.length === 0) throw new Error('地图里还没有可以导出的节点。')
+  if (!options.root) throw new Error(t('地图还没有准备好。'))
+  if (options.nodes.length === 0) throw new Error(t('地图里还没有可以导出的节点。'))
   const viewport = options.root.querySelector<HTMLElement>('.react-flow__viewport')
-  if (!viewport) throw new Error('找不到地图画布。')
+  if (!viewport) throw new Error(t('找不到地图画布。'))
 
   const bounds = getNodesBounds(options.nodes)
   const { width, height } = imageSize(options.nodes)

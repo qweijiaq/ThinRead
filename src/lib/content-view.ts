@@ -41,7 +41,7 @@ export function contentToMarkdown(item: ContentItem): string {
             const title = typeof question.question === 'string' ? question.question : ''
             const answer = typeof question.answer === 'string' ? question.answer : ''
             const source = typeof question.source === 'string' ? question.source : ''
-            return `${index + 1}. **${title}**\n\n参考答案：${answer}${source ? `\n\n依据：${source}` : ''}`
+            return `${index + 1}. **${title}${t('**\n\n参考答案：')}${answer}${source ? `${t('\n\n依据：')}${source}` : ''}`
           })
           .join('\n\n')
       }
@@ -78,18 +78,18 @@ export function contentToMarkdown(item: ContentItem): string {
       if (Array.isArray(parsed.nodes)) {
         const lines = [
           parsed.title ? `# ${parsed.title}` : '',
-          parsed.genre ? `体裁：${parsed.genre}` : '',
+          parsed.genre ? `${t('体裁：')}${parsed.genre}` : '',
           parsed.summary ?? '',
           parsed.plot ?? '',
-          '## 节点',
+          t('## 节点'),
           ...parsed.nodes.map((node) => {
             const facts = [node.identity, node.rank, node.affiliation].filter(Boolean).join(' / ')
-            const wiki = node.encyclopedia ? `\n  百科：${node.encyclopedia}` : ''
-            const chapters = node.chapters?.length ? `\n  出处：${node.chapters.join('、')}` : ''
-            return `- ${node.label ?? t('未命名')}（${node.kind ?? 'other'}${node.role ? ` · ${node.role}` : ''}${node.importance ? ` · 重要度 ${node.importance}` : ''}${facts ? ` · ${facts}` : ''}）：${node.description ?? ''}${wiki}${chapters}`
+            const wiki = node.encyclopedia ? `${t('\n  百科：')}${node.encyclopedia}` : ''
+            const chapters = node.chapters?.length ? `${t('\n  出处：')}${node.chapters.join('、')}` : ''
+            return `- ${node.label ?? t('未命名')}（${node.kind ?? 'other'}${node.role ? ` · ${node.role}` : ''}${node.importance ? `${t(' · 重要度 ')}${node.importance}` : ''}${facts ? ` · ${facts}` : ''}）：${node.description ?? ''}${wiki}${chapters}`
           }),
-          '## 关系',
-          ...(parsed.edges ?? []).map((edge) => `- ${edge.source ?? ''} — ${edge.label ?? t('关系')} — ${edge.target ?? ''}${edge.description ? `：${edge.description}` : ''}${edge.chapters?.length ? `（出处：${edge.chapters.join('、')}）` : ''}`),
+          t('## 关系'),
+          ...(parsed.edges ?? []).map((edge) => `- ${edge.source ?? ''} — ${edge.label ?? t('关系')} — ${edge.target ?? ''}${edge.description ? `：${edge.description}` : ''}${edge.chapters?.length ? `${t('（出处：')}${edge.chapters.join('、')}）` : ''}`),
         ].filter(Boolean)
         return lines.join('\n')
       }
@@ -118,7 +118,7 @@ export function contentToMarkdown(item: ContentItem): string {
       const parsed = JSON.parse(item.content) as { note?: string; removed?: unknown[] }
       const note = typeof parsed.note === 'string' ? parsed.note.trim() : ''
       if (note) return note
-      if (Array.isArray(parsed.removed)) return `本次排版移除了 ${parsed.removed.length} 处内容。`
+      if (Array.isArray(parsed.removed)) return `${t('本次排版移除了 ')}${parsed.removed.length}${t(' 处内容。')}`
     } catch {
       // 旧格式直接显示原文。
     }

@@ -84,7 +84,7 @@ export async function buildBookBlogHtml(args: BookBlogArgs): Promise<string> {
     author: args.author ? { '@type': 'Person', name: args.author } : undefined,
     datePublished: args.date,
     inLanguage: getLocale() === 'en' ? 'en' : 'zh-CN',
-    publisher: { '@type': 'Organization', name: '页边 ThinRead' },
+    publisher: { '@type': 'Organization', name: t('页边 ThinRead') },
     ...(coverSrc && !coverSrc.startsWith('data:') ? { image: coverSrc } : {}),
   }).replace(/</g, '\u003c')
   return `<!doctype html>
@@ -96,9 +96,7 @@ export async function buildBookBlogHtml(args: BookBlogArgs): Promise<string> {
 <meta name="author" content="${author}">
 <meta property="og:type" content="article">
 <meta property="og:title" content="${title} · ${escapeHtml(t('读书笔记'))}">
-<meta property="og:description" content="${description}">
-<meta property="og:site_name" content="页边 ThinRead">
-${coverMeta}
+<meta property="og:description" content="${description}${t('">\n<meta property="og:site_name" content="页边 ThinRead">\n')}${coverMeta}
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="${title} · ${escapeHtml(t('读书笔记'))}">
 <meta name="twitter:description" content="${description}">

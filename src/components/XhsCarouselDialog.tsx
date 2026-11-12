@@ -262,7 +262,7 @@ export function XhsCarouselDialog({
     try {
       const result = await bridge.saveImages(
         previews.map((dataUrl, pageIndex) => ({ dataUrl, name: xhsPageFilename(plan, pageIndex) })),
-        `${plan.title} - 小红书`,
+        `${plan.title}${t(' - 小红书')}`,
       )
       if (result.saved) setNotice(`${t('已保存')} ${result.count} ${t('张到')} ${result.path}`)
     } catch (err) {

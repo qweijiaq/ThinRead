@@ -19,7 +19,7 @@ async function imageToDataUrl(src: string): Promise<string> {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => resolve(String(reader.result ?? ''))
-    reader.onerror = () => reject(reader.error ?? new Error('读取图片失败'))
+    reader.onerror = () => reject(reader.error ?? new Error(t('读取图片失败')))
     reader.readAsDataURL(blob)
   })
 }
@@ -80,7 +80,7 @@ export function handleImageCopyClick(event: MouseEvent, root: HTMLElement): bool
   void (async () => {
     try {
       const copyImage = bridge?.copyImage
-      if (!copyImage) throw new Error('剪贴板不可用')
+      if (!copyImage) throw new Error(t('剪贴板不可用'))
       await copyImage(await imageToDataUrl(src))
       setButtonStatus(button, t('已复制图片'), fallback)
     } catch {

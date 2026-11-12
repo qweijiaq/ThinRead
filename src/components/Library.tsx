@@ -34,9 +34,9 @@ function formatWords(value: number): string {
   }
   if (value >= 10000) {
     const wan = value / 10000
-    return `${wan >= 100 ? Math.round(wan) : wan.toFixed(1)} 万字`
+    return `${wan >= 100 ? Math.round(wan) : wan.toFixed(1)}${t(' 万字')}`
   }
-  return `${value.toLocaleString()} 字`
+  return `${value.toLocaleString()}${t(' 字')}`
 }
 
 type LibrarySort = 'recent' | 'title' | 'progress' | 'chars'

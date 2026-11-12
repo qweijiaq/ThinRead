@@ -182,7 +182,7 @@ export function LabQuiz({ chapterId, bookTitle, chapterTitle }: LabQuizProps): J
                 setError(t('这组旧题目无法读取。'))
               }
             }}
-            ariaLabel="历史题目"
+            ariaLabel={t('历史题目')}
             options={history.map((artifact) => {
               let label = artifact.createdAt.slice(5, 16).replace('T', ' ')
               try {

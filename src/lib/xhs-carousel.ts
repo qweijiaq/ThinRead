@@ -341,7 +341,7 @@ export function planXhsCarousel(input: PlanInput): XhsCarouselPlan {
   const subtitle =
     input.scope === 'chapter'
       ? `${input.bookTitle}${input.author ? ` · ${input.author}` : ''}`
-      : `${input.author || t('未署名')} · ${chapterTitles.length} 节`
+      : `${input.author || t('未署名')} · ${chapterTitles.length}${t(' 节')}`
   const pages: XhsCarouselPage[] = [
     { kind: 'cover', chapterTitle: null, parts: [] },
     ...effectivePages,
@@ -350,9 +350,9 @@ export function planXhsCarousel(input: PlanInput): XhsCarouselPlan {
   const covered = new Set(effectivePages.flatMap((page) => page.parts.map((part) => part.cardId))).size
   const warnings: string[] = []
   if (selectedCards.length === 0) warnings.push(t('还没有核心知识点卡片。'))
-  if (pages.length > 18) warnings.push(`共 ${pages.length} 页，小红书单篇最多 18 张，建议按章节生成或分多篇发布。`)
+  if (pages.length > 18) warnings.push(`${t('共 ')}${pages.length}${t(' 页，小红书单篇最多 18 张，建议按章节生成或分多篇发布。')}`)
   if (selectedCards.length > 60) warnings.push(t('知识点较多，整套图会很长，建议按章节拆分。'))
-  if (covered !== selectedCards.length) warnings.push(`有 ${selectedCards.length - covered} 个知识点没有排进页面。`)
+  if (covered !== selectedCards.length) warnings.push(`${t('有 ')}${selectedCards.length - covered}${t(' 个知识点没有排进页面。')}`)
 
   return {
     scope: input.scope,
@@ -479,8 +479,8 @@ function drawCover(ctx: CanvasRenderingContext2D, plan: XhsCarouselPlan, palette
   ctx.fillText(plan.subtitle, LEFT, titleBottom + 44)
 
   const statsY = titleBottom + 100
-  const chipWidth = drawChip(ctx, `${plan.totalCards} 个知识点`, LEFT, statsY, palette, { accent: true })
-  drawChip(ctx, `已覆盖 ${plan.coveredCards} / ${plan.totalCards}`, LEFT + chipWidth + 8, statsY, palette)
+  const chipWidth = drawChip(ctx, `${plan.totalCards}${t(' 个知识点')}`, LEFT, statsY, palette, { accent: true })
+  drawChip(ctx, `${t('已覆盖 ')}${plan.coveredCards} / ${plan.totalCards}`, LEFT + chipWidth + 8, statsY, palette)
   drawHairline(ctx, palette, LEFT, PAGE_WIDTH - RIGHT, statsY + 44)
 
   const sample = plan.cards[0]
@@ -521,7 +521,7 @@ function drawCover(ctx: CanvasRenderingContext2D, plan: XhsCarouselPlan, palette
   drawAccentRule(ctx, palette, LEFT, metaY - 34, 28, 2)
   drawTracked(
     ctx,
-    `${plan.totalCards} 个知识点 · ${total} 页`,
+    `${plan.totalCards}${t(' 个知识点 · ')}${total}${t(' 页')}`,
     LEFT,
     metaY,
     `500 14px ${MONO}`,
@@ -680,8 +680,8 @@ function drawClosing(ctx: CanvasRenderingContext2D, plan: XhsCarouselPlan, palet
   drawTracked(ctx, t('THE LAST PAGE / 回顾'), LEFT, 174, `500 13px ${MONO}`, palette.accent, 2.2)
   const title =
     plan.scope === 'chapter'
-      ? `这一章，留下 ${plan.totalCards} 个知识点`
-      : `这本书，留下 ${plan.totalCards} 个知识点`
+      ? `${t('这一章，留下 ')}${plan.totalCards}${t(' 个知识点')}`
+      : `${t('这本书，留下 ')}${plan.totalCards}${t(' 个知识点')}`
   const block = fitText(ctx, title, CONTENT_WIDTH, 240, 50, 34, 1.32, SERIF, '600')
   ctx.fillStyle = palette.ink
   ctx.font = block.font
@@ -707,7 +707,7 @@ function drawClosing(ctx: CanvasRenderingContext2D, plan: XhsCarouselPlan, palet
   y += 18
   ctx.fillStyle = palette.muted
   ctx.font = `400 20px ${SANS}`
-  ctx.fillText(`全部 ${plan.totalCards} 个知识点已排进这套图，没有遗漏。`, LEFT, y)
+  ctx.fillText(`${t('全部 ')}${plan.totalCards}${t(' 个知识点已排进这套图，没有遗漏。')}`, LEFT, y)
   y += 36
   ctx.fillStyle = palette.muted
   ctx.font = `400 16px ${MONO}`
@@ -744,5 +744,5 @@ export function xhsPageFilename(plan: XhsCarouselPlan, pageIndex: number): strin
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 16)
-  return `页边-${number}-${title || t('小红书')}.png`
+  return `${t('页边-')}${number}-${title || t('小红书')}.png`
 }

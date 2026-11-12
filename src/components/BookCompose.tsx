@@ -583,7 +583,7 @@ export function BookCompose({
     setBusyAction('markdown')
     setError(null)
     try {
-      const name = `${book.title} 整本读书笔记.md`.replace(/[\\/:*?"<>|#%{}]/g, ' ').replace(/\s+/g, ' ').trim()
+      const name = `${book.title}${t(' 整本读书笔记.md')}`.replace(/[\\/:*?"<>|#%{}]/g, ' ').replace(/\s+/g, ' ').trim()
       const saved = await bridge.saveMarkdown(name, article)
       if (saved.saved) setNotice(`${t('已导出到')} ${saved.path}`)
     } catch (err) {

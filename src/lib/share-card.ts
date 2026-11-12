@@ -466,7 +466,7 @@ function drawCondensed(
   const minutes = Math.max(1, Math.round(chars / 400))
   drawTracked(
     ctx,
-    `${chars.toLocaleString()} 字 · 约 ${minutes} 分钟`,
+    `${chars.toLocaleString()}${t(' 字 · 约 ')}${minutes}${t(' 分钟')}`,
     left,
     height - 160,
     `400 13px ${MONO}`,
@@ -515,7 +515,7 @@ function drawBook(
   const titleTop = 186
   let y = titleTop + drawLines(ctx, titleBlock, left, titleTop, palette.ink)
 
-  const meta = [book?.author, book ? `${book.chapterCount} 节` : '', book ? `${book.noteCount} 条笔记` : '']
+  const meta = [book?.author, book ? `${book.chapterCount}${t(' 节')}` : '', book ? `${book.noteCount}${t(' 条笔记')}` : '']
     .filter(Boolean)
     .join(' · ')
   if (meta) {
@@ -708,7 +708,7 @@ function drawBadges(
   const numberWidth = ctx.measureText(String(summary.currentStreak)).width
   drawTracked(ctx, t('天'), left + numberWidth + 16, 344, `500 18px ${MONO}`, palette.muted, 2)
 
-  drawTracked(ctx, `最长连续 ${summary.longestStreak} 天`, left, 420, `400 14px ${MONO}`, palette.muted, 1.4)
+  drawTracked(ctx, `${t('最长连续 ')}${summary.longestStreak}${t(' 天')}`, left, 420, `400 14px ${MONO}`, palette.muted, 1.4)
   drawHairline(ctx, palette, left, right, 470)
 
   const rows = [7, 30, 100]
@@ -741,7 +741,7 @@ function drawBadges(
 
   ctx.fillStyle = palette.muted
   ctx.font = `400 13px ${MONO}`
-  ctx.fillText(`页边 · ${new Date().toLocaleDateString()}`, left, height - 64)
+  ctx.fillText(`${t('页边 · ')}${new Date().toLocaleDateString()}`, left, height - 64)
 }
 
 export function renderShareCard(canvas: HTMLCanvasElement, input: ShareCardInput): void {
@@ -779,7 +779,7 @@ export function shareText(input: ShareCardInput): string {
   }
   if (input.template === 'badge') {
     const summary = getReadingSummary()
-    return `阅读里程碑\n连续阅读 ${summary.currentStreak} 天 · 最长 ${summary.longestStreak} 天`
+    return `${t('阅读里程碑\n连续阅读 ')} ${summary.currentStreak}${t(' 天 · 最长 ')}${summary.longestStreak}${t(' 天')}`
   }
   if (input.template === 'quote') {
     const source = input.source.trim()
@@ -793,8 +793,8 @@ export function shareFilename(input: ShareCardInput): string {
     input.template === 'book'
       ? input.book?.title ?? input.title
       : input.template === 'deck'
-        ? `${input.title || t('摘录集')}-${input.deck?.length ?? 0}张`
+        ? `${input.title || t('摘录集')}-${input.deck?.length ?? 0}${t('张')}`
         : input.title || input.quote
   const clean = base.replace(/[\\/:*?"<>|#%{}]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 20)
-  return `页边-${clean || t('分享卡')}.png`
+  return `${t('页边-')}${clean || t('分享卡')}.png`
 }

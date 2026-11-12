@@ -1,3 +1,4 @@
+import { t } from '../lib/i18n.js'
 import { bridge } from '../lib/bridge.js'
 import { useCallback, useState } from 'react'
 
@@ -98,7 +99,7 @@ export function useShare(options: ShareOptions): ShareState {
       setShareTarget({
         note: {
           id: `quote:${Date.now()}`,
-          title: '原文摘录',
+          title: t('原文摘录'),
           content: text,
           quote: text,
           tags: [],

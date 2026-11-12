@@ -425,7 +425,7 @@ export function PdfOriginalView({ bookId, chapterId, title, initialPage, onClose
           {loading ? <p className="pdf-status">{t('正在打开 PDF…')}</p> : null}
           {error ? <p className="inline-error" role="alert">{error}</p> : null}
           <div className="pdf-page-stage" ref={stageRef}>
-            <canvas ref={canvasRef} className="pdf-canvas" aria-label={`PDF 第 ${page} 页`} />
+            <canvas ref={canvasRef} className="pdf-canvas" aria-label={t('PDF 第 {page} 页').replace('{page}', String(page))} />
             <div
               className={`pdf-annotation-layer${annotating ? ' is-annotating' : ''}`}
               onMouseDown={onPointerDown}

@@ -62,7 +62,7 @@ export function ChatPanel({ chapter, bookTitle, seed, onJumpQuote, onSave }: Cha
 
   useEffect(() => {
     if (!seed?.text.trim()) return
-    setInput(`请解释这段原文：\n\n> ${seed.text.replace(/\n/g, '\n> ')}\n\n`)
+    setInput(`${t('请解释这段原文：\n\n> ')}> ${seed.text.replace(/\n/g, '\n> ')}\n\n`)
   }, [seed?.key, chapter?.id])
 
   useEffect(

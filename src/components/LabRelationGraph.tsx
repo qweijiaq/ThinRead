@@ -660,9 +660,9 @@ export function LabRelationGraph({ bookId, bookTitle }: LabRelationGraphProps): 
     const kindLabel = NODE_LABEL
     const markdown = [
       `# ${graph.title}`,
-      graph.genre ? `体裁：${graph.genre}` : '',
+      graph.genre ? `${t('体裁：')}${graph.genre}` : '',
       graph.summary ? `\n${graph.summary}` : '',
-      graph.plot ? `\n## 情节梗概（含剧透）\n\n${graph.plot}` : '',
+      graph.plot ? `${t('\n## 情节梗概（含剧透）\n\n')}n\n${graph.plot}` : '',
       t('\n## 关系图\n'),
       mermaidFence(mermaidSource),
       t('\n## 节点\n'),
@@ -670,17 +670,17 @@ export function LabRelationGraph({ bookId, bookTitle }: LabRelationGraphProps): 
         const facts = [node.identity, node.rank, node.affiliation].filter(Boolean).join(' / ')
         const role =
           node.kind === 'person' && node.role !== 'other' ? ` · ${ROLE_LABEL[node.role]}` : ''
-        const chapters = node.chapters?.length ? ` · 出处：${node.chapters.join('、')}` : ''
+        const chapters = node.chapters?.length ? `${t(' · 出处：')}${node.chapters.join('、')}` : ''
         return `- **${node.label}**（${kindLabel[node.kind]}${role}${facts ? ` · ${facts}` : ''}）${node.description ? `：${node.description}` : ''}${chapters}`
       }),
       t('\n## 关系\n'),
       ...graph.edges.map((edge) => {
         const source = nodeById.get(edge.source)?.label ?? edge.source
         const target = nodeById.get(edge.target)?.label ?? edge.target
-        const chapters = edge.chapters?.length ? `（出处：${edge.chapters.join('、')}）` : ''
+        const chapters = edge.chapters?.length ? `${t('（出处：')}${edge.chapters.join('、')}）` : ''
         const reverse =
           edge.reverseLabel && edge.reverseLabel !== edge.label
-            ? ` · 反向：${target} — ${edge.reverseLabel} — ${source}`
+            ? `${t(' · 反向：')}${target} — ${edge.reverseLabel} — ${source}`
             : ''
         return `- ${source} — ${edge.label} — ${target}${edge.description ? `：${edge.description}` : ''}${chapters}${reverse}`
       }),
