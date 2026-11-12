@@ -11,6 +11,7 @@ import {
   getChapters,
   getReadingPosition,
   getReadingStatsRecord,
+  getBookSummary,
   initDatabase,
   insertBook,
   listNotes,
@@ -111,5 +112,38 @@ test('skips notes whose book or chapter is missing locally', () => {
   } finally {
     closeDatabase()
     fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+
+test('imports books and chapters that do not exist locally', () => {
+  const sourceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'reading-notes-merge-books-source-'))
+  const targetDir = fs.mkdtempSync(path.join(os.tmpdir(), 'reading-notes-merge-books-target-'))
+  try {
+    initDatabase(sourceDir)
+    const book = insertBook(
+      { title: '快照里的书', author: '作者', format: 'text', filePath: path.join(sourceDir, 'source.txt') },
+      [
+        { title: '第一章', text: '第一章正文', html: '<p>第一章正文</p>' },
+        { title: '第二章', text: '第二章正文', html: '<p>第二章正文</p>' },
+      ],
+    )
+    closeDatabase()
+
+    const snapshotPath = path.join(sourceDir, 'snapshot.db')
+    fs.copyFileSync(path.join(sourceDir, 'reading-notes.db'), snapshotPath)
+
+    initDatabase(targetDir)
+    assert.equal(getBookSummary(book.id), null)
+    const result = mergeSnapshotDatabase(snapshotPath, { booksRoot: path.join(targetDir, 'books') })
+    assert.equal(result.books, 1)
+    assert.equal(result.chapters, 2)
+    assert.deepEqual(result.newBooks, [book.id])
+    assert.equal(getBookSummary(book.id)?.title, '快照里的书')
+    assert.equal(getChapters(book.id).length, 2)
+  } finally {
+    closeDatabase()
+    fs.rmSync(sourceDir, { recursive: true, force: true })
+    fs.rmSync(targetDir, { recursive: true, force: true })
   }
 })

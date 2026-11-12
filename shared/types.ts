@@ -1048,6 +1048,9 @@ export interface SyncStatus {
 }
 
 export interface MergeSnapshotResult {
+  books: number
+  chapters: number
+  newBooks: string[]
   notes: number
   annotations: number
   bookmarks: number

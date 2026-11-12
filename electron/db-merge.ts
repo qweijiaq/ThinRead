@@ -1,8 +1,12 @@
+import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 
 import { getDb } from './db.js'
 
 export interface MergeSnapshotResult {
+  books: number
+  chapters: number
+  newBooks: string[]
   notes: number
   annotations: number
   bookmarks: number
@@ -45,15 +49,89 @@ function sqlValue(value: unknown): string | number | null {
   return String(value)
 }
 
-export function mergeSnapshotDatabase(sourcePath: string): MergeSnapshotResult {
+export function mergeSnapshotDatabase(
+  sourcePath: string,
+  options: { booksRoot?: string } = {},
+): MergeSnapshotResult {
   const source = new DatabaseSync(sourcePath, { readOnly: true })
   const conn = getDb()
-  const result: MergeSnapshotResult = { notes: 0, annotations: 0, bookmarks: 0, positions: 0, stats: 0, plans: 0, reviews: 0, skipped: 0 }
+  const result: MergeSnapshotResult = {
+    books: 0,
+    chapters: 0,
+    newBooks: [],
+    notes: 0,
+    annotations: 0,
+    bookmarks: 0,
+    positions: 0,
+    stats: 0,
+    plans: 0,
+    reviews: 0,
+    skipped: 0,
+  }
   try {
     const books = new Set((conn.prepare('SELECT id FROM books').all() as unknown as Array<{ id: string }>).map((row) => row.id))
     const chapters = new Set(
       (conn.prepare('SELECT id FROM chapters').all() as unknown as Array<{ id: string }>).map((row) => row.id),
     )
+
+    // 先导入快照里本地没有的书和章节；已有书不覆盖，避免把本地正文改掉。
+    if (hasTable(source, 'books') && hasTable(source, 'chapters')) {
+      const sourceBookCols = tableColumns(source, 'books')
+      const localBookCols = tableColumns(conn, 'books')
+      const bookCols = [
+        'id', 'title', 'author', 'format', 'file_path', 'created_at', 'last_opened_at',
+        'current_chapter_id', 'style_json', 'genre', 'cover_path', 'shelf_status',
+      ].filter((col) => sourceBookCols.has(col) && localBookCols.has(col))
+      const sourceChapterCols = tableColumns(source, 'chapters')
+      const localChapterCols = tableColumns(conn, 'chapters')
+      const chapterCols = [
+        'id', 'book_id', 'idx', 'title', 'text', 'html', 'chars', 'hidden', 'kind', 'reason',
+        'classified_by', 'part_title', 'part_index', 'is_part', 'formatted_html', 'format_removed',
+        'format_updated_at', 'note_report', 'translated_text', 'translated_html', 'translated_at',
+      ].filter((col) => sourceChapterCols.has(col) && localChapterCols.has(col))
+
+      const bookRows = source.prepare('SELECT * FROM books').all() as unknown as Array<Record<string, unknown>>
+      const insertBook = conn.prepare(
+        `INSERT INTO books (${bookCols.join(', ')}) VALUES (${bookCols.map(() => '?').join(', ')})`,
+      )
+      const chapterRows = source.prepare('SELECT * FROM chapters ORDER BY book_id, idx').all() as unknown as Array<
+        Record<string, unknown>
+      >
+      const insertChapter = conn.prepare(
+        `INSERT INTO chapters (${chapterCols.join(', ')}) VALUES (${chapterCols.map(() => '?').join(', ')})`,
+      )
+      conn.exec('BEGIN IMMEDIATE')
+      try {
+        for (const row of bookRows) {
+          const bookId = String(row.id ?? '')
+          if (!bookId || books.has(bookId)) continue
+          const values = bookCols.map((col) => {
+            if (col === 'file_path' && options.booksRoot) {
+              const sourcePath = String(row.file_path ?? '')
+              return path.join(options.booksRoot, bookId, path.basename(sourcePath || 'source'))
+            }
+            return sqlValue(row[col])
+          })
+          insertBook.run(...values)
+          books.add(bookId)
+          result.books += 1
+          result.newBooks.push(bookId)
+        }
+        for (const row of chapterRows) {
+          const bookId = String(row.book_id ?? '')
+          if (!result.newBooks.includes(bookId)) continue
+          const chapterId = String(row.id ?? '')
+          if (!chapterId) continue
+          insertChapter.run(...chapterCols.map((col) => sqlValue(row[col])))
+          chapters.add(chapterId)
+          result.chapters += 1
+        }
+        conn.exec('COMMIT')
+      } catch (error) {
+        conn.exec('ROLLBACK')
+        throw error
+      }
+    }
 
     if (hasTable(source, 'notes')) {
       const sourceCols = tableColumns(source, 'notes')

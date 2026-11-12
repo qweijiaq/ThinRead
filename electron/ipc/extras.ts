@@ -72,7 +72,7 @@ export function registerExtrasIpc({ getWindow, dataDir, cancelAllAiJobs }: Extra
   ipcMain.handle('sync:merge', (_event, name: unknown, passphrase?: unknown) => {
     if (typeof name !== 'string' || !name.trim()) throw new Error('同步快照名称无效。')
     if (passphrase !== undefined && typeof passphrase !== 'string') throw new Error('加密口令无效。')
-    return mergeSyncSnapshot(name, typeof passphrase === 'string' ? passphrase.slice(0, 200) : '')
+    return mergeSyncSnapshot(dataDir, name, typeof passphrase === 'string' ? passphrase.slice(0, 200) : '')
   })
 
   ipcMain.handle('sync:pull', async (_event, name: unknown, passphrase?: unknown) => {

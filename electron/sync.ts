@@ -136,7 +136,7 @@ export function pullSyncSnapshot(dataDir: string, name: string, passphrase = '')
  * 合并快照里的笔记、PDF 标注和书签，而不是整库替换。
  * 适合两台设备各自记了笔记、想保留双方新增内容的场景；删除不会同步。
  */
-export function mergeSyncSnapshot(name: string, passphrase = ''): MergeSnapshotResult {
+export function mergeSyncSnapshot(dataDir: string, name: string, passphrase = ''): MergeSnapshotResult {
   const folder = getSettingsView().syncFolder
   if (!folder) throw new Error('还没有选择同步文件夹。')
   const safeName = path.basename(name)
@@ -160,7 +160,11 @@ export function mergeSyncSnapshot(name: string, passphrase = ''): MergeSnapshotR
     if (!db) throw new Error('这个快照里没有数据库。')
     tempDb = path.join(os.tmpdir(), `${PREFIX}merge-${Date.now()}.db`)
     fs.writeFileSync(tempDb, db)
-    const result = mergeSnapshotDatabase(tempDb)
+    const booksRoot = path.join(dataDir, 'books')
+    const result = mergeSnapshotDatabase(tempDb, { booksRoot })
+    if (result.newBooks.length > 0) {
+      copySnapshotBookFiles(files, result.newBooks, booksRoot)
+    }
     setSyncMeta({ lastMergeAt: new Date().toISOString() })
     return result
   } finally {
@@ -180,4 +184,37 @@ export function deleteSyncSnapshot(name: string): void {
   const target = path.join(folder, safeName)
   if (!fs.existsSync(target)) throw new Error('找不到这个同步快照。')
   fs.unlinkSync(target)
+}
+
+
+/** 把快照里新增书籍的文件写到本地 books/ 目录。 */
+function copySnapshotBookFiles(
+  files: Record<string, Uint8Array>,
+  newBooks: string[],
+  booksRoot: string,
+): number {
+  const manifestRaw = files['books-manifest.json']
+  if (!manifestRaw) return 0
+  let manifest: Record<string, { hash?: unknown; size?: unknown }>
+  try {
+    manifest = JSON.parse(new TextDecoder().decode(manifestRaw)) as Record<string, { hash?: unknown; size?: unknown }>
+  } catch {
+    return 0
+  }
+  const wanted = new Set(newBooks)
+  let copied = 0
+  for (const [archivePath, ref] of Object.entries(manifest)) {
+    const match = /^books\/([^/]+)\/(.+)$/.exec(archivePath)
+    if (!match || !wanted.has(match[1]!)) continue
+    const hash = typeof ref.hash === 'string' ? ref.hash : ''
+    const data = hash ? files[`blobs/${hash}`] : undefined
+    if (!data) continue
+    const size = Number(ref.size)
+    if (Number.isFinite(size) && data.byteLength !== size) continue
+    const target = path.join(booksRoot, match[1]!, match[2]!)
+    fs.mkdirSync(path.dirname(target), { recursive: true })
+    fs.writeFileSync(target, data)
+    copied += 1
+  }
+  return copied
 }
