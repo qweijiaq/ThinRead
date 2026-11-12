@@ -211,15 +211,6 @@ export function TopBar({
             </button>
             {moreOpen ? (
               <div className="topbar-more-menu" role="menu" aria-label={t('更多功能')}>
-                <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); onContent() }}>
-                  {t('AI 内容库')}
-                </button>
-                <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); onMap() }}>
-                  {t('知识地图')}
-                </button>
-                <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); onLab() }}>
-                  {t('AI 工具')}
-                </button>
                 <button
                   type="button"
                   role="menuitem"

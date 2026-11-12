@@ -68,6 +68,20 @@
   moreNav.click()
   await waitFor(() => !document.querySelector('.topbar-more-menu'), '关闭顶栏「更多」菜单')
 
+  // 精简模式会隐藏知识地图 / AI 工具等高级入口；冒烟要覆盖完整界面，先切回全部功能。
+  const moreForCore = [...document.querySelectorAll('.topbar button')].find((item) => item.textContent.trim() === '更多')
+  if (moreForCore) {
+    moreForCore.click()
+    await delay(100)
+    const showAll = [...document.querySelectorAll('.topbar-more-menu button')].find(
+      (item) => item.textContent.trim() === '显示全部功能',
+    )
+    if (showAll) {
+      showAll.click()
+      await delay(200)
+    }
+  }
+
   const books = await window.api.listBooks()
   const book = books[0]
   assert(book, '示例书没有写入数据库')
@@ -522,7 +536,11 @@
   composeNav.click()
   await waitFor(() => document.querySelector('.compose-shell.is-active .compose-view'), '切回成书页')
   const mergeButton = await waitFor(
-    () => [...document.querySelectorAll('button')].find((button) => button.textContent.trim() === '合并整本书' && !button.disabled),
+    () =>
+      [...document.querySelectorAll('button')].find(
+        (button) =>
+          ['只合并已有稿', '重新合并全文', '合并整本书'].includes(button.textContent.trim()) && !button.disabled,
+      ),
     '成书页没有可用的合并按钮',
     10000,
   )

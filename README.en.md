@@ -10,7 +10,7 @@
 > Most reading tools optimize for **capture**: more highlights, more excerpts, a bigger library.
 > ThinRead optimizes for **output**: when you finish a chapter, you should have a draft you can publish.
 
-ThinRead is a local-first AI reading workbench. It rewrites each chapter of a book into a publishable draft that keeps every argument, distills 5–25 core cards that actually change how the chapter is understood, and connects those cards and notes to the rest of your library through a local semantic index.
+ThinRead is a local-first AI reading workbench. It rewrites each chapter of a book into a publishable draft that keeps every argument, distills core cards that actually change how the chapter is understood (roughly 3–6 per 1,000 characters, more for long chapters), and connects those cards and notes to the rest of your library through a local semantic index.
 
 Import EPUB / PDF / MOBI / web pages / WeChat Reading / Readwise / Kindle clippings. Export Markdown, self-contained HTML, print-ready PDF, or a complete publishing bundle.
 
@@ -42,7 +42,7 @@ The pipeline is enforced: **condense → cards → bounded extension**, no skipp
 Not a page-by-page summary. The model identifies every place the author makes a claim, separates claims from evidence and filler, and rewrites the chapter around that structure. Compression is decided by content density, targeting at most half the original length. The result is editable, re-runnable, and exports to Markdown / HTML / PDF.
 
 **Core cards**
-5–25 cards distilled from the condensed draft, scaled to the draft's length rather than the original's. Every card states the point, its role in the chapter, and a verbatim citation that must be findable in the chapter. No citation, no card — the model is never allowed to pass its own paraphrase off as the author's words.
+Cards are distilled from the condensed draft and scale with its length rather than the original's (roughly 3–6 per 1,000 characters, capped at 80 as a safety limit). Every card states the point, its role in the chapter, and a verbatim citation that must be findable in the chapter. No citation, no card — the model is never allowed to pass its own paraphrase off as the author's words.
 
 **Cross-book knowledge graph**
 Note titles, tags, and bodies are embedded locally with BGE-small-zh and cached. Related notes from other books surface as margin echoes, a concept map, a character graph, and chapter-scoped Q&A — turning "what did this book say" into "how does it connect to what I've read".
@@ -278,7 +278,7 @@ You can assign separate models to condensing, composition, and the workbench, an
 - **Global search**: `⌘K` / `Ctrl+K` across titles, chapter bodies, and notes. Keyword inverted index returns first, local semantic search follows, fused with RRF.
 - **Notes library**: filter by book, type, and tag; the audit view shows AI/human edits, citation verification status, and chapter coverage; export a Markdown folder with YAML frontmatter for Obsidian or Notion.
 - **Note linking**: `[[Note title]]` references, automatic backlinks, and same-book / cross-book related notes.
-- **Shelf status**: mark each book as to read / reading / finished / archived, filter the shelf by status with counts, and change it from the card. New imports start as to read and become reading when you open a chapter.
+- **Continue reading**: the shelf shows a continue card that jumps back to your last chapter. **Shelf status**: mark each book as to read / reading / finished / archived, filter the shelf by status with counts, and change it from the card. New imports start as to read and become reading when you open a chapter.
 - **Zero-config listening**: without a Qwen TTS key, ThinRead falls back to built-in macOS voices synthesized entirely on-device at no cost; with a key it still uses Qwen, with the same voices and cost estimates.
 - **Reading data**: time tracking, daily goals, streaks, 7/30/100-day milestone badges, monthly and yearly stats, weekly reviews, CSV export, plus note quality and citation pass rate.
 - **Backup and restore**: manual and automatic backups, whole-library export/import, app lock, and a diagnostics bundle.

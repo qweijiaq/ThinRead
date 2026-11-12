@@ -47,6 +47,13 @@ export function Library({ books, importing, onOpen, onImport, onOpenTrash, onDel
   const [sort, setSort] = useState<LibrarySort>('recent')
   const [shelfFilter, setShelfFilter] = useState<'all' | BookShelfStatus>('all')
   const [covers, setCovers] = useState<Record<string, string>>({})
+  const continueBook = useMemo(() => {
+    return (
+      books
+        .filter((book) => book.currentChapterId && book.progress < 1)
+        .sort((a, b) => (b.lastOpenedAt ?? '').localeCompare(a.lastOpenedAt ?? ''))[0] ?? null
+    )
+  }, [books])
   const reading = getReadingSummary()
   const goalMinutes = useSyncExternalStore(subscribePreferences, getDailyGoal, getDailyGoal)
   useEffect(() => {
@@ -255,6 +262,24 @@ export function Library({ books, importing, onOpen, onImport, onOpenTrash, onDel
           </button>
         ))}
       </div>
+      {continueBook ? (
+        <section className="library-continue" aria-label={t('继续阅读')}>
+          <div className="library-continue-main">
+            <span className="library-continue-kicker">{t('继续阅读')}</span>
+            <strong>{continueBook.title}</strong>
+            <span>
+              {continueBook.currentChapterIdx >= 0
+                ? `${t('第')} ${continueBook.currentChapterIdx + 1} ${t('章')}`
+                : t('从头开始')}
+              {' · '}
+              {t('已读')} {Math.round(continueBook.progress * 100)}%
+            </span>
+          </div>
+          <button type="button" className="primary-button small" onClick={() => onOpen(continueBook.id)}>
+            {t('继续')}
+          </button>
+        </section>
+      ) : null}
       {todayPlans.length > 0 ? (
         <section className="library-plan" aria-label={t('今日阅读计划')}>
           <div className="library-plan-head">

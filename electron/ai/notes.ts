@@ -964,10 +964,17 @@ function buildCondensedDoc(main: string, auditBlock: string): string {
 
 // ─── 阶段二：从读薄稿提炼卡片 ─────────────────────────────────────────────
 
+/**
+ * 卡片数量按读薄稿篇幅自适应，不再用固定的 25 张硬上限。
+ * 每 1000 字大约 3–6 张；长章可以继续增加，只保留 80 张作为防止模型失控的安全边界。
+ * fast 档上限更保守，避免为了速度把长章压成卡片墙。
+ */
 function cardRange(chars: number, mode: GenerationMode = 'standard'): { min: number; max: number } {
-  if (chars <= 1000) return { min: 5, max: mode === 'fast' ? 7 : 8 }
-  if (chars <= 3000) return { min: 8, max: mode === 'fast' ? 12 : 15 }
-  return { min: 15, max: mode === 'fast' ? 18 : 25 }
+  const thousands = Math.max(1, Math.ceil(chars / 1000))
+  const min = Math.min(40, Math.max(4, thousands * 3))
+  const cap = mode === 'fast' ? 40 : 80
+  const max = Math.min(cap, Math.max(min + 4, thousands * 6))
+  return { min, max }
 }
 
 async function extractCardsWithAudit(
@@ -993,7 +1000,7 @@ async function extractCardsWithAudit(
       text.slice(0, 26_000),
       '',
       '任务一：从读薄稿里提炼知识点卡片，原文片段只用于填写 evidence，不要从原文新增卡片。',
-      `卡片数量：根据读薄稿字数，只保留 ${range.min}-${range.max} 张（读薄稿约 ${countChars(text)} 字）。`,
+      `卡片数量：按「不知道它是否影响全文理解」筛选，通常 ${range.min}-${range.max} 张（读薄稿约 ${countChars(text)} 字）；如果确实有更多独立知识点，可以超过这个范围，最多 ${range.max} 张，但不要为了凑数保留案例细节。`,
       '什么样才算知识点：用一句话测试——不知道它，会影响对全文的理解吗？会，才收；不会但有意思，留在读薄稿里；原文的每个案例细节不是知识点，是索引。',
       '每张卡片必须填满：',
       '1. point：一句话知识点（用作者的语言或自己的话，选更准确的）；外文原文时用简体中文。',
@@ -1533,12 +1540,142 @@ function topConcepts(cards: Card[]): string[] {
 
 // ─── 演示模式 ─────────────────────────────────────────────────────────────
 
+/**
+ * 示例书的手写演示结果。
+ *
+ * 通用演示模式只能按句子截断，看起来像“摘要”；示例书是用户看到的第一份结果，
+ * 这里给出一份真正的改写稿和可核对的卡片，避免第一印象被截断稿误导。
+ */
+function demoSample(args: GenerateArgs): { main: string; cards: Card[] } | null {
+  const text = args.chapterText
+  const first = text.includes('觉察—复位')
+  const second = text.includes('把手机放到另一个房间')
+  if (!first && !second) return null
+
+  if (!second) {
+    return {
+      main: [
+        '## 注意力不是锁死，而是复位',
+        '',
+        '专注不是一种持续紧绷的状态，而是一连串「发现走神—把注意力带回来」的动作。',
+        '',
+        '真正稀缺的不是意志力，而是觉察的速度。越早发现自己飘走，复位消耗的注意力越少；等到刷了二十分钟手机才反应过来，复位就要动用更多情绪。',
+        '',
+        '所以，可以训练的不是「永不走神」，而是更快地发现自己正在走神。',
+      ].join('\n'),
+      cards: [
+        {
+          point: '专注是一连串复位，而不是持续锁死。',
+          role: '重新定义专注，支撑后文的觉察训练。',
+          evidence: '但真实的专注更像一次次的复位。',
+          evidenceVerified: true,
+          section: '注意力不是锁死，而是复位',
+          concepts: ['专注', '复位'],
+          importance: 5,
+          divergences: [],
+        },
+        {
+          point: '意志力用于复位，而不是对抗分心。',
+          role: '把意志力从「硬扛」转向「回来」。',
+          evidence: '意志力不是用来对抗分心的，而是用来完成复位的。',
+          evidenceVerified: true,
+          section: '注意力不是锁死，而是复位',
+          concepts: ['意志力', '分心'],
+          importance: 4,
+          divergences: [],
+        },
+        {
+          point: '真正可训练的是觉察速度。',
+          role: '给出可以练习的具体目标。',
+          evidence: '真正可以训练的是觉察的速度。',
+          evidenceVerified: true,
+          section: '注意力不是锁死，而是复位',
+          concepts: ['觉察', '训练'],
+          importance: 4,
+          divergences: [],
+        },
+      ],
+    }
+  }
+
+  return {
+    main: [
+      '## 环境比决心可靠',
+      '',
+      '如果觉察本身要消耗注意力，最划算的做法就是减少需要觉察的机会。',
+      '',
+      '把手机放到另一个房间，比在桌边反复说「不要看」更可靠；提前打开第二天要用的资料，比早上再找更可靠。环境设计把一次决定变成默认设置，不必每天重新抵抗。',
+      '',
+      '但环境只能减少摩擦，不能替你决定方向。',
+    ].join('\n'),
+    cards: [
+      {
+        point: '减少需要觉察的机会，比反复下决心更划算。',
+        role: '把「抵抗诱惑」换成「提前设计」。',
+        evidence: '把手机放到另一个房间，比在桌边反复对自己说「不要看」更可靠；',
+        evidenceVerified: true,
+        section: '环境比决心可靠',
+        concepts: ['环境设计', '诱惑'],
+        importance: 5,
+        divergences: [],
+      },
+      {
+        point: '环境设计把意志用在一次决定上，而不是每次抵抗。',
+        role: '解释环境设计为什么更省注意力。',
+        evidence: '这不是否认意志的作用，而是把意志用在设计环境上，而不是用在每一次抵抗诱惑上。',
+        evidenceVerified: true,
+        section: '环境比决心可靠',
+        concepts: ['意志', '环境设计'],
+        importance: 4,
+        divergences: [],
+      },
+      {
+        point: '环境只能减少摩擦，不能替你决定方向。',
+        role: '给环境设计划出边界。',
+        evidence: '环境设计也有边界。',
+        evidenceVerified: true,
+        section: '环境比决心可靠',
+        concepts: ['边界', '方向'],
+        importance: 3,
+        divergences: [],
+      },
+    ],
+  }
+}
+
 async function demoGeneration(
   args: GenerateArgs,
   onPartial: (partial: GeneratePartial) => void,
   signal: AbortSignal,
 ): Promise<GenerateResult> {
   const startedAt = Date.now()
+  const sample = demoSample(args)
+  if (sample) {
+    const condensed = buildCondensedDoc(sample.main, '')
+    const cards = sample.cards
+    onPartial({ progress: { phase: 'condense', done: 1, total: 1, cards: 0 } })
+    onPartial({ progress: { phase: 'cards', done: 1, total: 1, cards: cards.length } })
+    await new Promise((resolve) => setTimeout(resolve, 80))
+    if (signal.aborted) throw new Error('生成已取消')
+    const notes = buildNotes(condensed, cards)
+    const originalChars = countChars(args.chapterText)
+    const condensedChars = countChars(sample.main)
+    const report: NoteReport = {
+      originalChars,
+      condensedChars,
+      ratio: condensedChars > 0 ? originalChars / condensedChars : 0,
+      sections: 1,
+      cards: cards.length,
+      divergences: 0,
+      fidelityMissing: 0,
+      omitted: 0,
+      omittedItems: [],
+      durationMs: Date.now() - startedAt,
+      model: 'demo',
+      createdAt: new Date().toISOString(),
+    }
+    return { notes: validatedNotes(notes), report }
+  }
   const sections = buildSections(args.chapterHtml, args.chapterText)
   const compressedBlocks: string[] = []
   const omitted: Omitted[] = []

@@ -921,19 +921,19 @@ export function BookCompose({
             <button
               type="button"
               className="primary-button"
-              onClick={() => void compose()}
-              disabled={composing || generatedChapters === 0 || generation.running}
-            >
-              {composing ? t('正在合并…') : result ? t('重新合并全文') : t('合并整本书')}
-            </button>
-            <button
-              type="button"
-              className="ghost-button"
               onClick={() => void oneClick()}
               disabled={composing || generation.running || loadingNotes || generatedChapters + missing === 0}
               title={t('先补全未生成的章节，再自动合并成一篇')}
             >
               {t('一键成稿')}
+            </button>
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={() => void compose()}
+              disabled={composing || generatedChapters === 0 || generation.running}
+            >
+              {composing ? t('正在合并…') : result ? t('重新合并全文') : t('只合并已有稿')}
             </button>
           </div>
 

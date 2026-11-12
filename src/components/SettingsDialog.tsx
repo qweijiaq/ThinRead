@@ -24,6 +24,7 @@ import { Select } from './Select.js'
 
 interface SettingsDialogProps {
   open: boolean
+  focusModels?: boolean
   settings: SettingsView
   appInfo: AppInfo | null
   theme: ReaderStyle['theme']
@@ -71,6 +72,7 @@ function formatBackupTime(value: string): string {
 
 export function SettingsDialog({
   open,
+  focusModels = false,
   settings,
   appInfo,
   theme,
@@ -204,6 +206,14 @@ export function SettingsDialog({
     // 只在打开设置或切换服务商时自动读取，避免输入 Base URL 时反复请求。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, provider])
+
+  useEffect(() => {
+    if (!open || !focusModels) return
+    const timer = window.setTimeout(() => {
+      document.getElementById('settings-models')?.scrollIntoView({ block: 'start', behavior: 'auto' })
+    }, 250)
+    return () => window.clearTimeout(timer)
+  }, [open, focusModels])
 
   if (!open) return null
 
@@ -653,6 +663,17 @@ export function SettingsDialog({
         </div>
 
         <div className={`settings-body${showAdvanced ? ' show-advanced' : ''}`}>
+        <div className="settings-quick-jump">
+          <button
+            type="button"
+            className="text-button"
+            onClick={() =>
+              document.getElementById('settings-models')?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+            }
+          >
+            {t('跳到模型服务')}
+          </button>
+        </div>
         <div className="form-row">
           <label>{t('界面模式')}</label>
           <Checkbox
@@ -819,7 +840,7 @@ export function SettingsDialog({
 
         <div className="settings-divider" />
 
-        <div className="form-row">
+        <div className="form-row" id="settings-models">
           <label>{t('模型服务')}</label>
           <Select
             value={provider}

@@ -12776,3 +12776,109 @@ html.theme-plain .primary-button.is-danger:hover {
   line-height: 1.5;
   color: var(--ink);
 }
+
+
+/* ─── 首次引导：真实改写对照 ─────────────────────────────── */
+.onboarding-example {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin: 6px 0 18px;
+}
+
+.onboarding-example > div {
+  padding: 11px 13px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--paper-2, #faf7f0) 70%, var(--white, #fff));
+}
+
+.onboarding-example > div.is-draft {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  background: color-mix(in srgb, var(--accent) 6%, var(--white, #fff));
+}
+
+.onboarding-example-label {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.onboarding-example p {
+  margin: 6px 0 0;
+  font-size: 12.5px;
+  line-height: 1.68;
+  color: var(--ink);
+}
+
+@media (max-width: 720px) {
+  .onboarding-example {
+    grid-template-columns: 1fr;
+  }
+}
+
+
+/* ─── 读薄指标默认折叠，让稿子先出现 ─────────────────────── */
+.condense-details > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.condense-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.condense-details-toggle {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.condense-details[open] .condense-details-toggle {
+  color: var(--accent);
+}
+
+
+/* ─── 书架：继续阅读 ─────────────────────────────────────── */
+.library-continue {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 0 14px;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--line));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 5%, var(--white, #fff));
+}
+
+.library-continue-main {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.library-continue-kicker {
+  font-size: 10px;
+  letter-spacing: 0.09em;
+  color: var(--accent);
+}
+
+.library-continue-main strong {
+  overflow: hidden;
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.library-continue-main > span:last-child {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+
+.settings-quick-jump {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 6px;
+}

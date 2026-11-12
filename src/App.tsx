@@ -216,15 +216,16 @@ export function App(): JSX.Element {
     setOnboardingOpen(true)
   }, [books.length, booksLoaded])
 
-  const importSampleBook = useCallback(async () => {
+  const importSampleBook = useCallback(async (): Promise<string | null> => {
     const existing = books.find((item) => item.title === SAMPLE_BOOK.title)
     if (existing) {
       setSampleBookId(existing.id)
-      return
+      return existing.id
     }
     const imported = await bridge.importText(SAMPLE_BOOK)
     setBooks((current) => [imported, ...current.filter((item) => item.id !== imported.id)])
     setSampleBookId(imported.id)
+    return imported.id
   }, [books, setBooks])
 
   const backgroundViewRef = useRef<{ mainView: MainView; chapterId: string | null; bookId: string | null }>({
@@ -376,8 +377,9 @@ export function App(): JSX.Element {
     bookId: book?.id ?? null,
   }
   const [manualReturn, setManualReturn] = useState<MainView>('reader')
-  const openSampleBook = useCallback(async () => {
-    const targetId = sampleBookId ?? sampleBook?.id
+  const [settingsFocusModels, setSettingsFocusModels] = useState(false)
+  const openSampleBook = useCallback(async (bookId?: string) => {
+    const targetId = bookId ?? sampleBookId ?? sampleBook?.id
     if (!targetId) return
     await openBook(targetId)
     setMainView('reader')
@@ -1177,13 +1179,14 @@ export function App(): JSX.Element {
           hasSample={Boolean(sampleBookId ?? sampleBook)}
           demo={settings?.demo ?? true}
           onImportSample={importSampleBook}
-          onOpenSample={() => void openSampleBook()}
+          onOpenSample={(bookId) => void openSampleBook(bookId)}
           onOpenImport={() => {
             finishOnboarding()
             setImportOpen(true)
           }}
           onOpenSettings={() => {
             finishOnboarding()
+            setSettingsFocusModels(true)
             setSettingsOpen(true)
           }}
           onClose={finishOnboarding}
@@ -1194,6 +1197,7 @@ export function App(): JSX.Element {
       {settings ? (
         <SettingsDialog
           open={settingsOpen}
+          focusModels={settingsFocusModels}
           settings={settings}
           appInfo={appInfo}
           theme={appTheme}
@@ -1205,7 +1209,10 @@ export function App(): JSX.Element {
           }}
           coreMode={coreMode}
           onToggleCoreMode={setCoreMode}
-          onClose={() => setSettingsOpen(false)}
+          onClose={() => {
+            setSettingsOpen(false)
+            setSettingsFocusModels(false)
+          }}
           onSaved={(saved, options) => {
             setSettings(saved)
             if (!options?.silent) {

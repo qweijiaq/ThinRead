@@ -328,11 +328,7 @@ function NotesPanelImpl({
           <button type="button" className="ghost-button small" onClick={onCancel}>
             {t('取消生成')}
           </button>
-        ) : (
-          <button type="button" className="primary-button small" onClick={() => onGenerate()} disabled={!chapter}>
-            {t('✦ 读薄并提炼')}
-          </button>
-        )}
+        ) : null}
       </div>
 
 
@@ -348,7 +344,7 @@ function NotesPanelImpl({
       {demo ? (
         <div className="demo-note-banner" role="status">
           <strong>{t('演示模式')}</strong>
-          <span>{t('下面的读薄稿、卡片和引用是内置样例，不能作为真实原文依据。')}</span>
+          <span>{t('这里用示例结果展示效果；配置真实模型后会按你的书重新生成。')}</span>
         </div>
       ) : null}
 
@@ -365,31 +361,28 @@ function NotesPanelImpl({
 
       {generating ? <StreamingCard partial={partial} onCancel={onCancel} /> : null}
 
+      {report && report.originalChars > 0 && report.degraded && report.degraded.length > 0 ? (
+        <div className="degraded-banner" role="alert">
+          <strong>{t('这次生成不完整')}</strong>
+          <span>
+            {degradedSummary(report)} {t('失败。已完成的小节会保留，再次生成只重试失败步骤，不会整章从头跑。')}
+          </span>
+          <button type="button" className="ghost-button small" onClick={() => onGenerate()} disabled={generating}>
+            {t('重试失败步骤')}
+          </button>
+        </div>
+      ) : null}
+
       {report && report.originalChars > 0 ? (
-        <div className="condense-card">
-          {report.degraded && report.degraded.length > 0 ? (
-            <div className="degraded-banner" role="alert">
-              <strong>{t('这次生成不完整')}</strong>
-              <span>
-                {degradedSummary(report)} {t('失败。已完成的小节会保留，再次生成只重试失败步骤，不会整章从头跑。')}
-              </span>
-              <button
-                type="button"
-                className="ghost-button small"
-                onClick={() => onGenerate()}
-                disabled={generating}
-              >
-                {t('重试失败步骤')}
-              </button>
-            </div>
-          ) : null}
-          <div className="condense-head">
+        <details className="condense-card condense-details">
+          <summary className="condense-head">
             <span>{t('读薄')}</span>
             <span>
               {report.originalChars.toLocaleString()} → {report.condensedChars.toLocaleString()} {t('字')} ·{' '}
               {report.ratio > 0 ? `1/${report.ratio.toFixed(1)}` : '—'}
             </span>
-          </div>
+            <span className="condense-details-toggle">{t('详情')}</span>
+          </summary>
           <div
             className="condense-ratio-bar"
             title={`${t('读薄稿约为原文的')} ${Math.round((report.condensedChars / Math.max(1, report.originalChars)) * 100)}%`}
@@ -436,19 +429,19 @@ function NotesPanelImpl({
               </ul>
             </details>
           ) : null}
-        </div>
+        </details>
       ) : null}
 
       {!generating && notes.length === 0 ? (
         <div className="notes-empty">
           <p className="notes-empty-title">{t('这一章还没有读薄稿')}</p>
-          <p>{t('AI 会先把这一章重写成可发博客的读薄稿（保留断言、写成连贯行文，压缩幅度由内容密度决定），再从稿子里用「不知道它是否影响全文理解」的标准提炼 5–25 张核心卡片，最后做最多 3 条延伸。')}</p>
+          <p>{t('AI 会先把这一章重写成可发博客的读薄稿（保留断言、写成连贯行文，压缩幅度由内容密度决定），再从稿子里按「不知道它是否影响全文理解」的标准提炼核心卡片，最后做最多 3 条延伸。')}</p>
           <p className="field-hint">
             {t('当前档位')}：{generationMode === 'fast' ? t('快速（跳过回查和延伸）') : generationMode === 'deep' ? t('精读（额外细节回查）') : t('标准')}{t('，可在右上角设置里调整。')}
           </p>
           <div className="notes-empty-actions">
             <button type="button" className="primary-button" onClick={() => onGenerate()}>
-              {t('✦ 读薄并提炼')}
+              {t('✦ 改写成文章')}
             </button>
             <button type="button" className="ghost-button" onClick={() => void addNote()}>
               {t('自己写一条')}
