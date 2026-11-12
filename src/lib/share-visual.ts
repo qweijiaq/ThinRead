@@ -18,45 +18,45 @@ export interface SharePalette {
 
 export const SHARE_PALETTES: Record<ShareTheme, SharePalette> = {
   paper: {
-    background: '#dfe1da',
-    sheet: '#f7f6f1',
-    ink: '#141311',
-    soft: '#3d3a34',
-    muted: '#7a756b',
-    line: '#d6d5cc',
-    accent: '#c92b1e',
-    accentSoft: 'rgba(201, 43, 30, 0.08)',
-    marker: '#f2d544',
-    markerSoft: 'rgba(242, 213, 68, 0.42)',
-    grid: 'rgba(20, 19, 17, 0.045)',
+    background: '#e7e1d5',
+    sheet: '#fbf8f1',
+    ink: '#1a1814',
+    soft: '#4c463c',
+    muted: '#8b8275',
+    line: '#ded5c6',
+    accent: '#a64b32',
+    accentSoft: 'rgba(166, 75, 50, 0.08)',
+    marker: '#a64b32',
+    markerSoft: 'rgba(166, 75, 50, 0.12)',
+    grid: 'transparent',
     dark: false,
   },
   ink: {
-    background: '#0b0d10',
-    sheet: '#14161a',
-    ink: '#e9eae3',
-    soft: '#c9cbc4',
-    muted: '#8a8f98',
-    line: '#2a2f36',
-    accent: '#f2d544',
-    accentSoft: 'rgba(242, 213, 68, 0.12)',
-    marker: '#f2d544',
-    markerSoft: 'rgba(242, 213, 68, 0.24)',
-    grid: 'rgba(233, 234, 227, 0.035)',
+    background: '#0a0a09',
+    sheet: '#111110',
+    ink: '#f2ede2',
+    soft: '#cfc7b8',
+    muted: '#8e8779',
+    line: '#26241f',
+    accent: '#d8a45c',
+    accentSoft: 'rgba(216, 164, 92, 0.12)',
+    marker: '#d8a45c',
+    markerSoft: 'rgba(216, 164, 92, 0.18)',
+    grid: 'transparent',
     dark: true,
   },
   sage: {
-    background: '#dde0d3',
-    sheet: '#f2f3e9',
-    ink: '#171b15',
-    soft: '#40483a',
-    muted: '#737b68',
-    line: '#d0d4c3',
-    accent: '#b04a2d',
-    accentSoft: 'rgba(176, 74, 45, 0.10)',
-    marker: '#e6d45a',
-    markerSoft: 'rgba(230, 212, 90, 0.40)',
-    grid: 'rgba(23, 27, 21, 0.04)',
+    background: '#d9ddd2',
+    sheet: '#f4f3ea',
+    ink: '#1a1d18',
+    soft: '#464c40',
+    muted: '#7b8272',
+    line: '#d2d6c6',
+    accent: '#3c5b49',
+    accentSoft: 'rgba(60, 91, 73, 0.08)',
+    marker: '#3c5b49',
+    markerSoft: 'rgba(60, 91, 73, 0.12)',
+    grid: 'transparent',
     dark: false,
   },
 }
@@ -129,7 +129,7 @@ export function drawPaperGrain(
   ctx.restore()
 }
 
-/** 画一张纸：整版底色、内层纸面、细边框和颗粒。 */
+/** 画一张纸：整版底色、纸面颗粒；不使用方格，避免像学习博主模板。 */
 export function paintSharePage(
   ctx: CanvasRenderingContext2D,
   width: number,
@@ -139,25 +139,14 @@ export function paintSharePage(
 ): void {
   ctx.fillStyle = palette.sheet
   ctx.fillRect(0, 0, width, height)
-  if (palette.grid !== 'transparent') {
-    const step = 36
-    const left = inset + step
-    const top = inset + step
+  drawPaperGrain(ctx, palette, width, height, inset)
+  if (inset > 0) {
     ctx.save()
-    ctx.strokeStyle = palette.grid
+    ctx.globalAlpha = palette.dark ? 0.28 : 0.36
+    ctx.strokeStyle = palette.line
     ctx.lineWidth = 1
-    for (let x = left; x < width - inset; x += step) {
-      ctx.beginPath()
-      ctx.moveTo(x, inset)
-      ctx.lineTo(x, height - inset)
-      ctx.stroke()
-    }
-    for (let y = top; y < height - inset; y += step) {
-      ctx.beginPath()
-      ctx.moveTo(inset, y)
-      ctx.lineTo(width - inset, y)
-      ctx.stroke()
-    }
+    const edge = inset + 18.5
+    ctx.strokeRect(edge, edge, width - edge * 2, height - edge * 2)
     ctx.restore()
   }
 }
@@ -201,7 +190,7 @@ export function drawTrackedRight(
   ctx.restore()
 }
 
-/** 页眉：左侧品牌方块 + 字标，右侧可选标签。 */
+/** 页眉：品牌字标 + 可选标签；只用一条细线，不再用重规则线。 */
 export function drawMasthead(
   ctx: CanvasRenderingContext2D,
   palette: SharePalette,
@@ -210,17 +199,17 @@ export function drawMasthead(
   top = 62,
   rightLabel?: string,
 ): void {
-  drawTracked(ctx, t('页边 THINREAD'), left, top, `500 12px ${SHARE_MONO}`, palette.muted, 2.4)
+  drawTracked(ctx, t('页边 THINREAD'), left, top, `500 10px ${SHARE_SANS}`, palette.muted, 2.2)
   if (rightLabel) {
-    drawTrackedRight(ctx, rightLabel, right, top, `500 11px ${SHARE_MONO}`, palette.accent, 2)
+    drawTrackedRight(ctx, rightLabel, right, top, `500 10px ${SHARE_SANS}`, palette.muted, 2)
   }
   ctx.save()
-  ctx.globalAlpha = 0.5
-  ctx.strokeStyle = palette.ink
-  ctx.lineWidth = 2
+  ctx.globalAlpha = 0.55
+  ctx.strokeStyle = palette.line
+  ctx.lineWidth = 1
   ctx.beginPath()
-  ctx.moveTo(left, top + 26)
-  ctx.lineTo(right, top + 26)
+  ctx.moveTo(left, top + 24)
+  ctx.lineTo(right, top + 24)
   ctx.stroke()
   ctx.restore()
 }
@@ -248,8 +237,8 @@ export function drawAccentRule(
   palette: SharePalette,
   x: number,
   y: number,
-  width = 46,
-  height = 3,
+  width = 40,
+  height = 2,
 ): void {
   ctx.fillStyle = palette.accent
   ctx.fillRect(x, y, width, height)
@@ -268,7 +257,7 @@ export function drawCircle(
   ctx.fill()
 }
 
-/** 模拟 daily-post 的荧光笔：浅色主题铺底色，深色主题画下划线。 */
+/** 重点短语只用一条细下划线，不再铺荧光色块。 */
 export function drawMarkerLine(
   ctx: CanvasRenderingContext2D,
   palette: SharePalette,
@@ -279,14 +268,9 @@ export function drawMarkerLine(
 ): void {
   if (width <= 0) return
   ctx.save()
-  if (palette.dark) {
-    ctx.globalAlpha = 0.85
-    ctx.fillStyle = palette.marker
-    ctx.fillRect(x, y + lineHeight - 14, width, 7)
-  } else {
-    ctx.fillStyle = palette.markerSoft
-    ctx.fillRect(x - 4, y - 3, width + 8, lineHeight - 6)
-  }
+  ctx.globalAlpha = 0.75
+  ctx.fillStyle = palette.accent
+  ctx.fillRect(x, y + lineHeight - 9, width, 1.5)
   ctx.restore()
 }
 
@@ -303,7 +287,7 @@ export function drawChip(
   const padding = options.padding ?? 10
   const fontSize = options.fontSize ?? 12
   ctx.save()
-  ctx.font = `500 ${fontSize}px ${SHARE_MONO}`
+  ctx.font = `500 ${fontSize}px ${SHARE_SANS}`
   const width = ctx.measureText(text).width + padding * 2
   ctx.strokeStyle = options.accent ? palette.accent : palette.line
   ctx.lineWidth = 1
@@ -397,4 +381,25 @@ export function drawEmphasizedLines(
   }
   ctx.fillStyle = color
   lines.forEach((line, index) => ctx.fillText(line, x, y + index * lineHeight))
+}
+
+
+/** 超大的低对比数字，用来填补版面上的空白，不抢正文。 */
+export function drawGhostNumber(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  right: number,
+  baseline: number,
+  size: number,
+  color: string,
+  alpha = 0.055,
+): void {
+  ctx.save()
+  ctx.globalAlpha = alpha
+  ctx.fillStyle = color
+  ctx.font = `500 ${size}px ${SHARE_SERIF}`
+  ctx.textAlign = 'right'
+  ctx.textBaseline = 'alphabetic'
+  ctx.fillText(text, right, baseline)
+  ctx.restore()
 }

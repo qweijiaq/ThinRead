@@ -4,12 +4,13 @@ import { getReadingSummary } from './reading-stats.js'
 import {
   SHARE_MONO,
   SHARE_SANS,
+  SHARE_SERIF,
   drawAccentRule,
   drawHairline,
-  drawMarkerLine,
   drawMasthead,
   drawEmphasizedLines,
   findKeyPhrase,
+  drawGhostNumber,
   drawTracked,
   drawTrackedRight,
   paintSharePage,
@@ -67,14 +68,14 @@ export function sharePalette(theme: ShareTheme): SharePalette {
   return paletteFor(theme)
 }
 
-const SERIF = SHARE_SANS
+const SERIF = SHARE_SERIF
 const SANS = SHARE_SANS
 const MONO = SHARE_MONO
 
 const TEMPLATE_KICKER: Record<ShareTemplate, string> = {
   quote: t('QUOTE / 原文摘录'),
-  knowledge: t('CONCEPT / 知识点'),
-  condensed: t('DIGEST / 读薄'),
+  knowledge: t('IDEA / 观点'),
+  condensed: t('DIGEST / 改写'),
   book: t('BOOK / 整本书'),
   deck: t('EXCERPTS / 摘录集'),
   badge: t('MILESTONE / 里程碑'),
@@ -125,6 +126,13 @@ function tokenize(text: string): string[] {
   return segmentText(text)
 }
 
+/** 去掉「读薄：」「知识点：」这类内部前缀，让标题像一篇文章的标题。 */
+function cleanShareTitle(title: string): string {
+  return toPlainText(title)
+    .replace(/^(读薄稿?|改写稿?|知识点|摘要|整本书|读书笔记|笔记)[：:]\s*/, '')
+    .trim()
+}
+
 function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
   const lines: string[] = []
   let line = ''
@@ -149,6 +157,18 @@ function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number)
     }
   }
   if (line.trim()) lines.push(line.trimEnd())
+  // 兜底：把仍然落在行首的标点挪回上一行。
+  for (let index = 1; index < lines.length; index++) {
+    while (/^[，。！？；：、）》」』】…·,.;:!?)]/.test(lines[index]!)) {
+      lines[index - 1] += lines[index]![0]
+      lines[index] = lines[index]!.slice(1).trimStart()
+      if (!lines[index]) {
+        lines.splice(index, 1)
+        index--
+        break
+      }
+    }
+  }
   return lines
 }
 
@@ -219,28 +239,30 @@ function drawFooter(
 ): void {
   const left = MARGIN
   const right = width - MARGIN
-  drawHairline(ctx, palette, left, right, height - 140)
+  drawHairline(ctx, palette, left, right, height - 108)
   const source = showSource && !input.hideSource ? input.source.trim() : ''
   if (source) {
-    ctx.fillStyle = palette.soft
-    ctx.font = `400 18px ${MONO}`
     const fitted = fitBlock(ctx, source, {
-      width: Math.max(200, right - left - 160),
-      maxHeight: 28,
-      maxSize: 18,
-      minSize: 15,
-      lineHeight: 1.3,
-      family: MONO,
+      width: Math.max(200, right - left - 180),
+      maxHeight: 24,
+      maxSize: 15,
+      minSize: 13,
+      lineHeight: 1.35,
+      family: SANS,
       weight: '400',
     })
-    ctx.fillText(fitted.lines[0] ?? '', left, height - 112)
+    ctx.fillStyle = palette.muted
+    ctx.font = fitted.font
+    ctx.fillText(fitted.lines[0] ?? '', left, height - 80)
   }
   const tags = input.hideTags ? [] : input.tags.slice(0, 4).filter(Boolean)
   if (tags.length > 0) {
-    drawTracked(ctx, tags.join('  ·  '), left, height - 78, `500 12px ${MONO}`, palette.accent, 1.4)
+    drawTracked(ctx, tags.join('   ·   '), left, height - 50, `500 10px ${SANS}`, palette.muted, 1.6)
   }
-  const brand = input.brand?.trim() || t('页边 THINREAD')
-  drawTrackedRight(ctx, brand.slice(0, 40), right, height - 78, `500 12px ${MONO}`, palette.muted, 1.4)
+  const brand = input.brand?.trim() ?? ''
+  if (brand) {
+    drawTrackedRight(ctx, brand.slice(0, 40), right, height - 50, `500 10px ${SANS}`, palette.muted, 1.6)
+  }
 }
 
 function drawQuote(
@@ -254,66 +276,71 @@ function drawQuote(
   const right = width - MARGIN
   const contentWidth = right - left
   const compact = height < 1200
-  const quoteBlock = fitBlock(ctx, toPlainText(input.quote || input.body || input.title), {
-    width: contentWidth - 50,
-    maxHeight: compact ? 380 : 540,
-    maxSize: compact ? 48 : 60,
+  const quoteText = toPlainText(input.quote || input.body || input.title)
+  const quoteBlock = fitBlock(ctx, quoteText, {
+    width: contentWidth,
+    maxHeight: compact ? 430 : 560,
+    maxSize: compact ? 56 : 68,
     minSize: compact ? 34 : 40,
-    lineHeight: 1.46,
+    lineHeight: 1.44,
     family: SERIF,
     weight: '500',
   })
-  const titleBlock = input.title.trim()
-    ? fitBlock(ctx, toPlainText(input.title), {
-        width: contentWidth - 40,
-        maxHeight: 82,
-        maxSize: 28,
-        minSize: 22,
+  const titleText = input.title.trim() ? toPlainText(input.title) : ''
+  const titleBlock = titleText
+    ? fitBlock(ctx, titleText, {
+        width: contentWidth,
+        maxHeight: 60,
+        maxSize: 20,
+        minSize: 16,
         lineHeight: 1.45,
         family: SANS,
         weight: '500',
       })
     : null
+  const sourceText = input.hideSource ? '' : input.source.trim()
+  const sourceBlock = sourceText
+    ? fitBlock(ctx, sourceText, {
+        width: contentWidth,
+        maxHeight: 48,
+        maxSize: 15,
+        minSize: 13,
+        lineHeight: 1.45,
+        family: SANS,
+        weight: '400',
+      })
+    : null
   const quoteHeight = quoteBlock.lines.length * quoteBlock.lineHeight
   const titleHeight = titleBlock ? titleBlock.lines.length * titleBlock.lineHeight : 0
-  const sourceHeight = titleBlock && !input.hideSource && input.source.trim() ? 78 : 0
-  const totalHeight = quoteHeight + 52 + 32 + titleHeight + sourceHeight
+  const sourceHeight = sourceBlock ? sourceBlock.lines.length * sourceBlock.lineHeight : 0
+  const attrHeight = titleHeight + sourceHeight + (titleHeight ? 8 : 0)
+  const totalHeight = quoteHeight + (attrHeight ? 40 + attrHeight : 0)
   const contentTop = compact ? 150 : 160
-  const contentBottom = height - 154
-  const bodyTop = contentTop + Math.max(0, (contentBottom - contentTop - totalHeight) / 2)
+  const contentBottom = height - 150
+  const top = contentTop + Math.max(0, (contentBottom - contentTop - totalHeight) / 2)
 
-  ctx.fillStyle = palette.accent
-  ctx.fillRect(left, bodyTop + 4, 6, Math.max(48, quoteHeight - 8))
+  drawAccentRule(ctx, palette, left, top - 48, 34, 2)
   drawEmphasizedLines(
     ctx,
     quoteBlock.lines,
-    left + 28,
-    bodyTop,
+    left,
+    top,
     quoteBlock.lineHeight,
     quoteBlock.font,
-    findKeyPhrase(input.quote || input.body || input.title),
+    findKeyPhrase(quoteText),
     palette,
     palette.ink,
   )
 
-  let y = bodyTop + quoteHeight + 52
-  drawAccentRule(ctx, palette, left + 28, y, 64, 5)
-  y += 34
-  if (titleBlock) {
-    const titleHeight = drawLines(ctx, titleBlock, left + 28, y, palette.soft)
-    y += titleHeight + 18
-    const source = input.hideSource ? '' : input.source.trim()
-    if (source) {
-      const sourceBlock = fitBlock(ctx, `—— ${source}`, {
-        width: contentWidth - 40,
-        maxHeight: 60,
-        maxSize: 20,
-        minSize: 16,
-        lineHeight: 1.5,
-        family: MONO,
-        weight: '400',
-      })
-      drawLines(ctx, sourceBlock, left + 28, y, palette.muted)
+  if (attrHeight > 0) {
+    let y = top + quoteHeight + 40
+    drawHairline(ctx, palette, left, left + 56, y)
+    y += 24
+    if (titleBlock) {
+      y += drawLines(ctx, titleBlock, left, y, palette.soft) + 8
+    }
+    if (sourceBlock) {
+      drawLines(ctx, sourceBlock, left, y, palette.muted)
     }
   }
   drawFooter(ctx, input, palette, width, height, false)
@@ -332,14 +359,14 @@ function drawKnowledge(
   const compact = height < 1200
   const kicker = input.source.split(' · ')[0]?.trim()
 
-  const titleBlock = fitBlock(ctx, toPlainText(input.title || input.body), {
+  const titleBlock = fitBlock(ctx, cleanShareTitle(input.title || input.body), {
     width: contentWidth,
     maxHeight: compact ? 280 : 380,
-    maxSize: compact ? 58 : 68,
+    maxSize: compact ? 60 : 72,
     minSize: 36,
-    lineHeight: 1.3,
+    lineHeight: 1.32,
     family: SERIF,
-    weight: '600',
+    weight: '500',
   })
   const hasBody = input.body.trim() && input.body.trim() !== input.title.trim()
   const titleHeight = titleBlock.lines.length * titleBlock.lineHeight
@@ -349,7 +376,7 @@ function drawKnowledge(
         maxHeight: Math.max(120, height - 330 - titleHeight - 77),
         maxSize: compact ? 30 : 34,
         minSize: 21,
-        lineHeight: 1.8,
+        lineHeight: 1.85,
         family: SERIF,
         weight: '400',
       })
@@ -361,15 +388,12 @@ function drawKnowledge(
   const top = contentTop + Math.max(0, (contentBottom - contentTop - totalHeight) / 2)
 
   if (kicker) {
-    drawTracked(ctx, `《${kicker}》`, left, top - 40, `500 13px ${MONO}`, palette.muted, 1.4)
-  }
-  if (titleBlock.lines[0]) {
-    drawMarkerLine(ctx, palette, left, top, Math.min(contentWidth, ctx.measureText(titleBlock.lines[0]).width), titleBlock.lineHeight)
+    drawTracked(ctx, kicker, left, top - 38, `500 11px ${SANS}`, palette.muted, 1.8)
   }
   const titleUsed = drawLines(ctx, titleBlock, left, top, palette.ink)
-  let y = top + titleUsed + 28
-  drawAccentRule(ctx, palette, left, y, 92, 6)
-  y += 46
+  let y = top + titleUsed + 26
+  drawAccentRule(ctx, palette, left, y, 40, 2)
+  y += 40
   if (bodyBlock) {
     drawEmphasizedLines(
       ctx,
@@ -404,27 +428,27 @@ function drawCondensed(
   if (chapter && bodyText.startsWith(chapter)) bodyText = bodyText.slice(chapter.length).trim()
   const points = input.points && input.points.length > 0 ? input.points : keyPoints(bodyText, compact ? 3 : 4)
   const genericTitle = /读薄稿|摘录|知识点/.test(input.title)
-  const displayTitle = genericTitle && chapter ? chapter : input.title
+  const displayTitle = genericTitle && chapter ? chapter : cleanShareTitle(input.title)
 
   if (kicker) {
-    drawTracked(ctx, `《${kicker}》`, left, 174, `500 13px ${MONO}`, palette.muted, 1.4)
+    drawTracked(ctx, kicker, left, 174, `500 11px ${SANS}`, palette.muted, 1.8)
   }
   const titleBlock = fitBlock(ctx, toPlainText(displayTitle), {
     width: contentWidth,
     maxHeight: 210,
-    maxSize: compact ? 44 : 54,
+    maxSize: compact ? 42 : 50,
     minSize: 30,
-    lineHeight: 1.26,
+    lineHeight: 1.28,
     family: SERIF,
-    weight: '600',
+    weight: '500',
   })
   const titleTop = compact ? 208 : 216
   const titleHeight = drawLines(ctx, titleBlock, left, titleTop, palette.ink)
-  let y = titleTop + titleHeight + 26
-  drawAccentRule(ctx, palette, left, y, 92, 6)
-  y += 54
+  let y = titleTop + titleHeight + 24
+  drawAccentRule(ctx, palette, left, y, 40, 2)
+  y += 48
 
-  const gap = compact ? 20 : 26
+  const gap = compact ? 26 : 32
   const blocks = points.map((point) =>
     fitBlock(ctx, point, {
       width: contentWidth - 58,
@@ -439,11 +463,13 @@ function drawCondensed(
   const totalHeight =
     blocks.reduce((sum, block) => sum + Math.max(block.lines.length * block.lineHeight, 44), 0) +
     Math.max(0, blocks.length - 1) * gap
-  const listTop = y + Math.max(0, (height - 210 - y - totalHeight) / 2)
+  const listTop = y + Math.min(64, Math.max(24, (height - 240 - y - totalHeight) / 3))
   let cursor = listTop
   blocks.forEach((block, index) => {
     const point = points[index] ?? ''
-    drawTracked(ctx, String(index + 1).padStart(2, '0'), left, cursor + 2, `600 16px ${MONO}`, palette.accent, 1.6)
+    ctx.fillStyle = palette.accent
+    ctx.font = `500 22px ${SERIF}`
+    ctx.fillText(String(index + 1).padStart(2, '0'), left, cursor + 2)
     drawEmphasizedLines(
       ctx,
       block.lines,
@@ -461,6 +487,8 @@ function drawCondensed(
       drawHairline(ctx, palette, left + 52, right, cursor - gap / 2)
     }
   })
+
+  drawGhostNumber(ctx, String(points.length).padStart(2, '0'), right, height - 176, 260, palette.accent)
 
   const chars = bodyText.replace(/\s/g, '').length
   const minutes = Math.max(1, Math.round(chars / 400))
@@ -487,7 +515,7 @@ function drawStat(
   ctx.fillStyle = palette.ink
   ctx.font = `600 42px ${SERIF}`
   ctx.fillText(value, x, y)
-  drawTracked(ctx, label, x, y + 48, `500 16px ${MONO}`, palette.muted, 1.4)
+  drawTracked(ctx, label, x, y + 48, `500 10px ${SANS}`, palette.muted, 1.8)
 }
 
 function drawBook(
@@ -503,7 +531,7 @@ function drawBook(
   const compact = height < 1200
   const book = input.book
 
-  const titleBlock = fitBlock(ctx, input.title || book?.title || '', {
+  const titleBlock = fitBlock(ctx, cleanShareTitle(input.title || book?.title || ''), {
     width: contentWidth,
     maxHeight: compact ? 190 : 230,
     maxSize: compact ? 62 : 74,
@@ -520,7 +548,7 @@ function drawBook(
     .join(' · ')
   if (meta) {
     ctx.fillStyle = palette.muted
-    ctx.font = `400 18px ${MONO}`
+    ctx.font = `400 16px ${SANS}`
     ctx.fillText(meta, left, y + 18)
   }
   y += 76
@@ -560,7 +588,9 @@ function drawBook(
   const totalHeight = blocks.reduce((sum, block) => sum + block.height, 0)
   y += Math.max(0, (height - 200 - reserve - y - totalHeight) / 2)
   blocks.forEach((block, index) => {
-    drawTracked(ctx, String(index + 1).padStart(2, '0'), left, y + 4, `600 16px ${MONO}`, palette.accent, 1.6)
+    ctx.fillStyle = palette.accent
+    ctx.font = `500 22px ${SERIF}`
+    ctx.fillText(String(index + 1).padStart(2, '0'), left, y + 4)
     const used = drawLines(ctx, block.title, left + 52, y, palette.ink)
     drawEmphasizedLines(
       ctx,
@@ -576,6 +606,8 @@ function drawBook(
     y += block.height
     if (index < blocks.length - 1) drawHairline(ctx, palette, left + 52, right, y - 12)
   })
+
+  drawGhostNumber(ctx, String(blocks.length).padStart(2, '0'), right, height - 170, 240, palette.accent)
 
   if (input.body.trim() && y < height - 240) {
     const tail = fitBlock(ctx, toPlainText(input.body), {
@@ -617,7 +649,7 @@ function renderDeck(canvas: HTMLCanvasElement, input: ShareCardInput): void {
   const contentWidth = right - left
   drawMasthead(ctx, palette, left, right, HEADER_TOP, TEMPLATE_KICKER.deck)
 
-  const headTitle = fitBlock(ctx, input.title || t('读书摘录'), {
+  const headTitle = fitBlock(ctx, cleanShareTitle(input.title || t('读书摘录')), {
     width: contentWidth,
     maxHeight: 68,
     maxSize: 44,
@@ -628,14 +660,16 @@ function renderDeck(canvas: HTMLCanvasElement, input: ShareCardInput): void {
   })
   drawLines(ctx, headTitle, left, 130, palette.ink)
   if (!input.hideSource && input.source.trim()) {
-    drawTracked(ctx, input.source, left, 214, `400 13px ${MONO}`, palette.muted, 1.2)
+    drawTracked(ctx, input.source, left, 214, `400 11px ${SANS}`, palette.muted, 1.4)
   }
   drawHairline(ctx, palette, left, right, 250)
 
   let y = headerHeight + 24
   notes.forEach((note, index) => {
     const section = deckSection(note)
-    drawTracked(ctx, String(index + 1).padStart(2, '0'), left, y + 4, `700 16px ${MONO}`, palette.accent, 1.6)
+    ctx.fillStyle = palette.accent
+    ctx.font = `500 22px ${SERIF}`
+    ctx.fillText(String(index + 1).padStart(2, '0'), left, y + 4)
 
     const title = fitBlock(ctx, section.title, {
       width: contentWidth - 58,
@@ -669,7 +703,7 @@ function renderDeck(canvas: HTMLCanvasElement, input: ShareCardInput): void {
     )
 
     ctx.fillStyle = palette.muted
-    ctx.font = `400 14px ${MONO}`
+    ctx.font = `400 12px ${SANS}`
     ctx.fillText(
       note.chapterTitle ? `${note.bookTitle} · ${note.chapterTitle}` : note.bookTitle,
       left + 52,
@@ -684,9 +718,9 @@ function renderDeck(canvas: HTMLCanvasElement, input: ShareCardInput): void {
   const brand = input.brand?.trim() || t('页边 THINREAD')
   drawHairline(ctx, palette, left, right, height - 140)
   ctx.fillStyle = palette.soft
-  ctx.font = `400 13px ${MONO}`
+  ctx.font = `400 12px ${SANS}`
   ctx.fillText(t('由页边 ThinRead 整理 · 书和笔记都留在本机'), left, height - 108)
-  drawTrackedRight(ctx, brand.slice(0, 40), right, height - 78, `500 11px ${MONO}`, palette.muted, 1.4)
+  drawTrackedRight(ctx, brand.slice(0, 40), right, height - 78, `500 10px ${SANS}`, palette.muted, 1.6)
 }
 
 function drawBadges(

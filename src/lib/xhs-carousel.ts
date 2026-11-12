@@ -6,11 +6,12 @@ import { titleRepeatsContent } from './note-display.js'
 import {
   SHARE_MONO,
   SHARE_SANS,
+  SHARE_SERIF,
   drawAccentRule,
   drawChip,
   drawEmphasizedLines,
+  drawGhostNumber,
   drawHairline,
-  drawMarkerLine,
   findKeyPhrase,
   drawMasthead,
   drawTracked,
@@ -98,7 +99,7 @@ const BODY_SIZE = 25
 const BODY_LINE_HEIGHT = 42
 const META_HEIGHT = 30
 
-const SERIF = SHARE_SANS
+const SERIF = SHARE_SERIF
 const SANS = SHARE_SANS
 const MONO = SHARE_MONO
 type Palette = SharePalette
@@ -388,9 +389,9 @@ function drawPageNo(ctx: CanvasRenderingContext2D, index: number, total: number,
     `${String(index + 1).padStart(2, '0')} / ${String(total).padStart(2, '0')}`,
     PAGE_WIDTH - RIGHT,
     68,
-    `500 10px ${MONO}`,
+    `500 10px ${SANS}`,
     palette.muted,
-    1.8,
+    2,
   )
 }
 
@@ -427,16 +428,10 @@ function fitText(
 
 function drawFooter(ctx: CanvasRenderingContext2D, palette: Palette, brand = ''): void {
   drawHairline(ctx, palette, LEFT, PAGE_WIDTH - RIGHT, PAGE_HEIGHT - 90)
-  drawTracked(ctx, t('页边 / 小红书图文'), LEFT, PAGE_HEIGHT - 64, `500 10px ${MONO}`, palette.muted, 1.6)
-  drawTrackedRight(
-    ctx,
-    brand || 'THINREAD / XHS',
-    PAGE_WIDTH - RIGHT,
-    PAGE_HEIGHT - 64,
-    `500 10px ${MONO}`,
-    palette.muted,
-    1.6,
-  )
+  drawTracked(ctx, t('页边 · ThinRead'), LEFT, PAGE_HEIGHT - 64, `500 10px ${SANS}`, palette.muted, 1.8)
+  if (brand.trim()) {
+    drawTrackedRight(ctx, brand.trim().slice(0, 32), PAGE_WIDTH - RIGHT, PAGE_HEIGHT - 64, `500 10px ${SANS}`, palette.muted, 1.8)
+  }
 }
 
 function drawProgress(ctx: CanvasRenderingContext2D, palette: Palette, pageIndex: number, total: number): void {
@@ -458,24 +453,20 @@ function drawCover(ctx: CanvasRenderingContext2D, plan: XhsCarouselPlan, palette
     plan.scope === 'chapter' ? t('CHAPTER NOTES / 章节图文') : t('BOOK NOTES / 整本书图文'),
     LEFT,
     164,
-    `500 11px ${MONO}`,
-    palette.accent,
+    `500 10px ${SANS}`,
+    palette.muted,
     2.2,
   )
 
-  const title = fitText(ctx, plan.title, CONTENT_WIDTH, 250, 58, 40, 1.32, SERIF, '600')
+  const title = fitText(ctx, plan.title, CONTENT_WIDTH - 140, 280, 58, 38, 1.32, SERIF, '500')
   ctx.fillStyle = palette.ink
   ctx.font = title.font
-  if (title.lines[0]) {
-    drawMarkerLine(ctx, palette, LEFT, 206, Math.min(CONTENT_WIDTH, ctx.measureText(title.lines[0]).width), title.lineHeight)
-  }
-  ctx.fillStyle = palette.ink
   title.lines.forEach((line, index) => ctx.fillText(line, LEFT, 206 + index * title.lineHeight))
   const titleBottom = 206 + title.lines.length * title.lineHeight
 
-  drawAccentRule(ctx, palette, LEFT, titleBottom + 18, 96, 6)
+  drawAccentRule(ctx, palette, LEFT, titleBottom + 18, 40, 2)
   ctx.fillStyle = palette.soft
-  ctx.font = `400 22px ${SANS}`
+  ctx.font = `400 19px ${SANS}`
   ctx.fillText(plan.subtitle, LEFT, titleBottom + 44)
 
   const statsY = titleBottom + 100
@@ -485,7 +476,7 @@ function drawCover(ctx: CanvasRenderingContext2D, plan: XhsCarouselPlan, palette
 
   const sample = plan.cards[0]
   if (sample) {
-    const selectedTop = Math.max(statsY + 106, 628)
+    const selectedTop = Math.max(statsY + 92, 560)
     drawAccentRule(ctx, palette, LEFT, selectedTop, 40, 3)
     drawTracked(ctx, t('SELECTED / 选读'), LEFT + 54, selectedTop - 6, `500 11px ${MONO}`, palette.accent, 2)
 
@@ -495,10 +486,10 @@ function drawCover(ctx: CanvasRenderingContext2D, plan: XhsCarouselPlan, palette
       ctx,
       quoteText,
       CONTENT_WIDTH - 30,
-      PAGE_HEIGHT - 294 - quoteTop,
-      32,
-      24,
-      1.75,
+      PAGE_HEIGHT - 286 - quoteTop,
+      38,
+      26,
+      1.72,
       SERIF,
       '400',
     )
@@ -517,6 +508,8 @@ function drawCover(ctx: CanvasRenderingContext2D, plan: XhsCarouselPlan, palette
     )
   }
 
+  drawGhostNumber(ctx, String(plan.cards[0]?.number ?? 1).padStart(2, '0'), PAGE_WIDTH - RIGHT, PAGE_HEIGHT - 218, 300, palette.accent, 0.04)
+
   const metaY = PAGE_HEIGHT - 174
   drawAccentRule(ctx, palette, LEFT, metaY - 34, 28, 2)
   drawTracked(
@@ -524,11 +517,11 @@ function drawCover(ctx: CanvasRenderingContext2D, plan: XhsCarouselPlan, palette
     `${plan.totalCards}${t(' 个知识点 · ')}${total}${t(' 页')}`,
     LEFT,
     metaY,
-    `500 14px ${MONO}`,
+    `500 12px ${SANS}`,
     palette.muted,
-    1.4,
+    1.6,
   )
-  drawTrackedRight(ctx, t('向右滑 →'), PAGE_WIDTH - RIGHT, metaY, `500 14px ${MONO}`, palette.accent, 1.8)
+  drawTrackedRight(ctx, t('向右滑 →'), PAGE_WIDTH - RIGHT, metaY, `500 12px ${SANS}`, palette.accent, 1.6)
 
   drawProgress(ctx, palette, 0, total)
   drawFooter(ctx, palette, plan.brand)
@@ -547,8 +540,8 @@ function drawContent(
   drawPageNo(ctx, pageIndex, total, palette)
 
   const header = fitText(ctx, page.chapterTitle ?? plan.title, CONTENT_WIDTH - 120, 22, 14, 11, 1.2, SANS, '600')
-  ctx.fillStyle = palette.accent
-  ctx.font = `600 ${header.size}px ${MONO}`
+  ctx.fillStyle = palette.muted
+  ctx.font = `600 ${header.size}px ${SANS}`
   ctx.fillText(header.lines[0] ?? '', LEFT, 156)
   drawHairline(ctx, palette, LEFT, PAGE_WIDTH - RIGHT, 188)
 
@@ -561,17 +554,17 @@ function drawContent(
     const headingText = part.headingLines.join(' ').trim()
     const bodyText = part.bodyLines.join(' ').trim()
     const heading = fitText(ctx, headingText, CONTENT_WIDTH - 60, 300, 44, 32, 1.4, SERIF, '600')
-    const body = fitText(ctx, bodyText, CONTENT_WIDTH - 60, 520, 30, 22, 1.8, SERIF, '400')
+    const body = fitText(ctx, bodyText, CONTENT_WIDTH - 60, 560, 32, 22, 1.8, SERIF, '400')
     const headingHeight = heading.lines.length * heading.lineHeight
     const bodyHeight = body.lines.length * body.lineHeight
-    const tagsHeight = part.tags.length > 0 ? 40 : 0
-    const totalHeight = headingHeight + 30 + bodyHeight + tagsHeight
-    let cursor = contentTop + Math.max(0, (contentBottom - contentTop - totalHeight) / 2)
+    let cursor = contentTop + 24
 
-    drawTracked(ctx, String(part.number).padStart(2, '0'), LEFT, cursor + 2, `700 32px ${MONO}`, palette.accent, 1.8)
+    ctx.fillStyle = palette.accent
+    ctx.font = `500 30px ${SERIF}`
+    ctx.fillText(String(part.number).padStart(2, '0'), LEFT, cursor + 2)
     cursor += 54
     ctx.fillStyle = palette.ink
-    ctx.font = `800 ${heading.size}px ${SERIF}`
+    ctx.font = `600 ${heading.size}px ${SERIF}`
     heading.lines.forEach((line, index) => ctx.fillText(line, LEFT, cursor + index * heading.lineHeight))
     cursor += headingHeight + 30
 
@@ -592,7 +585,7 @@ function drawContent(
       cursor += bodyHeight + 20
     }
     if (part.tags.length > 0) {
-      drawTracked(ctx, part.tags.slice(0, 3).join('  ·  '), LEFT, cursor, `500 14px ${MONO}`, palette.accent, 1.4)
+      drawTracked(ctx, part.tags.slice(0, 3).join('  ·  '), LEFT, cursor, `500 11px ${SANS}`, palette.muted, 1.6)
     }
 
     ctx.save()
@@ -624,7 +617,9 @@ function drawContent(
 
   parts.forEach((part, index) => {
     if (index > 0) drawHairline(ctx, palette, LEFT, PAGE_WIDTH - RIGHT, y - gap / 2)
-    drawTracked(ctx, String(part.number).padStart(2, '0'), LEFT, y + 2, `700 18px ${MONO}`, palette.accent, 1.8)
+    ctx.fillStyle = palette.accent
+    ctx.font = `500 22px ${SERIF}`
+    ctx.fillText(String(part.number).padStart(2, '0'), LEFT, y + 2)
     let cursor = y
     if (part.continuation) {
       drawTracked(ctx, t('续'), LEFT + 38, y + 4, `500 13px ${MONO}`, palette.muted, 1)
@@ -660,9 +655,9 @@ function drawContent(
         part.tags.slice(0, 3).join('  ·  '),
         LEFT + 52,
         cursor + 10,
-        `500 14px ${MONO}`,
-        palette.accent,
-        1.4,
+        `500 11px ${SANS}`,
+        palette.muted,
+        1.6,
       )
     }
     y += blockHeight(part) + gap
@@ -677,7 +672,7 @@ function drawClosing(ctx: CanvasRenderingContext2D, plan: XhsCarouselPlan, palet
   drawMasthead(ctx, palette, LEFT, PAGE_WIDTH - RIGHT, 66)
   drawPageNo(ctx, total - 1, total, palette)
 
-  drawTracked(ctx, t('THE LAST PAGE / 回顾'), LEFT, 174, `500 13px ${MONO}`, palette.accent, 2.2)
+  drawTracked(ctx, t('THE LAST PAGE / 回顾'), LEFT, 174, `500 10px ${SANS}`, palette.muted, 2.2)
   const title =
     plan.scope === 'chapter'
       ? `${t('这一章，留下 ')}${plan.totalCards}${t(' 个知识点')}`
@@ -695,7 +690,9 @@ function drawClosing(ctx: CanvasRenderingContext2D, plan: XhsCarouselPlan, palet
       ? plan.cards.slice(0, 4).map((card) => card.heading)
       : plan.chapterTitles.slice(0, 6)
   items.forEach((item, index) => {
-    drawTracked(ctx, String(index + 1).padStart(2, '0'), LEFT, y + 3, `700 18px ${MONO}`, palette.accent, 1.8)
+    ctx.fillStyle = palette.accent
+    ctx.font = `500 22px ${SERIF}`
+    ctx.fillText(String(index + 1).padStart(2, '0'), LEFT, y + 3)
     const line = fitText(ctx, item, CONTENT_WIDTH - 62, 56, 26, 19, 1.52, SERIF, '500')
     ctx.fillStyle = palette.soft
     ctx.font = line.font
@@ -704,13 +701,15 @@ function drawClosing(ctx: CanvasRenderingContext2D, plan: XhsCarouselPlan, palet
     if (index < items.length - 1) drawHairline(ctx, palette, LEFT + 52, PAGE_WIDTH - RIGHT, y - 9)
   })
 
+  drawGhostNumber(ctx, String(items.length).padStart(2, '0'), PAGE_WIDTH - RIGHT, PAGE_HEIGHT - 200, 280, palette.accent, 0.04)
+
   y += 18
   ctx.fillStyle = palette.muted
   ctx.font = `400 20px ${SANS}`
   ctx.fillText(`${t('全部 ')}${plan.totalCards}${t(' 个知识点已排进这套图，没有遗漏。')}`, LEFT, y)
   y += 36
   ctx.fillStyle = palette.muted
-  ctx.font = `400 16px ${MONO}`
+  ctx.font = `400 14px ${SANS}`
   ctx.fillText(plan.scope === 'chapter' ? plan.bookTitle : `${plan.author || t('未署名')} · ${plan.bookTitle}`, LEFT, y)
 
   drawProgress(ctx, palette, total - 1, total)
