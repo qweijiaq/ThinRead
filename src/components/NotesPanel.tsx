@@ -188,6 +188,7 @@ function NotesPanelImpl({
   const [verifyOnly, setVerifyOnly] = useState(false)
   const [sentenceCheck, setSentenceCheck] = useState(false)
   const [compareOriginal, setCompareOriginal] = useState(false)
+  const [panelTab, setPanelTab] = useState<'draft' | 'cards' | 'audit'>('draft')
   const evidenceNotes = pointNotes.filter((note) => note.author === 'ai')
   const evidenceWithQuote = evidenceNotes.filter((note) => note.quote?.trim())
   const evidenceVerified = evidenceWithQuote.filter((note) => note.quoteVerified)
@@ -318,12 +319,8 @@ function NotesPanelImpl({
     })
   }
 
-  function jumpTo(id: string): void {
-    document.getElementById(id)?.scrollIntoView({ block: 'start', behavior: 'smooth' })
-  }
-
   return (
-    <div className="notes-panel">
+    <div className="notes-panel" data-active-tab={panelTab}>
       <div className="notes-head">
         <div>
           <h2>{t('本章笔记')}</h2>
@@ -355,9 +352,30 @@ function NotesPanelImpl({
 
       {notes.length > 0 ? (
         <nav className="notes-jump" aria-label={t('跳到')}>
-          <button type="button" onClick={() => jumpTo('notes-draft')}>{t('草稿')}</button>
-          <button type="button" onClick={() => jumpTo('notes-cards')}>{t('卡片')}</button>
-          <button type="button" onClick={() => jumpTo('notes-audit')}>{t('核对')}</button>
+          <button
+            type="button"
+            className={panelTab === 'draft' ? 'is-active' : ''}
+            aria-pressed={panelTab === 'draft'}
+            onClick={() => setPanelTab('draft')}
+          >
+            {t('草稿')}
+          </button>
+          <button
+            type="button"
+            className={panelTab === 'cards' ? 'is-active' : ''}
+            aria-pressed={panelTab === 'cards'}
+            onClick={() => setPanelTab('cards')}
+          >
+            {t('卡片')}
+          </button>
+          <button
+            type="button"
+            className={panelTab === 'audit' ? 'is-active' : ''}
+            aria-pressed={panelTab === 'audit'}
+            onClick={() => setPanelTab('audit')}
+          >
+            {t('核对')}
+          </button>
         </nav>
       ) : null}
 
@@ -446,7 +464,7 @@ function NotesPanelImpl({
       ) : null}
 
       {!generating && notes.length === 0 ? (
-        <div className="notes-empty" id="notes-draft">
+        <div className="notes-empty notes-tab-section" data-tab="draft">
           <p className="notes-empty-title">{t('这一章还没有读薄稿')}</p>
           <p>{t('AI 会先把这一章重写成可发博客的读薄稿（保留断言、写成连贯行文，压缩幅度由内容密度决定），再从稿子里按「不知道它是否影响全文理解」的标准提炼核心卡片，最后做最多 3 条延伸。')}</p>
           <p className="field-hint">
@@ -464,7 +482,7 @@ function NotesPanelImpl({
       ) : null}
 
       {condensedNote ? (
-        <section className="condensed-section" id="notes-draft">
+        <section className="condensed-section notes-tab-section" data-tab="draft">
           <div className="note-group-head">
             <span>{t('读薄稿')}</span>
             <div className="condensed-tools">
@@ -529,7 +547,7 @@ function NotesPanelImpl({
       ) : null}
 
       {marks.length > 0 ? (
-        <section className="reader-marks-section">
+        <section className="reader-marks-section notes-tab-section" data-tab="draft">
           <div className="note-group-head">
             <span>{t('划词标记')}</span>
             <span className="muted">{marks.length}</span>
@@ -552,7 +570,7 @@ function NotesPanelImpl({
         </section>
       ) : null}
 
-      {renderGroup(t('摘要'), summaryNotes)}
+      <div className="notes-tab-section" data-tab="cards">{renderGroup(t('摘要'), summaryNotes)}</div>
       {evidenceNotes.length > 0 ? (
         <section className="evidence-summary" id="notes-audit" aria-label={t('原文依据核查')}>
           <div>
@@ -561,24 +579,24 @@ function NotesPanelImpl({
               {evidenceVerified.length}/{evidenceWithQuote.length} {t('已核对')} · {evidenceUnverified.length} {t('待核对')} · {evidenceMissing.length} {t('无依据')}
             </span>
           </div>
-          <button type="button" className="text-button" aria-pressed={verifyOnly} onClick={() => setVerifyOnly((value) => !value)}>
+          <button type="button" className="text-button" aria-pressed={verifyOnly} onClick={() => { setVerifyOnly((value) => !value); setPanelTab('audit') }}>
             {verifyOnly ? t('显示全部卡片') : t('只看待核对')}
           </button>
         </section>
       ) : null}
-      <div id="notes-cards">{renderGroup(t('核心观点'), pointNotesForDisplay)}</div>
+      <div className="notes-tab-section" data-tab="cards audit">{renderGroup(t('核心观点'), pointNotesForDisplay)}</div>
       {verifyOnly && pointNotesForDisplay.length === 0 ? <p className="note-empty">{t('这张章节没有待核对的知识点。')}</p> : null}
-      {renderGroup(t('问题'), questionNotes)}
-      {renderGroup(t('我的笔记'), mineNotes)}
+      <div className="notes-tab-section" data-tab="cards">{renderGroup(t('问题'), questionNotes)}</div>
+      <div className="notes-tab-section" data-tab="cards">{renderGroup(t('我的笔记'), mineNotes)}</div>
 
       {!generating && notes.length > 0 ? (
-        <button type="button" className="add-note-button" onClick={() => void addNote()}>
+        <button type="button" className="add-note-button notes-tab-section" data-tab="cards" onClick={() => void addNote()}>
           {t('＋ 添加一条自己的笔记')}
         </button>
       ) : null}
 
       {related.length > 0 ? (
-        <section className="related-section">
+        <section className="related-section notes-tab-section" data-tab="draft">
           <div className="note-group-head">
             <span>{t('这本书里的相关笔记')}</span>
             <span className="muted">{related.length}</span>

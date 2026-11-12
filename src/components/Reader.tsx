@@ -1145,7 +1145,7 @@ export function Reader({
                         }}
                       >
                         <span className="reader-more-icon"><MoreMenuGlyph kind="echo" /></span>
-                        <span>{t('回声')}{echoes.length > 0 ? ` · ${echoes.length}` : ''}</span>
+                        <span>{t('相关笔记')}{echoes.length > 0 ? ` · ${echoes.length}` : ''}</span>
                       </button>
                       {bookForeign ? (
                         <button

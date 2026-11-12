@@ -83,7 +83,7 @@ export function MarginNoteDialog({ chapter, quote, onSave, onClose }: MarginNote
           </div>
         ) : null}
         <div className="modal-footer">
-          <span className="modal-meta">{t('边注会保存为一条带原文引用的笔记')}</span>
+          <span className="modal-meta">{t('批注会保存为一条带原文引用的笔记')}</span>
           <div className="modal-footer-actions">
             <button
               type="button"

@@ -871,7 +871,7 @@
   "＋ 添加一条自己的笔记": "＋ Add your own note",
   "这本书里的相关笔记": "Related notes in this book",
   "其他章节": "Other chapters",
-  "其他书里的相关笔记": "Related notes in other books",
+  "其他书里的相关笔记": "Related notes from other books",
   "未命名笔记": "Untitled note",
   "已改": "edited",
   "我": "Me",
@@ -1900,5 +1900,10 @@
   "核心观点": "Core ideas",
   "还没有核心观点": "No core ideas yet",
   "还没有核心观点卡片。": "No core idea cards yet.",
-  "AI 批注": "AI annotation"
+  "AI 批注": "AI annotation",
+  "相关笔记": "Related notes",
+  "相关笔记只参考其他书里的知识点卡片；相似度不够的弱关联不会显示。": "Related notes only use knowledge cards from other books; weak matches below the similarity threshold are hidden.",
+  "相关笔记只来自你本机的知识点和笔记；相似度由本地语义索引或概念标签计算。": "Related notes come only from knowledge cards and notes on this device; similarity uses the local semantic index or concept tags.",
+  "批注会保存为一条带原文引用的笔记": "The annotation is saved as a note with the source quote",
+  "全章批注": "Whole-chapter annotations"
 }

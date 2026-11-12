@@ -12953,3 +12953,16 @@ html.theme-plain .primary-button.is-danger:hover {
     grid-template-columns: 1fr;
   }
 }
+
+
+.notes-jump button.is-active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  color: var(--accent);
+}
+
+.notes-panel[data-active-tab='draft'] .notes-tab-section:not([data-tab~='draft']),
+.notes-panel[data-active-tab='cards'] .notes-tab-section:not([data-tab~='cards']),
+.notes-panel[data-active-tab='audit'] .notes-tab-section:not([data-tab~='audit']) {
+  display: none;
+}

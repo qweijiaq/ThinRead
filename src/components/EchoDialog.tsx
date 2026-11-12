@@ -31,12 +31,12 @@ export function EchoDialog({ bookTitle, chapterTitle, excerpt, echoes, onOpen, o
         className="echo-modal"
         role="dialog"
         aria-modal="true"
-        aria-label={t('页边回声')}
+        aria-label={t('相关笔记')}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="echo-head">
           <div>
-            <h2>{t('页边回声')}</h2>
+            <h2>{t('相关笔记')}</h2>
             <p>{t('这一章和你其他书里的笔记，靠语义相似度找到的连接。')}</p>
           </div>
           <button type="button" className="icon-button" onClick={onClose} aria-label={t('关闭')}>
@@ -55,12 +55,12 @@ export function EchoDialog({ bookTitle, chapterTitle, excerpt, echoes, onOpen, o
           </section>
 
           <section className="echo-side">
-            <div className="echo-label">{t('其他书里的回声')} · {echoes.length}</div>
+            <div className="echo-label">{t('其他书里的相关笔记')} · {echoes.length}</div>
             <div className="echo-list">
               {echoes.length === 0 ? (
                 <div className="echo-empty">
                   <p>{t('暂时没有找到足够相关的知识点。')}</p>
-                  <p className="muted">{t('回声只参考其他书里的知识点卡片；相似度不够的弱关联不会显示。')}</p>
+                  <p className="muted">{t('相关笔记只参考其他书里的知识点卡片；相似度不够的弱关联不会显示。')}</p>
                 </div>
               ) : (
                 echoes.map((echo) => (
@@ -82,7 +82,7 @@ export function EchoDialog({ bookTitle, chapterTitle, excerpt, echoes, onOpen, o
           </section>
         </div>
 
-        <p className="echo-foot">{t('回声只来自你本机的知识点和笔记；相似度由本地语义索引或概念标签计算。')}</p>
+        <p className="echo-foot">{t('相关笔记只来自你本机的知识点和笔记；相似度由本地语义索引或概念标签计算。')}</p>
       </div>
     </div>
   )
