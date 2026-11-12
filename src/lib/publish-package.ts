@@ -81,7 +81,7 @@ export async function buildPublishPackage(input: PublishPackageInput): Promise<P
     ),
   }
   if (input.includeCover) {
-    if (!input.coverDataUrl) throw new Error('封面还没有生成完成，请稍等。')
+    if (!input.coverDataUrl) throw new Error(t('封面还没有生成完成，请稍等。'))
     files['cover.png'] = Uint8Array.from(atob(coverBase64(input.coverDataUrl)), (char) => char.charCodeAt(0))
   }
   const citation = { title: input.bookTitle, author: input.author, date: input.date }

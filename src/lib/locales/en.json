@@ -1868,5 +1868,7 @@
   "页边 · THINREAD": "THINREAD",
   "未命名读书笔记": "Untitled reading notes",
   "标签": "Tag",
-  "Mermaid 图表语法无法解析": "Could not parse the Mermaid diagram."
+  "Mermaid 图表语法无法解析": "Could not parse the Mermaid diagram.",
+  "无法创建封面画布。": "Could not create the cover canvas.",
+  "封面还没有生成完成，请稍等。": "The cover is still being generated; please wait."
 }

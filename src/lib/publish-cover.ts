@@ -93,7 +93,7 @@ export function renderPublishCover(input: PublishCoverInput): string {
   canvas.width = 1200
   canvas.height = 630
   const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error('无法创建封面画布。')
+  if (!ctx) throw new Error(t('无法创建封面画布。'))
 
   const palette = PALETTES[input.style ?? 'paper']
   const background = ctx.createLinearGradient(0, 0, 1200, 630)
