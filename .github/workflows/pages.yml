@@ -1,7 +1,12 @@
 name: Deploy website
 
-# 内测期先手动触发；确认静态站可以公开后，再恢复 push 自动部署。
+# 站点已公开，恢复 push 自动部署；workflow_dispatch 保留，方便手动重发。
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'website/**'
+      - '.github/workflows/pages.yml'
   workflow_dispatch:
 
 permissions:
