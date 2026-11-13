@@ -1,392 +1,406 @@
-# 页边 · ThinRead
+<p align="center">
+  <img src="docs/assets/banner.svg" alt="ThinRead — read a book down to what you can publish" width="100%">
+</p>
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-2ea44f)](LICENSE)
-[![Platform: macOS](https://img.shields.io/badge/platform-macOS-lightgrey)](#安装与构建)
-[![Release](https://img.shields.io/github/v/release/qweijiaq/ThinRead?label=release)](https://github.com/qweijiaq/ThinRead/releases)
-[![CI](https://github.com/qweijiaq/ThinRead/actions/workflows/ci.yml/badge.svg)](https://github.com/qweijiaq/ThinRead/actions/workflows/ci.yml)
+<h1 align="center">ThinRead</h1>
 
-**中文** · [English](README.en.md) · [官网](website/) · [用户手册](docs/user-manual.md) · [PDF](docs/user-manual.pdf) · [HTML](docs/user-manual.html) · [Releases](https://github.com/qweijiaq/ThinRead/releases)
+<p align="center">
+  <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-MIT-2ea44f"></a>
+  <a href="#build-from-source"><img alt="platform" src="https://img.shields.io/badge/platform-macOS-lightgrey"></a>
+  <a href="https://github.com/qweijiaq/ThinRead/releases"><img alt="release" src="https://img.shields.io/github/v/release/qweijiaq/ThinRead?label=release"></a>
+  <a href="https://github.com/qweijiaq/ThinRead/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/qweijiaq/ThinRead/actions/workflows/ci.yml/badge.svg"></a>
+</p>
 
-> 大多数读书工具优化的是「收集」：划更多线、存更多摘录、建更大的库。
-> 页边优化的是「产出」：读完这一章，你手里应该有一篇能直接发出去的稿子。
+<p align="center">
+  <strong>English</strong> · <a href="README.zh-CN.md">简体中文</a> · <a href="website/">Website</a> · <a href="docs/user-manual.md">Manual</a> · <a href="https://github.com/qweijiaq/ThinRead/releases">Releases</a>
+</p>
 
-页边（ThinRead）是一个本地优先的 AI 阅读工作台。它把一本书的每一章改写成保留全部论点的可发布草稿，从草稿里按篇幅提炼真正影响理解的核心卡片（约每 1000 字 3–6 张，长章可以更多），再用本地语义索引把卡片、笔记和其他书连成一张可检索的网。导入 EPUB / PDF / MOBI / 网页 / 微信读书 / Readwise / Kindle 划线，导出 Markdown、自包含 HTML、排版 PDF 或完整发布包。
+> Most reading tools optimize for **capture**: more highlights, more excerpts, a bigger library.
+> ThinRead optimizes for **output**: when you finish a chapter, you should have a draft you can publish.
 
-Electron + React + TypeScript，数据留在本机，MIT 开源。
+ThinRead is a local-first AI reading workbench. It rewrites each chapter of a book into a publishable draft that keeps every argument, distills core cards that actually change how the chapter is understood (roughly 3–6 per 1,000 characters, more for long chapters), and connects those cards and notes to the rest of your library through a local semantic index.
 
-![阅读器](docs/features/02-reader.png)
+Import EPUB / PDF / MOBI / web pages / WeChat Reading / Readwise / Kindle clippings. Export Markdown, self-contained HTML, print-ready PDF, or a complete publishing bundle.
 
----
+Electron + React + TypeScript. Your data stays on your machine. MIT licensed.
 
-## 为什么是「读薄」
-
-一本书读完，真正留下来的通常不是划线数量，而是三件事：**作者到底主张了什么**、**哪几个概念支撑了这个主张**、**它和我读过的别的书有什么关系**。
-
-主流工具在这三件事上都只做了一半。划线工具把输入做得很好，输出仍然是一堆需要二次整理的碎片；笔记工具把存储做得很好，跨书关联仍然靠手动双链；问答工具把检索做得很好，答案看完就散了。
-
-页边把顺序倒过来：**先定义产出，再倒推阅读流程。**
-
-- 产出是「一篇能发的稿子」，所以读薄不是摘要，而是按断言重写整章；
-- 产出要能被复用，所以卡片只从读薄稿里提炼，而不是从原文发散；
-- 产出要能被连接，所以跨书关联走本地向量，而不是把笔记上传到云端。
-
-这条路径是强制的：**读薄 → 卡片 → 有限延伸**，三个阶段不跳步。跳步就会退化成「摘要 + 一堆摘录」，也就是这个应用想避免的东西。
+![Reader](docs/features/02-reader.png)
 
 ---
 
-## 三个核心能力
+## Why "thin" reading
 
-**读薄成稿**
-不按页摘要，而是识别每一处「作者在主张什么」，区分断言、论证材料和铺垫，再按断言结构重写整章。压缩幅度由模型根据内容密度决定，目标是不超过原文一半。生成的稿子可以直接编辑、继续润色、导出 Markdown/HTML/PDF。
+Finish a book and three things usually survive: **what the author actually claimed**, **which concepts hold that claim up**, and **how it relates to what else you've read**.
 
-**核心卡片**
-从读薄稿按压缩后字数提炼卡片，数量随篇幅自适应（约每 1000 字 3–6 张，最多 80 张作为安全上限）。每张卡必须写清知识点、它在全文中的作用、以及能在本章逐字找到的原文依据——找不到依据就留空，不把模型改写过的句子伪装成原文。
+Mainstream tools each solve half of that. Highlight tools nail capture, but the output is still fragments that need a second pass. Note tools nail storage, but cross-book links are manual. Q&A tools nail retrieval, but the answer evaporates once you close the tab.
 
-**跨书知识网**
-笔记标题、标签和正文在本机用 BGE-small-zh 计算向量并缓存，找出其他书里语义相近的笔记。配合知识地图、人物关系图和章节问答，把「这本书说了什么」变成「它和我读过的书有什么关系」。
+ThinRead inverts the order: **define the artifact first, then work backwards to the reading process.**
+
+- The artifact is a publishable draft, so condensing is not summarization — it is a rewrite organized around claims.
+- The artifact must be reusable, so cards are distilled from the condensed draft, never sprayed out of the raw text.
+- The artifact must be connectable, so cross-book linking runs on local embeddings instead of uploading your notes.
+
+The pipeline is enforced: **condense → cards → bounded extension**, no skipping. Skip a stage and you are back to "summary plus a pile of highlights", which is the thing this app exists to avoid.
 
 ---
 
-## 产品一览
+## Three core capabilities
 
-| 书架 | 阅读与笔记 | AI 工作台 |
+**Condense into a draft**
+Not a page-by-page summary. The model identifies every place the author makes a claim, separates claims from evidence and filler, and rewrites the chapter around that structure. Compression is decided by content density, targeting at most half the original length. The result is editable, re-runnable, and exports to Markdown / HTML / PDF.
+
+**Core cards**
+Cards are distilled from the condensed draft and scale with its length rather than the original's (roughly 3–6 per 1,000 characters, capped at 80 as a safety limit). Every card states the point, its role in the chapter, and a verbatim citation that must be findable in the chapter. No citation, no card — the model is never allowed to pass its own paraphrase off as the author's words.
+
+**Cross-book knowledge graph**
+Note titles, tags, and bodies are embedded locally with BGE-small-zh and cached. Related notes from other books surface as margin echoes, a concept map, a character graph, and chapter-scoped Q&A — turning "what did this book say" into "how does it connect to what I've read".
+
+---
+
+## Product tour
+
+| Library | Reading & notes | AI workbench |
 | --- | --- | --- |
-| ![书架](docs/features/01-library.png) | ![阅读与笔记](docs/features/02-reader.png) | ![AI 工作台](docs/features/03-lab.png) |
+| ![Library](docs/features/01-library.png) | ![Reader](docs/features/02-reader.png) | ![Workbench](docs/features/03-lab.png) |
 
-| 整本成书 | 分享卡 | 小红书图文 |
+| Book composition | Share cards | Social carousel |
 | --- | --- | --- |
-| ![整本成书](docs/features/04-compose.png) | ![分享卡](docs/features/05-share.png) | ![小红书图文](docs/features/06-xhs.png) |
+| ![Compose](docs/features/04-compose.png) | ![Share](docs/features/05-share.png) | ![Carousel](docs/features/06-xhs.png) |
 
-更多界面与阅读统计见 [功能一览](docs/features/README.md)。
-
----
-
-## 工程
-
-产品定位决定工程约束。既然承诺「本地优先」和「引用可核对」，这两件事就不能只是文案。
-
-### 数据边界是架构约束，不是隐私声明
-
-解析、存储、检索、渲染全部在本机完成。外部请求只有两类：显式发起的模型调用，以及首次建立语义索引时下载约 23MB 的量化模型。
-
-- 书、章节、笔记、生成记录在本地 SQLite
-- API Key 用系统钥匙串加密，无钥匙串时回退为 0600 权限文件
-- 语义向量在本机计算，笔记内容不出网
-- AI trace 只记录步骤、模型、耗时、token 和错误，不记录正文或 prompt
-
-### AI 结果有一层可靠性工程
-
-模型输出不可信，所以每条生成结果都要过一遍可验证的关卡。
-
-- **引用校验**：AI 给出的原文必须能在本章做规范化匹配，对不上就标记「未核对」
-- **内容完整性校验**：排版结果会和「原文 − 已移除片段」比对，改写或漏掉太多就整次拒绝
-- **结构化输出归一化**：先试流式宽松解析，字段名或类型不一致时归一化，再回退纯文本 JSON
-- **失败不落半成品**：zod 在写入前校验，非法数据被拒绝，不会先删旧笔记再写坏数据
-- **可回退**：排版结果单独存 `formatted_html`，原始 HTML 永远保留，随时「还原原文」
-
-### 数据完整性
-
-- SQLite 用 `PRAGMA user_version` 做有序迁移，旧库在事务里补齐列，失败回滚
-- 读取时也校验笔记，旧库里的非法枚举或损坏 JSON 降级修复，不让单条坏数据锁死整章
-- 书、章节、笔记、生成内容各有 30 天回收站
-- 合并、拆分、重新解析、删除前自动备份；书文件按内容哈希去重，多份备份共享同一份 blob
-
-### 性能与成本
-
-- 读薄按小节并发（默认 4 路），断言回查与卡片提炼并行
-- 同一章 + 同一模型 + 同一档位的结果按内容哈希缓存 14 天，命中时 0 token
-- 精读档复用 24k 原文前缀（Anthropic 显式 `cache_control`，OpenAI 兼容端点走自动前缀缓存）
-- 短章、低压缩率、小卡片集自动跳过收益不高的阶段
-- 全文索引缓存到 `search-index.json.gz`，签名不变时启动直接加载
-- 生成快照按「工具 + 范围」只保留最近 30 份，收藏和当前版本不参与清理
-- 模型请求失败按指数退避重试，只对 429 / 5xx / 超时等可恢复错误生效
-
-### 验证
-
-- 266 个回归测试，覆盖划线解析、OCR 切章、发布包、分类、关系图、全文索引、备份恢复、schema 校验、迁移升级
-- 无头 Electron 跑书架、搜索、阅读器划词、听读、笔记编辑、地图、导入和分页
-- Storybook 像素基线 + CI 逐像素比对，布局漂移会失败
-- axe-core 注入 UI 冒烟，扫描 WCAG 2A/2AA 的 critical/serious 问题
-- 没有 API Key 也能跑 CI：真实模型录制一次，之后回放
-- `check:boundaries` 阻止渲染层引用 Electron 或 Node 内置模块，架构边界在 CI 里强制
+More screens and reading statistics: [feature gallery](docs/features/README.md).
 
 ---
 
-## 和同类工具的区别
+## Engineering
 
-| | 页边 ThinRead | Readwise Reader | Obsidian | NotebookLM |
+The product promises two things — local-first data and verifiable citations. Both are architectural constraints, not marketing copy.
+
+### The data boundary is architecture, not a privacy statement
+
+Parsing, storage, retrieval, and rendering all happen on-device. There are exactly two outbound paths: a model call you explicitly trigger, and the one-time ~23 MB quantized embedding model download.
+
+- Books, chapters, notes, and generation history live in local SQLite
+- API keys are encrypted in the system keychain, falling back to a `0600` file
+- Embeddings are computed locally; note content never leaves the machine
+- AI traces record step, model, latency, tokens, and errors — never bodies or prompts
+
+### A reliability layer around model output
+
+Model output is untrusted, so every generated artifact passes a verification gate.
+
+- **Citation verification** — quoted text must normalize-match the chapter; otherwise it is marked unverified
+- **Content integrity** — formatting results are diffed against "original minus removed segments"; over-editing rejects the whole run
+- **Structured output normalization** — lenient streaming parse, field/type normalization, then a plain-text JSON fallback
+- **No half-written state** — zod validates before writes; invalid payloads are rejected rather than clobbering good notes
+- **Reversible** — formatting is stored separately in `formatted_html`; the original HTML is never destroyed
+
+### Data integrity
+
+- Ordered SQLite migrations via `PRAGMA user_version`, applied in a transaction with rollback on failure
+- Notes are validated on read too; malformed enums or corrupt JSON are repaired so one bad row cannot lock a chapter
+- 30-day recycle bins for books, chapters, notes, and generated artifacts
+- Automatic backups before merge, split, reparse, or delete; book files are content-hash deduplicated across backups
+
+### Performance and cost
+
+- Condensing runs concurrently across sections (4-way by default); claim audit and card extraction run in parallel
+- Results are cached for 14 days by content hash across chapter + model + quality tier — cache hits cost 0 tokens
+- Deep mode reuses a 24k-token source prefix (explicit Anthropic `cache_control`; automatic prefix caching on OpenAI-compatible endpoints)
+- Short chapters, low compression ratios, and small card sets skip the stages that would not pay off
+- The full-text index is cached to `search-index.json.gz` and loaded directly when signatures are unchanged
+- Generated snapshots are pruned to the latest 30 per tool + scope; favorites and the current version are never pruned
+- Failed model requests retry with exponential backoff, only for recoverable errors such as 429, 5xx, and timeouts
+
+### Verification
+
+- 266 regression tests covering highlight parsing, OCR chaptering, publishing bundles, classification, relation graphs, full-text index, backup/restore, schema validation, and migrations
+- Headless Electron smoke tests for library, search, selection actions, TTS, note editing, maps, import, and pagination
+- Storybook pixel baselines with CI diffing — layout drift fails the build
+- axe-core injected into UI smoke tests, scanning WCAG 2A/2AA critical/serious issues
+- CI runs without an API key: record real model responses once, replay them afterwards
+- `check:boundaries` blocks renderer imports of Electron or Node built-ins, enforcing the architecture boundary in CI
+
+---
+
+## How it differs
+
+| | ThinRead | Readwise Reader | Obsidian | NotebookLM |
 |---|---|---|---|---|
-| 核心定位 | 把书读成可发布稿、卡片和跨书关联 | 收集、阅读和回顾划线 | 通用双向链接知识库 | 基于资料集的问答、摘要和音频概览 |
-| 一本书的产出 | 读薄稿、核心卡片、问答、分享卡/PDF | 高亮、笔记和回顾 | 笔记、链接和插件扩展 | 回答、摘要、音频 |
-| 跨书能力 | 本地语义相关笔记 + 知识地图 + 关系图 | 以标签和回顾为主 | 手动双链或插件 | 主要围绕当前资料集 |
-| 数据位置 | 本地 SQLite + 文件 | 云端服务 | 本地文件 | 云端服务 |
-| 适合的读法 | 深度读非虚构并继续写作 | 高频收集和回顾 | 自己维护知识体系 | 快速理解一组资料 |
+| Core focus | Turn books into publishable drafts, cards, and cross-book links | Capture, read, and review highlights | General bidirectional-link knowledge base | Q&A, summaries, and audio over a corpus |
+| Output per book | Draft, core cards, Q&A, share cards / PDF | Highlights, notes, reviews | Notes, links, plugins | Answers, summaries, audio |
+| Cross-book | Local semantic echoes + concept map + character graph | Mostly tags and reviews | Manual links or plugins | Mostly within the current corpus |
+| Data location | Local SQLite + files | Cloud | Local files | Cloud |
+| Best for | Deep reading of nonfiction that continues into writing | High-volume capture and review | Maintaining your own knowledge system | Quickly understanding a set of sources |
 
-这不是功能穷举，而是定位差异：页边不替代阅读器，也不试图做完整知识库；它专注于「读完这一章之后，能留下什么可复用的东西」。
-
----
-
-## 面向平台与开发者计划
-
-页边是一个已经发布、有完整功能面和真实工程约束的独立产品，不是演示原型。如果贵方在运营开发者计划、模型平台或应用分发平台，下面是可核对的对接面。
-
-**已经具备的**
-
-- 完整产品闭环：导入 → 阅读 → 读薄 → 卡片 → 成书 → 分享/导出
-- 清晰的本地/云端边界：哪些能力必须在本机，哪些可以托管，架构上是分开的
-- 可替换的模型层：OpenAI 兼容端点 + 原生 Anthropic / 百炼 TTS，内置 10 家服务商预设
-- 工程基线：类型检查、266 个回归测试、渲染层与 PDF 冒烟、像素基线、无障碍扫描、无 Key 的 AI 录制回放
-- 真实的长尾场景：392 页 PDF、扫描版 OCR、代码块重建、多语言排版——不是玩具数据集
-
-**迁移到托管运行时的成本（诚实评估）**
-
-- 可复用：React 渲染层、提示词与三段式生成流水线、卡片与引用校验逻辑、分享与导出渲染
-- 需要重写：Electron 主进程、SQLite 存储、文件系统与 OCR、`printToPDF`
-- 结论：这不是「接一个 SDK」就能完成的事，而是一次平台移植。任何合作都应以此为前提讨论，而不是按「上架一个应用」估算。
-
-**合作可以长什么样**
-
-- 平台侧：提供运行时、托管存储、持久记忆与分发入口
-- 项目侧：把一个有真实深度使用场景的 AI 应用带到平台上，并作为案例验证「本地优先 + 云端能力」的混合架构
-- 双方都能验证的指标：真实使用量、留存、单章生成成本、引用核对通过率
-
-**技术交流**：GitHub Issues，或通过 [官网](website/) 上的联系方式。
+This is a positioning difference, not a feature checklist. ThinRead does not replace your reader and does not try to be a full knowledge base. It focuses on one question: **after finishing this chapter, what reusable thing is left?**
 
 ---
 
-## 快速开始
+## For platforms and developer programs
 
-要求 Node >= 22、pnpm 10+：
+ThinRead is a shipped independent product with a full feature surface and real engineering constraints — not a prototype. If you run a developer program, model platform, or app distribution platform, here is the integration surface you can actually evaluate.
+
+**What already exists**
+
+- A complete loop: import → read → condense → cards → compose → share / export
+- A clear local/cloud boundary: which capabilities must stay on-device and which can be hosted is already separated in the architecture
+- A replaceable model layer: OpenAI-compatible endpoints plus native Anthropic and Qwen TTS, with 10 built-in provider presets
+- An engineering baseline: typecheck, 266 regression tests, renderer and PDF smoke tests, pixel baselines, accessibility scans, and key-free AI record/replay
+- Genuine long-tail inputs: a 392-page PDF, scanned-page OCR, code-block reconstruction, multilingual typesetting — not a toy dataset
+
+**Honest porting assessment**
+
+- Reusable: the React renderer, prompt and three-stage generation pipeline, card and citation verification logic, share and export rendering
+- Needs rewriting: the Electron main process, SQLite storage, filesystem access and OCR, `printToPDF`
+- Conclusion: this is not "wire up an SDK". It is a platform port. Any partnership should be scoped that way, not estimated as "publish an app".
+
+**What a partnership could look like**
+
+- Platform side: runtime, managed storage, persistent memory, and a distribution channel
+- Project side: a real, deeply-used AI application brought onto the platform, serving as a case study for a hybrid "local-first + cloud capability" architecture
+- Metrics both sides can verify: real usage, retention, per-chapter generation cost, citation pass rate
+
+**Contact**: GitHub Issues, or the contact details on the [website](website/).
+
+---
+
+## Quick start
+
+Requires Node >= 22 and pnpm 10+:
 
 ```bash
 pnpm install
 pnpm dev
 ```
 
-首次启动是空书架。点「导入」选一本 EPUB/PDF，保持右上角的「演示模式」，打开书后点「✦ 改写成文章」即可看到完整流程，不需要 API Key。
+The first launch shows an empty library. Click **Import**, pick an EPUB or PDF, keep **Demo mode** on in the top-right, open the book, and click **✦ Condense** to see the whole flow — no API key needed.
 
-没有书？导入 [samples/sample.epub](samples/sample.epub)（两章示例书）。要接真实模型，见下面的「接模型」。
+No book handy? Import [samples/sample.epub](samples/sample.epub) (a two-chapter sample). To use a real model, see [Connecting a model](#connecting-a-model).
 
-> macOS 安装包已发布在 [Releases](https://github.com/qweijiaq/ThinRead/releases)；只构建 macOS 未签名版本，不签名、不公证。
+> macOS builds are published on [Releases](https://github.com/qweijiaq/ThinRead/releases). They are unsigned and not notarized.
 
-**第一次使用，先走这一条路径**：导入一本书 → 打开一章 → 点「✦ 改写成文章」→ 看核心卡片 → 点「成书」。
+**First run path**: import a book → open a chapter → **✦ Condense** → review the core cards → **Compose**.
 
-**几个词**：**读薄** = 把一章改写成可发布文章；**卡片** = 影响理解的核心观点；**成书** = 把整本读薄稿合成一篇长文；**相关笔记** = 其他书里与你当前内容相近的笔记。
+**Vocabulary**: **condense** = rewrite a chapter into a publishable article; **card** = a concept that changes how the chapter is understood; **compose** = merge every condensed chapter into one long-form piece; **echo** = a semantically related note from another book.
 
-**适合谁**：读非虚构、历史、研究资料，想把一本书变成文章、卡片或分享内容的人；已经有一批书和笔记，想找回跨书关联的人；愿意把数据放在本机、自己管理模型 Key 的人。
+**Who it is for**: people reading nonfiction, history, and research material who want a book to become an article, a set of cards, or shareable content; people with an existing library who want cross-book connections back; people who prefer their data on-device and their own model keys.
 
-**不适合谁**：只想要一个纯阅读器、不需要 AI 的人；依赖手机端或多人实时协作的人；完全不希望配置 API Key、也不接受本地模型配置的人。当前只验证 macOS，Windows/Linux 暂不发布安装包。
+**Who it is not for**: people who want a plain reader with no AI; people who need mobile or real-time collaboration; people unwilling to configure an API key or a local model. Only macOS is verified today.
 
 ---
 
-## 安装与构建
+## Build from source
 
-如果 Electron 二进制下载很慢，先设置镜像再安装：
+If the Electron binary download is slow, set a mirror first:
 
 ```bash
 ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ pnpm install
 ```
 
-pnpm 10+ 默认拦截依赖的构建脚本；项目里的 `pnpm-workspace.yaml` 已经放行 `electron` 和 `esbuild`。
+pnpm 10+ blocks dependency build scripts by default; `pnpm-workspace.yaml` already allows `electron` and `esbuild`.
 
-生产构建：
+Production build:
 
 ```bash
 pnpm build
 pnpm start
 ```
 
-打包：
+Packaging:
 
 ```bash
-pnpm run pack      # 只生成当前平台的未签名应用目录
-pnpm dist:mac      # macOS dmg + zip（不签名、不公证）
-pnpm dist:win      # Windows nsis 安装包
+pnpm run pack      # unsigned app directory for the current platform
+pnpm dist:mac      # macOS dmg + zip (unsigned, unnotarized)
+pnpm dist:win      # Windows NSIS installer
 pnpm dist:linux    # Linux AppImage
-pnpm dist:all      # 三个平台一起构建（需要在对应系统或 CI 矩阵里跑）
+pnpm dist:all      # build all three platforms (run on each OS or in a CI matrix)
 ```
 
-产物在 `release/`。推送 `v*` tag 会触发 `.github/workflows/release.yml` 只构建 macOS 产物。
+Artifacts land in `release/`. Pushing a `v*` tag triggers `.github/workflows/release.yml`, which builds macOS artifacts only.
 
 ---
 
-## 接模型
+## Connecting a model
 
-右上角设置 → 选服务商 → 填 Base URL、模型、API Key → 「测试连接」。模型输入框会按服务商给出推荐候选；配置 Key 后可以「从服务刷新模型列表」，在可搜索的列表里选择全部可用模型，也可以直接粘贴任意模型 ID。
+Settings → pick a provider → fill in Base URL, model, and API key → **Test connection**. The model field suggests candidates per provider; once a key is set you can **Refresh models** and pick from a searchable list, or paste any model ID.
 
-预置了 DeepSeek、智谱 GLM、Anthropic、OpenAI、Moonshot、阿里云百炼、OpenRouter、OpenCode Zen / Console、OpenCode Go、OpenDesign 和本地 Ollama，也可以填入任意 OpenAI 兼容端点。API Key 用系统钥匙串加密保存在本机；没有钥匙串时回退为 0600 权限的本地文件。
+Presets include DeepSeek, Zhipu GLM, Anthropic, OpenAI, Moonshot, Alibaba Cloud Bailian, OpenRouter, OpenCode Zen / Console, OpenCode Go, and local Ollama. Any OpenAI-compatible endpoint also works. Keys are encrypted in the system keychain, falling back to a `0600` file.
 
-设置里可以为读薄、成稿和工作台分别指定模型，留空使用全局模型；也可以选快速 / 标准 / 精读三档生成质量。还可以设置月度 AI 预算：按模型价格估算，到上限后新的生成会被拒绝，已经生成的内容和本地功能不受影响。
-
----
-
-## 功能
-
-> 下面是主线能力。逐项的行为细节、边界条件和失败处理见 [用户手册](docs/user-manual.md)。
-
-### 导入与解析
-
-- **电子书**：EPUB / PDF / MOBI / AZW3。EPUB 保留章节结构、排版和图片；MOBI 读取目录和章节；DRM 加密文件会明确报错。
-- **PDF**：优先按书签/大纲切章，没有书签时识别页首 Chapter / Part / 第 N 章，最后才按页分组；含图表的页面生成版式预览图。
-- **深度解析**：复杂 PDF 可选 Docling，保留版面、表格和图表，并按坐标重建代码块的换行与缩进。
-- **扫描版 PDF**：macOS PDFKit 渲染 + Vision 逐页 OCR，可指定起止页，单次最多 300 页，走后台任务中心。
-- **文档与网页**：DOCX / HTML / Markdown / TXT 保留标题层级并自动切章；网页去掉导航和广告后抽取正文，图片内联到本地；整书打印页递归按标题切章。
-- **划线**：Readwise CSV、Kindle `My Clippings.txt`、微信读书导出的 TXT/Markdown/HTML；每条划线保存为高亮笔记，标签和备注一起保留。
-- **自动清理**：本地规则识别封面、版权页、目录、广告、索引、乱码页并隐藏，可随时恢复；导入本身不调用模型。
-
-### 阅读与排版
-
-- **博客级排版**：宋体正文与标题、约 1.86 行高、墨蓝强调色，引用、行内代码、代码块、表格和图片都有完整样式。阅读器有墨蓝 / 纸色 / 纯白 / 暖色四套主题，全局生效。
-- **手动编辑正文**：直接改当前章节、删掉无意义内容，保存后写回 `formatted_html`，并自动去掉阅读器临时按钮和代码高亮包装。
-- **AI 排版**：一键清理广告、推广、重复标题、页码水印和乱码，整理标题、段落、引用和列表层级。每一处删除都列出原因和原文片段，可逐条保留，也可一键还原。
-- **代码块工具**：检查规范与错误符号、一键修复能确定的问题、把混进代码块的正文用该语言注释符注释掉、让模型解释代码并插入正文。
-- **图片理解**：视觉模型把 2–6 句说明插入正文；先试当前模型，接口明确不支持图片时，自动从已配置服务商里挑一个可用视觉模型，多个候选中优先便宜的。
-- **排版偏好**：字体、字号、行距、段距、首行缩进和版心宽度按书保存，通过 CSS 变量应用，不让模型生成任意 CSS。
-- **PDF 原版标注**：原版 PDF 查看器里可以直接框选一块区域做标注，支持黄/绿/蓝三色和备注；标注按书和页码保存，关掉重开仍在。工具栏「标注列表」可以查看全书标注并一键跳到对应页。
-- **边读边记**：选中正文浮出操作条——高亮、划线、删除线、清除标记、问 AI、AI 批注、分享、朗读、复制。
-
-### 读薄、卡片与问答
-
-- **三段式生成**：读薄 → 卡片 → 有限延伸，阶段顺序不跳步。面板显示「原文 X 字 → 读薄稿 Y 字（1/N）· 节数 · 卡片数 · 延伸数 · 审计补遗 · 未采纳 · 用时」。
-- **断言回查**：提炼卡片时顺带核对遗漏观点，结果进入「补遗」，不写回正文，保持正文可发布。
-- **问这一章**：只根据当前章节、读薄稿和卡片回答，引用可点回原文；「考考我」模式先反问，再顺着你的回答追问。
-- **相关笔记（页边回声）**：阅读时显示其他书里语义相近的笔记，打开是左右对读视图，不离开当前章节。
-- **讲给我听**：费曼自测，用自己的话解释这一章，AI 指出讲对、漏掉和理解偏的地方。
-- **模型对比**：用另一个模型重跑本章，结果存为独立快照并直接打开行级 diff，不覆盖当前笔记。
-
-### 知识地图与 AI 工作台
-
-- **知识地图**：以书和标签概念为节点，概念按共现连边，跨书概念单独标出；可筛选、搜索、拖动保存位置，导出 Mermaid 或 PNG。
-- **人物关系图**：本地全文扫描列人名候选，再分两步抽节点和关系；同名别名自动合并，标注出现章节，按方向显示「杀害 / 被杀害」这类互逆标签。
-- **AI 工作台**：按研究、深读、学习、整理四组组织 19 个工具，覆盖全库研究、作者圆桌、跨书综述、论证地图、自适应出题、概念合并和卡片去重。
-- **后台任务**：整本生成和整本排版有任务中心，写入本地数据库，重启后变「已暂停」，可跳过已完成章节继续。
-
-### 成书、分享与导出
-
-- **整本成书**：一次给未完成章节生成读薄稿，再合并、去重、补导语和过渡，做最后一轮去 AI 味润色。可选精炼版 / 完整版，以及克制准确 / 读者视角 / 有判断。
-- **按段重写**：选中一段只让模型重写这一段，应用前先看行级 diff。
-- **成稿版本**：每次合并保存为一个版本，可回看、另存、恢复为当前。
-- **导出**：复制全文、`.md`、不依赖外部资源的 `.html` 分享页、A4 排版 PDF。
-- **发布包**：`index.html`、`cover.png`（同时是 1200×630 OG 图）、`metadata.json`、BibTeX/RIS/APA 引用文件、可选 `notes.md`，打成 zip 丢到任意静态托管即可发布。
-- **分享卡**：金句卡 / 知识卡 / 读薄卡 / 整本书 / 长图 / 里程碑六种版式，纸、墨、苔绿三套主题，本地 Canvas 渲染。
-- **小红书图文**：一组 3:4 帖子图，自动加封面和结尾，把核心观点分页排完；可切换「精简 3 条」。
-
-### 笔记库、搜索与数据
-
-- **全局搜索**：`⌘K` / `Ctrl+K` 跨书名、章节正文和笔记搜索；关键词倒排索引先返回，本地语义检索随后补充，两路结果用 RRF 融合排序。
-- **笔记库**：按书、类型和标签筛选；「笔记审计」显示 AI/人工修改、引用核对状态和章节覆盖度；可导出带 YAML frontmatter 的 Markdown 文件夹，直接放进 Obsidian 或导入 Notion。
-- **笔记互链**：`[[笔记标题]]` 互相引用，自动显示反向链接、同书和跨书相关笔记。
-- **书架状态**：书架顶部有「继续阅读」，直接回到上次的章节；每本书的书卡上有「状态」下拉，可以选待读 / 在读 / 读完 / 已归档；新导入的书默认是待读，打开一章后自动变成在读。书架顶部按状态筛选并显示数量。
-- **零配置听读**：没配千问 TTS Key 时自动使用 macOS 内置语音，完全在本机合成、不产生费用；配了 Key 仍然走千问，音色和费用估算不变。
-- **阅读数据**：阅读时长、每日目标、连续天数、7/30/100 天里程碑徽章、月度/年度统计、周复盘、CSV 导出；统计页同时显示笔记质量和引用核对通过率。
-- **备份与恢复**：手动/自动备份、整库导出导入、应用锁、诊断包；合并、拆分、重新解析或删除书籍前自动备份。
-- **文件夹同步**：设置里选一个 iCloud Drive / Dropbox / NAS 文件夹，推送整库快照，其他设备拉取恢复；快照会自带书文件，换设备恢复不会缺书，所以体积会比本地备份大。可选填口令，用 AES-256-GCM 加密成 `.thinsync`，口令不落盘。除了整库恢复，还可以只把快照里较新的笔记、PDF 标注、书签、阅读位置、阅读统计、阅读计划和周复盘合并进当前库，不覆盖本地内容；本地没有的书会连同章节和书文件一起导入。不依赖自建服务端，恢复前会自动备份当前状态。
+You can assign separate models to condensing, composition, and the workbench, and choose a fast / standard / deep quality tier. A monthly AI budget can also be set: estimated from your model prices, new generation requests are rejected once the cap is reached, while existing content and local features keep working.
 
 ---
 
-## 数据在哪
+## Features
 
-macOS：`~/Library/Application Support/reading-notes/`
+> This is the mainline. For per-feature behavior, edge cases, and failure handling, see the [manual](docs/user-manual.md).
 
-| 路径 | 内容 |
+### Import and parsing
+
+- **Ebooks**: EPUB / PDF / MOBI / AZW3. EPUB keeps chapter structure, layout, and images; MOBI reads its TOC and chapters; DRM-protected files fail with a clear error.
+- **PDF**: chapters come from the bookmark outline first, then from page-top `Chapter` / `Part` / `第 N 章` headings, and only then from page grouping. Pages with figures get layout previews.
+- **Deep parsing**: optional Docling pass for complex PDFs, preserving layout, tables, and figures, and reconstructing code-block line breaks and indentation from coordinates.
+- **Scanned PDFs**: macOS PDFKit rendering plus per-page Vision OCR, with a page range, up to 300 pages per run, handled by the background task center.
+- **Documents and web**: DOCX / HTML / Markdown / TXT keep heading hierarchy and split into chapters automatically; web pages are stripped of navigation and ads, with images inlined locally.
+- **Highlights**: Readwise CSV, Kindle `My Clippings.txt`, and WeChat Reading exports. Each highlight becomes a highlight note, preserving tags and comments.
+- **Automatic cleanup**: local rules hide covers, copyright pages, TOCs, ads, indexes, and garbled pages, all reversible. Import itself never calls a model.
+
+### Reading and formatting
+
+- **Editorial typography**: serif body and headings, ~1.86 line height, ink-blue accent, and complete styling for quotes, inline code, code blocks, tables, and images. Four themes (ink blue / paper / white / warm), applied app-wide.
+- **Direct body editing**: edit the current chapter and remove noise; saves back to `formatted_html` and strips reader-only buttons and syntax-highlight wrappers.
+- **AI formatting**: one click removes ads, promos, duplicate headings, page watermarks, and garbled text, and normalizes heading, paragraph, quote, and list hierarchy. Every removal lists a reason and the original fragment; each can be kept individually, or the whole run reverted.
+- **Code block tools**: review conventions and error characters, one-click fix for definite errors, comment out prose that leaked into a code block using the language's own comment marker, and have the model explain code inline.
+- **Image understanding**: a vision model inserts 2–6 sentences into the body. It tries the current model first and, only on an explicit image-capability error, auto-selects another configured vision model — cheapest first.
+- **Layout preferences**: font, size, leading, paragraph spacing, first-line indent, and measure are stored per book as structured config applied through CSS variables. The model never emits arbitrary CSS.
+- **PDF annotations**: in the original-layout PDF viewer, drag a region to highlight it, with yellow / green / blue colors and a note. Annotations are stored per book and page and survive reopening. The toolbar's annotation list shows every annotation in the book and jumps to its page.
+- **Annotate while reading**: selecting text surfaces highlight, underline, strikethrough, clear, ask AI, AI margin note, share, read aloud, and copy.
+
+### Condensing, cards, and Q&A
+
+- **Three-stage pipeline**: condense → cards → bounded extension, in order. The panel reports original length, draft length, ratio, sections, cards, extensions, audit addenda, rejected material, and elapsed time.
+- **Claim audit**: card extraction also checks for missed claims. Results go into an addendum and never leak back into the publishable draft.
+- **Ask this chapter**: answers are grounded only in the current chapter, its condensed draft, and its cards. Citations jump back to the source text. Socratic mode asks first, then follows up on your answer.
+- **Margin echoes**: semantically related notes from other books appear while reading, opening into a side-by-side comparison view.
+- **Explain it back**: a Feynman self-test where you explain the chapter in your own words and the model reports what you covered, missed, or misread.
+- **Model comparison**: re-run a chapter with a different model, saved as an independent snapshot with an inline diff. The current notes are never overwritten.
+
+### Concept map and workbench
+
+- **Concept map**: books and tag-concepts as nodes, edges from co-occurrence, cross-book concepts flagged separately. Filter, search, persist node positions, export Mermaid or PNG.
+- **Character graph**: local full-text scan proposes name candidates, then a two-step model pass extracts nodes and relations. Aliases merge automatically, chapters are annotated, and inverse relations are labeled directionally.
+- **AI workbench**: 19 tools across research, deep reading, learning, and organizing — library-wide research, author roundtable, cross-book synthesis, argument map, adaptive quizzes, concept merge, card dedupe.
+- **Background jobs**: whole-book generation and formatting run in a task center persisted to SQLite. After a restart they resume as "paused", so finished chapters are never redone.
+
+### Composition, sharing, and export
+
+- **Book composition**: fill in missing chapters, then merge, dedupe, add framing and transitions, and run a final de-AI pass. Choose concise or full, and a stance from restrained to opinionated.
+- **Paragraph rewrite**: select a paragraph, have the model rewrite only that paragraph, review an inline diff before applying.
+- **Draft versions**: every merge is a version you can review, branch from, or restore.
+- **Export**: copy full text, `.md`, a self-contained `.html` share page, or a print-ready A4 PDF.
+- **Publishing bundle**: `index.html`, `cover.png` (also a 1200×630 OG image), `metadata.json`, BibTeX/RIS/APA citation files, optional `notes.md`, zipped and ready for any static host.
+- **Share cards**: quote, knowledge, condensed-chapter, whole-book, long-image, and milestone layouts; paper, ink, and moss themes; rendered locally on Canvas.
+- **Social carousel**: a set of 3:4 post images with an auto-generated cover and closing page, with a "top 3 only" mode.
+
+### Library, search, and data
+
+- **Global search**: `⌘K` / `Ctrl+K` across titles, chapter bodies, and notes. Keyword inverted index returns first, local semantic search follows, fused with RRF.
+- **Notes library**: filter by book, type, and tag; the audit view shows AI/human edits, citation verification status, and chapter coverage; export a Markdown folder with YAML frontmatter for Obsidian or Notion.
+- **Note linking**: `[[Note title]]` references, automatic backlinks, and same-book / cross-book related notes.
+- **Continue reading**: the shelf shows a continue card that jumps back to your last chapter. **Shelf status**: mark each book as to read / reading / finished / archived, filter the shelf by status with counts, and change it from the card. New imports start as to read and become reading when you open a chapter.
+- **Zero-config listening**: without a Qwen TTS key, ThinRead falls back to built-in macOS voices synthesized entirely on-device at no cost; with a key it still uses Qwen, with the same voices and cost estimates.
+- **Reading data**: time tracking, daily goals, streaks, 7/30/100-day milestone badges, monthly and yearly stats, weekly reviews, CSV export, plus note quality and citation pass rate.
+- **Backup and restore**: manual and automatic backups, whole-library export/import, app lock, and a diagnostics bundle.
+- **Folder sync**: pick an iCloud Drive / Dropbox / NAS folder, push a full-library snapshot, and restore it on another device. Snapshots include the book files themselves, so restoring on another device does not lose books; this makes them larger than local backups. An optional passphrase encrypts the snapshot with AES-256-GCM into a `.thinsync` file; the passphrase is never stored. Besides a full restore, you can merge only the newer notes, PDF annotations, bookmarks, reading positions, reading statistics, reading plans, and weekly reviews from a snapshot into the current library without overwriting local content. Books that do not exist locally are imported with their chapters and book files. No self-hosted server; the current state is backed up before restoring.
+
+---
+
+## Where the data lives
+
+macOS: `~/Library/Application Support/reading-notes/`
+
+| Path | Contents |
 | --- | --- |
-| `reading-notes.db` | SQLite：书、章节、笔记、语义向量、生成内容快照 |
-| `books/<id>/source.epub\|pdf` | 导入的原始文件 |
-| `settings.json` | 模型配置和加密后的 Key |
-| `backups/` | 手动/自动备份 zip，书文件按内容哈希去重 |
-| `ai-traces/` | 按天写入的 AI 步骤 JSONL，只记元数据，不记正文 |
-| `notes-cache/`、`tts-cache/` | 内容缓存和 TTS 音频缓存，可随时删除 |
-| `search-index.json.gz` | 全文倒排索引缓存 |
-| `models/` | BGE-small-zh 量化模型缓存（约 23MB） |
+| `reading-notes.db` | SQLite: books, chapters, notes, embeddings, generation snapshots |
+| `books/<id>/source.epub\|pdf` | Original imported files |
+| `settings.json` | Model config and encrypted keys |
+| `backups/` | Manual/automatic backup zips, book files deduplicated by content hash |
+| `ai-traces/` | Daily AI step JSONL — metadata only, never bodies |
+| `notes-cache/`, `tts-cache/` | Content and TTS caches, safe to delete |
+| `search-index.json.gz` | Full-text inverted index cache |
+| `models/` | BGE-small-zh quantized model cache (~23 MB) |
 
 ---
 
-## 项目结构
+## Project layout
 
 ```text
 electron/
-  main.ts             主进程入口、窗口、开发验证模式
-  ipc.ts              渲染层与主进程的 IPC 契约实现
-  ipc/extras.ts       书架状态、统计、同步和 PDF 标注的 IPC
-  ipc/parse.ts        IPC 参数的 zod 边界校验
-  db.ts               SQLite 存储、版本化迁移、书 / 章节 / 笔记 / 标记 / 排版结果
-  pdf.ts              Electron printToPDF：分享页 HTML → A4 PDF
-  import.ts           解析、自动清理并写入一本书
-  settings.ts         模型配置与 Key 的本地存储
-  html.ts             HTML 清洗、文本提取、图片占位与还原
-  ai/provider.ts      AI SDK provider 构造
-  ai/notes.ts         读薄、断言回查、核心卡片、有限延伸
-  ai/format.ts        AI 排版：结构化输出、移除核对、内容完整性校验
-  ai/tutor.ts         章节问答、苏格拉底追问、费曼自测评估
-  ai/lab.ts           AI 工作台：研究、圆桌、综述、论证、出题、合并与关系图
-  ai/book-compose.ts  整本成稿：分组改写、统一润色、去 AI 味与长文组装
-  ai/code-assist.ts   代码检查 / 修复 / 理解
-  ai/trace.ts         AI 步骤 JSONL trace：耗时、token、模型与错误
-  semantic.ts         本地语义索引：BGE-small-zh 嵌入、增量索引、跨书相关笔记
-  knowledge-map.ts    知识地图：书/概念节点、共现与归属连边
-  backup.ts           数据库快照、书籍/设置打包、自动备份与恢复
-  parsers/            EPUB / MOBI / PDF / Docling / OCR / 划线 / 网页
+  main.ts             Main process, windows, dev verification modes
+  ipc.ts              IPC contract between renderer and main
+  ipc/extras.ts       Shelf status, stats, sync, and PDF annotation IPC
+  ipc/parse.ts        Zod boundary validation for IPC arguments
+  db.ts               SQLite storage, versioned migrations, books/chapters/notes/marks/formatting
+  db-pdf.ts           PDF annotation CRUD
+  db-merge.ts         Merge notes, annotations, and bookmarks from a snapshot
+  sync.ts             Folder snapshot push, restore, and merge
+  sync-crypto.ts      AES-256-GCM encryption for sync snapshots
+  pdf.ts              Electron printToPDF: share-page HTML -> A4 PDF
+  import.ts           Parse, auto-clean, and persist a book
+  settings.ts         Local model config and key storage
+  html.ts             HTML sanitizing, text extraction, image placeholders
+  ai/provider.ts      AI SDK provider construction
+  ai/notes.ts         Condense, claim audit, core cards, bounded extension
+  ai/format.ts        AI formatting: structured output, removal audit, integrity check
+  ai/tutor.ts         Chapter Q&A, Socratic follow-ups, Feynman evaluation
+  ai/lab.ts           Workbench: research, roundtable, synthesis, arguments, quizzes, graphs
+  ai/book-compose.ts  Book composition: grouped rewrite, polish, de-AI pass, assembly
+  ai/code-assist.ts   Code review / fix / explain
+  ai/trace.ts         AI step JSONL traces: latency, tokens, model, errors
+  semantic.ts         Local embeddings, incremental index, cross-book related notes
+  knowledge-map.ts    Concept map: book/concept nodes, co-occurrence and ownership edges
+  backup.ts           Snapshots, book/settings packaging, automatic backup and restore
+  parsers/            EPUB / MOBI / PDF / Docling / OCR / highlights / web
 shared/
-  types.ts            主进程与渲染层共享的类型和 provider 预置
-  schemas.ts          zod 运行时 schema：AI 笔记、笔记、关系图、题目
+  types.ts            Shared types and provider presets
+  schemas.ts          Zod runtime schemas: AI notes, notes, graphs, quizzes
 src/
-  App.tsx             应用状态与流程编排
-  components/         书架、阅读器、笔记、成书、分享、内容库、相关笔记、听读、地图、工作台
-  lib/                分享卡、小红书图文、Mermaid、博客导出、搜索与链接
-  stories/            Storybook 隔离预览与主题装饰器
+  App.tsx             App state and flow orchestration
+  components/         Library, reader, notes, compose, share, content library, echo, TTS, maps, workbench
+  lib/                Share cards, carousel, Mermaid, blog export, search, links
+  stories/            Storybook isolation and theme decorators
 ```
 
 ---
 
-## 设计取舍
+## Design decisions
 
-1. **笔记是 block 级的，不是一篇可覆盖的 Markdown。** 每条笔记记录来源、作者（AI/我）、是否被人工编辑、引用的原文。这是「AI 自动生成」和「用户边读边改」能共存的前提。
-2. **章节也带来源标记和篇归属。** 每一章记录分类、是否隐藏、由规则还是 AI 判断，以及属于上篇/下篇。
-3. **目录页整页保留，不逐条拆开。** 只有真正的章级标题才切分，避免把目录条目混进章节列表。
-4. **先读薄，再提炼卡片，最后才延伸。** 卡片只从读薄稿里按压缩后字数提炼，不在原文上发散，避免制造卡片墙。
-5. **引用必须可校验。** 读书笔记最怕的不是总结得平庸，而是编造原文。
-6. **笔记链接分三层。** 显式 `[[标题]]`、自动反向链接、本地语义向量带来的同书/跨书相关笔记。
-7. **AI 排版只动显示层。** 清理结果单独存 `formatted_html`，原文永远保留；样式偏好是结构化配置。
-8. **本地优先。** 解析、存储、检索都在本机；笔记内容不会离开设备。
-9. **读薄稿和生成说明分开。** 未采纳内容、审计补遗属于生成报告，不进入导出的正文。
-10. **跨书关联用本地向量，不把笔记发出去。** 模型缺失时自动回退到标签匹配，界面不会因此空白。
-11. **阅读现场的 AI 有边界。** 问答和自测只使用当前章节、读薄稿和卡片，对不上就标记「待核对」。
-12. **知识地图是导航，不是本体论。** 连线表示共现或同属一本书，不代表严格的定义关系。
-13. **AI 工作台是编排层，不是新的事实来源。** 每个结果都标为草稿，引用仍应回到原文核对。
-14. **整本成稿不是把章节拼起来。** 小书单次终审；大书先按约 1.2 万字分组改写，再做全书终审。
-15. **生成内容是一等资产。** 每次生成都有来源、状态和版本；内容库负责找回、应用和清理。
+1. **Notes are block-level, not one overwritable Markdown blob.** Each note records its source, author (AI / human), whether it was hand-edited, and the quoted source. That is the precondition for "AI generates" and "the reader edits" to coexist.
+2. **Chapters carry provenance and part membership.** Each chapter records classification, visibility, whether a rule or the model decided it, and which part it belongs to.
+3. **TOC pages stay whole.** Only true chapter-level headings split, so table-of-contents entries never leak into the chapter list.
+4. **Condense first, then cards, then extension.** Cards are distilled from the condensed draft at its own length, never sprayed from the source — no card walls.
+5. **Citations must be verifiable.** The worst failure in reading notes is not a bland summary; it is an invented quotation.
+6. **Linking has three layers.** Explicit `[[title]]`, automatic backlinks, and local-embedding related notes within and across books.
+7. **AI formatting only touches the display layer.** Results live in `formatted_html`; the original is never destroyed, and style preferences stay structured.
+8. **Local-first.** Parsing, storage, and retrieval all run on-device; note content never leaves the machine.
+9. **Draft and provenance are separated.** Rejected material and audit addenda belong to the report, never to the exported body.
+10. **Cross-book links use local embeddings.** If the model is missing, tag matching takes over so the UI never goes blank.
+11. **In-reader AI has boundaries.** Q&A and self-tests use only the current chapter, its draft, and its cards; unmatched quotes are marked unverified.
+12. **The concept map is navigation, not ontology.** Edges mean co-occurrence or shared book, not a formal definitional relationship.
+13. **The workbench is an orchestration layer, not a new source of truth.** Every output is a draft, and citations still need checking against the source.
+14. **Composition is not concatenation.** Short books get a single final pass; long books are rewritten in ~12k-character groups before a whole-book review.
+15. **Generated content is a first-class asset.** Every run has provenance, status, and versions; the content library retrieves, applies, and cleans up.
 
 ---
 
-## 开发验证
+## Development and verification
 
 ```bash
-pnpm typecheck                 # 渲染层 + 主进程类型检查
-pnpm build                     # esbuild 主进程 + vite 渲染层
-pnpm test                      # 固定回归测试
-pnpm test:ui                   # 构建后启动无头 Electron 回归主要界面
-pnpm test:ui:pdf               # 一页 PDF 回归原版版式查看、翻页和缩放
-pnpm test:packaged             # 对 release/mac-*/*.app 跑打包产物冒烟
-pnpm test:e2e                  # 可选：用真实模型跑读薄 + 成稿 + 双人播客（消耗 token）
-pnpm eval:real                 # 可选：3 个固定章节的真实模型质量评测
+pnpm typecheck                 # renderer + main-process typecheck
+pnpm build                     # esbuild main process + vite renderer
+pnpm test                      # fixed regression suite
+pnpm test:ui                   # headless Electron smoke tests across main screens
+pnpm test:ui:pdf               # PDF original-layout viewer, paging, zoom
+pnpm test:packaged             # smoke test a packaged .app under release/mac-*
+pnpm test:e2e                  # optional: real model run of condense + compose + podcast
+pnpm eval:real                 # optional: quality eval on 3 fixed chapters
 node_modules/.bin/electron . --smoke-test
 ```
 
-AI 录制 / 回放（用于没有 API Key 的 CI）：
+AI record / replay for key-free CI:
 
 ```bash
-THINREAD_AI_RECORD_DIR=/tmp/ai-fixtures pnpm eval:real   # 录制
-THINREAD_AI_REPLAY_DIR=/tmp/ai-fixtures pnpm test        # 回放
+THINREAD_AI_RECORD_DIR=/tmp/ai-fixtures pnpm eval:real   # record
+THINREAD_AI_REPLAY_DIR=/tmp/ai-fixtures pnpm test        # replay
 ```
 
-界面验证可以用开发模式参数：
+UI verification via dev flags:
 
 ```bash
 node_modules/.bin/electron . --data-dir=/tmp/rn-demo --seed-demo --open-first \
   --screenshot=/tmp/reading-notes.png
 ```
 
-Storybook 隔离预览与像素基线：
+Storybook isolation and pixel baselines:
 
 ```bash
 pnpm storybook
@@ -396,69 +410,69 @@ pnpm capture:storybook -- --check
 
 ---
 
-## 已知限制
+## Known limitations
 
-- macOS 是主要验证平台；Windows / Linux 提供构建脚本，但 OCR 和 PDF 图表预览仍依赖 macOS Vision，其他平台会明确提示不支持。
-- 安装包未签名、未公证，首次打开需要在系统设置里手动允许。
-- PDF 默认是文字层重排阅读；扫描版需要走「扫描版 PDF（OCR）」入口。
-- 合并只读取已有读薄稿，不会回头逐字核对原文；润色后的稿子仍需人工过一遍。
-- 读薄的断言回查只检查章节前 24k 字，超长章节的尾部可能不在回查范围内。
-- AI 排版超过约 6 万字符的章节会提示不支持；长章节按约 14k 字分段，个别分段失败时保留原文。
-- 跨书语义关联首次使用会下载约 23MB 的 BGE-small-zh 量化模型，默认走 `hf-mirror.com`，可用 `HF_ENDPOINT` 换镜像。
-- 界面以中文为主，设置里可切到 English（Beta）；导出文案跟随界面语言，书籍正文和笔记保持原文。
-- HTML 分享页是纯文字排版，不包含书里的插图。
-- 保真审计是 AI 对照原文做的，不是形式化证明；它用来发现明显遗漏，不保证每个隐含意思都被显式写出。
+- macOS is the primary verified platform. Windows and Linux build scripts exist, but OCR and PDF figure previews still depend on macOS Vision and fail with a clear message elsewhere.
+- Builds are unsigned and unnotarized; the first launch needs a manual allow in System Settings.
+- PDF reading defaults to reflowed text. Scanned books must go through the dedicated OCR import path.
+- Composition only reads existing condensed drafts; it does not re-check the source word by word. A human pass is still expected.
+- Claim audit covers only the first 24k characters of a chapter, so the tail of very long chapters may fall outside it.
+- AI formatting rejects chapters over ~60k characters; long chapters are processed in ~14k-character segments, and a failed segment keeps its original text.
+- The first cross-book semantic run downloads a ~23 MB BGE-small-zh quantized model from `hf-mirror.com` by default; `HF_ENDPOINT` overrides it.
+- The UI is Chinese-first, with an English (Beta) option. Export copy follows the UI language; book bodies and notes stay in their original language.
+- The HTML share page is text-only and does not include book illustrations.
+- Fidelity auditing is an AI cross-check, not a formal proof. It catches obvious omissions, not every implicit meaning.
 
-更完整的边界条件见 [用户手册](docs/user-manual.md)。
+For the full set of edge cases, see the [manual](docs/user-manual.md).
 
 ---
 
-## 安装包与 Release
+## Release
 
-最新 macOS 未签名安装包见 [Releases](https://github.com/qweijiaq/ThinRead/releases)。当前 v0.2.0 是内测预发布，提供 arm64 DMG / zip 和完整内测 bundle；不做签名和公证，首次打开需要在系统设置里手动允许。v0.1.0 是第一个公开安装包。
+Latest unsigned macOS builds are on [Releases](https://github.com/qweijiaq/ThinRead/releases). v0.2.0 is a beta pre-release with arm64 DMG / zip and a full bundle. v0.1.0 was the first public build.
 
-推送 `v*` tag 的发布流程有一道硬门禁：先跑 `pnpm typecheck`、`pnpm test`、渲染层与 PDF 冒烟，并校验 tag 与 `package.json` 的版本号一致，通过后才复用同一份构建产物打包。发布 job 会上传 dmg、zip 和 blockmap（增量更新需要）。
+Pushing a `v*` tag runs a hard gate: typecheck, tests, renderer and PDF smoke tests, and a check that the tag matches `package.json` — only then is the same build artifact packaged. The release job uploads dmg, zip, and blockmaps (needed for incremental updates).
 
-签名是可选的：仓库里配好 `MAC_CERT_P12`、`MAC_CERT_PASSWORD`、`APPLE_ID`、`APPLE_APP_SPECIFIC_PASSWORD`、`APPLE_TEAM_ID` 后，会自动签名并公证；没有密钥时保持 ad-hoc 签名的未签名产物，流程不中断。未签名构建的自动更新默认关闭（`THINREAD_UPDATER=1` 可临时开启验证）。
+Signing is optional: set `MAC_CERT_P12`, `MAC_CERT_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, and `APPLE_TEAM_ID` in the repo to sign and notarize automatically. Without keys the pipeline keeps producing ad-hoc signed artifacts and does not fail. Auto-update is off for unsigned builds (`THINREAD_UPDATER=1` enables it temporarily for testing), because Squirrel on macOS requires a valid signature.
 
 ---
 
 ## Roadmap
 
-- [x] 本地优先的 EPUB/PDF/MOBI/网页导入、读薄、卡片、跨书相关笔记和知识地图
-- [x] 章节问答、费曼自测、AI 工作台、分享卡、小红书图文、Markdown/HTML/PDF 导出
-- [x] zod 边界校验、版本化 SQLite 迁移、AI trace、固定样例评测和 Storybook 视觉基线
-- [x] macOS 未签名安装包（v0.1.0）
-- [x] Docling 深度 PDF 解析、正文编辑、图片理解、代码检查/修复（v0.2.0）
-- [ ] 30–60 秒演示 GIF
-- [ ] Windows/Linux 实机验证
-- [ ] 数据库加密与端到端同步
+- [x] Local-first EPUB/PDF/MOBI/web import, condensing, cards, cross-book echoes, concept map
+- [x] Chapter Q&A, Feynman self-test, AI workbench, share cards, carousel, Markdown/HTML/PDF export
+- [x] Zod boundary validation, versioned SQLite migrations, AI traces, fixed-sample evals, Storybook visual baselines
+- [x] Unsigned macOS build (v0.1.0)
+- [x] Docling deep PDF parsing, body editing, image understanding, code review/fix (v0.2.0)
+- [ ] 30–60 second demo GIF
+- [ ] Windows / Linux verification
+- [ ] Database encryption and end-to-end sync
 
 ---
 
-## 更新记录
+## Changelog
 
-- **2026-11-11**：发布 v0.2.0。接入 Docling 深度解析，优先按书签/标题切章并恢复代码块换行与缩进；新增手动编辑正文、图片理解、代码检查/修复/理解；自动从已配置服务商中选择可用的视觉模型；清理 PDF 导入中的小图、项目符号和表格噪声。
-- **2026-11-08**：重新打包 v0.1.5 macOS arm64 内测包；应用功能与 v0.1.4 一致，官网同步白底/深色模式和留言服务。
-- **2026-11-06**：发布 v0.1.4 macOS arm64 内测包；加入阅读计划、应用锁、笔记审计/导出、版本 diff、按段重写、周复盘独立存储、千问 TTS 音色与 MP3/段落间隔、分享卡和小红书 daily-post 视觉重构；补齐开源协作文档和 CI 可移植性。
-- **2026-11-03**：发布 v0.1.3 macOS arm64 内测预发布包，校准 DeepSeek / 智谱 / Kimi / Anthropic / 阿里云百炼的 Base URL 和 Key 入口。
-- **2026-11-03**：发布 v0.1.2，为章节、读薄稿、成书、报告、周复盘等文章加入「复制全文」。
-- **2026-11-03**：发布 v0.1.1，加入首次引导、成本确认、内嵌手册和圆角图标。
-- **2026-11-01**：发布 v0.1.0 macOS arm64 未签名安装包；补充笔记回收站、PDF 页码记忆、AI 流式回答、持久化搜索索引、MIT License 和 macOS-only 发布流程。
+- **2026-11-11** — v0.2.0. Docling deep PDF parsing with outline-based chaptering and reconstructed code-block line breaks and indentation; direct body editing, image understanding, and code review/fix/explain; automatic selection of an available vision model; cleanup of small images, bullet symbols, and table noise in PDF imports.
+- **2026-11-08** — Repackaged v0.1.5 for macOS arm64; feature-identical to v0.1.4, with light/dark website updates.
+- **2026-11-06** — v0.1.4. Reading plans, app lock, note audit/export, version diffs, paragraph rewrite, weekly reviews, Qwen TTS voices with MP3 and paragraph gaps, share-card and carousel visual rework.
+- **2026-11-03** — v0.1.3, calibrating provider base URLs and key entry for DeepSeek, Zhipu, Kimi, Anthropic, and Alibaba Bailian.
+- **2026-11-03** — v0.1.2, adding "copy full text" across chapters, drafts, composed books, reports, and reviews.
+- **2026-11-03** — v0.1.1, adding onboarding, cost confirmation, the embedded manual, and the rounded icon.
+- **2026-11-01** — v0.1.0, the first unsigned macOS arm64 build.
 
 ---
 
-## 反馈与参与
+## Contributing
 
-- 问题、功能建议和评测样例：[GitHub Issues](https://github.com/qweijiaq/ThinRead/issues)
-- 开发环境、测试和提交约定：[CONTRIBUTING.md](CONTRIBUTING.md)
-- 安全问题请走私密报告：[SECURITY.md](SECURITY.md)
-- 社区行为准则：[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+- Bugs, feature requests, and eval samples: [GitHub Issues](https://github.com/qweijiaq/ThinRead/issues)
+- Dev setup, tests, and commit conventions: [CONTRIBUTING.md](CONTRIBUTING.md)
+- Security reports: [SECURITY.md](SECURITY.md)
+- Code of conduct: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 
-当前是 `0.2.x` 公开 beta：核心阅读、笔记、成书、分享和本地数据链路可用；同步、数据库加密、跨平台 OCR 和完整英文仍是后续工作。
+Currently a `0.2.x` public beta: reading, notes, composition, sharing, and the local data path are usable. Sync, database encryption, cross-platform OCR, and full English coverage remain ahead.
 
-最近更新：2026-11-11
+Last updated: 2026-11-11
 
 ## License
 
-MIT，见 [LICENSE](LICENSE)。
+MIT. See [LICENSE](LICENSE).
