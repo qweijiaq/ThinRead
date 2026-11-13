@@ -214,7 +214,7 @@ pnpm dist:all      # 三个平台一起构建（需要在对应系统或 CI 矩�
 
 右上角设置 → 选服务商 → 填 Base URL、模型、API Key → 「测试连接」。模型输入框会按服务商给出推荐候选；配置 Key 后可以「从服务刷新模型列表」，在可搜索的列表里选择全部可用模型，也可以直接粘贴任意模型 ID。
 
-预置了 DeepSeek、智谱 GLM、Anthropic、OpenAI、Moonshot、阿里云百炼、OpenRouter、OpenCode Zen / Console、OpenCode Go 和本地 Ollama，也可以填入任意 OpenAI 兼容端点。API Key 用系统钥匙串加密保存在本机；没有钥匙串时回退为 0600 权限的本地文件。
+预置了 DeepSeek、智谱 GLM、Anthropic、OpenAI、Moonshot、阿里云百炼、OpenRouter、OpenCode Zen / Console、OpenCode Go、OpenDesign 和本地 Ollama，也可以填入任意 OpenAI 兼容端点。API Key 用系统钥匙串加密保存在本机；没有钥匙串时回退为 0600 权限的本地文件。
 
 设置里可以为读薄、成稿和工作台分别指定模型，留空使用全局模型；也可以选快速 / 标准 / 精读三档生成质量。还可以设置月度 AI 预算：按模型价格估算，到上限后新的生成会被拒绝，已经生成的内容和本地功能不受影响。
 

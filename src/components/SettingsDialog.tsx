@@ -201,7 +201,8 @@ export function SettingsDialog({
       provider === 'lmstudio' ||
       provider === 'openrouter' ||
       provider === 'opencode' ||
-      provider === 'opencode-go'
+      provider === 'opencode-go' ||
+      provider === 'opendesign'
     if (canQuery) void refreshModels(false)
     // 只在打开设置或切换服务商时自动读取，避免输入 Base URL 时反复请求。
     // eslint-disable-next-line react-hooks/exhaustive-deps

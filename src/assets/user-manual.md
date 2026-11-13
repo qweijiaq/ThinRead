@@ -149,6 +149,7 @@ Key 使用 macOS 系统钥匙串加密后保存在 `settings.json`，不会以�
 | Moonshot Kimi | https://platform.kimi.com/console/api-keys | `https://api.moonshot.cn/v1` | 国际版改成 `https://api.moonshot.ai/v1` |
 | 阿里云百炼 | https://bailian.console.aliyun.com/cn-beijing/model/settings/api-key | `https://dashscope.aliyuncs.com/compatible-mode/v1` | 北京地域兼容地址；新账号建议用业务空间专属域名 |
 | OpenRouter | https://openrouter.ai/keys | `https://openrouter.ai/api/v1` | 一个 Key 访问多家模型；模型 ID 需要带厂商前缀 |
+| OpenDesign | https://open-design.ai/cloud/dashboard | `https://amr-link.open-design.ai/v1` | OpenDesign Cloud API；与客户端共用套餐额度 |
 | 本地 Ollama | https://ollama.com/download | `http://localhost:11434/v1` | 不需要 Key；先在本机安装并启动 Ollama |
 
 > 表中的 Base URL 是应用预设值。不同账号、区域或网关可能不同，**以服务商控制台文档为准**。如果预设和文档不一致，以文档为准手动修改。
@@ -218,6 +219,16 @@ Key 使用 macOS 系统钥匙串加密后保存在 `settings.json`，不会以�
 4. 模型 ID 要带厂商前缀，例如控制台里的 `anthropic/...`、`openai/...`。
 
 适合：一个 Key 对比多家模型。注意 OpenRouter 自身也会计费。
+
+#### OpenDesign
+
+1. 登录 https://open-design.ai/cloud/dashboard ，在 API keys 里创建 Key。
+2. 页边选择「OpenDesign」，Base URL 预设为 `https://amr-link.open-design.ai/v1`。
+3. 模型 ID 以账户里的 Model 列表为准；可以点设置里的刷新按钮读取 `/v1/models`。
+4. OpenDesign Cloud API 支持 Chat Completions、Responses 和 Messages；页边使用 Chat Completions。
+5. API 调用和 OpenDesign 客户端共用套餐额度，不会额外赠送一份。
+
+适合：已经有 OpenDesign 套餐，想把同一份额度用在读书笔记上。Free 账户通常只有少量试用额度，是否可调用以账户实际列表为准。
 
 #### 本地 Ollama
 

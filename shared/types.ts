@@ -849,6 +849,7 @@ export type ProviderId =
   | 'openrouter'
   | 'opencode'
   | 'opencode-go'
+  | 'opendesign'
   | 'ollama'
   | 'lmstudio'
 
@@ -952,6 +953,23 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     suggestedModels: ['gpt-6-luna', 'grok-4.7', 'kimi-k3.1-pro', 'deepseek-v4.1-flash'],
     keyUrl: 'https://opencode.ai/console/go',
     hint: 'OpenCode Go 是订阅制；统计页只记录 token，不按每 token 估算费用。',
+  },
+  {
+    id: 'opendesign',
+    label: 'OpenDesign',
+    baseUrl: 'https://amr-link.open-design.ai/v1',
+    defaultModel: 'deepseek-v4-flash',
+    suggestedModels: [
+      'deepseek-v4-flash',
+      'deepseek-v4.1-flash',
+      'deepseek-v4-pro',
+      'glm-5.3-flash',
+      'kimi-k2.7-code',
+      'claude-haiku-5-5',
+      'gpt-6-luna',
+    ],
+    keyUrl: 'https://open-design.ai/cloud/dashboard',
+    hint: 'OpenDesign Cloud API Key；和 OpenDesign 客户端共用套餐额度，模型以账户里的列表为准。',
   },
   {
     id: 'ollama',

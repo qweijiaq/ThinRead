@@ -40,6 +40,9 @@ export function supportsVision(config: ModelConfig): boolean {
   if (config.provider === 'opencode' || config.provider === 'opencode-go') {
     return /gpt-|claude|gemini|qwen.*vl|vision/.test(model)
   }
+  if (config.provider === 'opendesign') {
+    return /vision|gpt-|claude|gemini|qwen.*vl/.test(model)
+  }
   if (config.provider === 'ollama' || config.provider === 'lmstudio') {
     return /llava|vision|vl|omni|gemma-?3|minicpm-v/.test(model)
   }

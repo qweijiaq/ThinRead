@@ -46,7 +46,7 @@ function emptyRow(): AiUsageRow {
 
 function priceOf(pricing: AiModelPricing, model: string, provider?: string): AiModelPrice | null {
   // OpenCode Go 是订阅制，不按 token 计费；只统计 token，不估算金额。
-  if (provider === 'opencode-go') return null
+  if (provider === 'opencode-go' || provider === 'opendesign') return null
   const direct = pricing[model]
   if (direct) return direct
   const key = Object.keys(pricing).find((item) => item.toLowerCase() === model.toLowerCase())

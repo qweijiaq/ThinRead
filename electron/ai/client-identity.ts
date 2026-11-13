@@ -16,5 +16,9 @@ export function clientRequestHeaders(provider: ProviderId): Record<string, strin
   if (provider === 'opencode' || provider === 'opencode-go') {
     headers['x-opencode-session'] = OPENCODE_SESSION_ID
   }
+  if (provider === 'opendesign') {
+    headers['HTTP-Referer'] = 'https://open-design.ai'
+    headers['X-Title'] = 'ThinRead'
+  }
   return headers
 }
