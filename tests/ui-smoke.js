@@ -473,8 +473,17 @@
   assert(xhsPreview, '小红书图文没有生成预览图')
   const xhsCoverage = await waitFor(() => xhsModal.querySelector('.xhs-coverage'), '小红书知识点覆盖报告')
   assert(xhsCoverage.textContent.includes('/'), '小红书覆盖报告没有知识点数量')
-  const xhsScope = xhsModal.querySelector('.xhs-controls .share-segmented')
-  assert(xhsScope && [...xhsScope.querySelectorAll('button')].some((button) => button.textContent.trim() === '整本书'), '小红书没有范围切换')
+  const xhsSegments = [...xhsModal.querySelectorAll('.xhs-controls .share-segmented')]
+  const xhsScope = xhsSegments.find((segment) =>
+    [...segment.querySelectorAll('button')].some((button) => button.textContent.trim() === '整本书'),
+  )
+  assert(xhsScope, '小红书没有范围切换')
+  assert(
+    xhsSegments.some((segment) =>
+      [...segment.querySelectorAll('button')].some((button) => button.textContent.trim() === '章节图解'),
+    ),
+    '小红书没有图解模式',
+  )
   assert(xhsModal.querySelector('button[aria-label="选择章节"]'), '小红书章节范围没有章节选择')
   assert(
     [...xhsModal.querySelectorAll('button')].some((button) => button.textContent.trim() === '苔绿'),

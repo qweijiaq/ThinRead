@@ -32,6 +32,33 @@ function XhsPageGallery({ theme = 'paper' }: { theme?: 'paper' | 'ink' }): JSX.E
   )
 }
 
+function XhsDiagramGallery({ theme = 'paper' }: { theme?: 'paper' | 'ink' }): JSX.Element {
+  const plan = useMemo(
+    () =>
+      planXhsCarousel({
+        scope: 'chapter',
+        bookTitle: '页边样书',
+        author: '林一白',
+        chapterId: articleChapter.id,
+        chapterTitle: articleChapter.title,
+        chapters: [articleChapter],
+        notes: xhsNotes,
+        format: 'diagram',
+        measure: defaultMeasureContext(),
+      }),
+    [],
+  )
+  const contentIndex = plan.pages.findIndex((page) => page.kind === 'content')
+  const closingIndex = plan.pages.length - 1
+  return (
+    <div style={{ display: 'flex', gap: 28, alignItems: 'flex-start', padding: 32 }}>
+      <XhsPagePreview plan={plan} pageIndex={0} theme={theme} width={280} />
+      <XhsPagePreview plan={plan} pageIndex={Math.max(1, contentIndex)} theme={theme} width={280} />
+      <XhsPagePreview plan={plan} pageIndex={closingIndex} theme={theme} width={280} />
+    </div>
+  )
+}
+
 const meta = {
   title: '小红书 / XhsPagePreview',
   component: XhsPageGallery,
@@ -48,4 +75,14 @@ export const AllPages: Story = {
 export const AllPagesInk: Story = {
   name: '封面 / 内容 / 结尾 · 墨',
   render: () => <XhsPageGallery theme="ink" />,
+}
+
+export const DiagramPages: Story = {
+  name: '图解 / 封面 · 内容 · 结尾',
+  render: () => <XhsDiagramGallery />,
+}
+
+export const DiagramPagesInk: Story = {
+  name: '图解 / 封面 · 内容 · 结尾 · 墨',
+  render: () => <XhsDiagramGallery theme="ink" />,
 }

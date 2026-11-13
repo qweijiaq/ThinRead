@@ -143,3 +143,34 @@ test('concise mode keeps a curated seven-card story', () => {
   assert.equal(new Set(ids).size, 7)
   assert.ok(ids.every((id) => ['n0', 'n1', 'n2', 'n3', 'n4', 'n5', 'n6', 'n7', 'n8', 'n9'].includes(id)))
 })
+
+
+test('diagram mode picks six cards and gives each its own page', () => {
+  const { ctx } = measure()
+  const notes = Array.from({ length: 10 }, (_, index) =>
+    note(
+      `d${index}`,
+      index === 0 ? '拒绝是给重要的事让路' : `观点 ${index}`,
+      index === 0
+        ? '每一次拒绝，都不是在关上一扇门，而是在替真正想做的事保留空间。'
+        : index === 1
+          ? '首先准备超时，其次设计恢复，然后记录日志。'
+          : `这是第 ${index} 个观点，用来测试图解模式。`,
+    ),
+  )
+  const plan = planXhsCarousel({
+    scope: 'chapter',
+    bookTitle: '认知之书',
+    author: '作者',
+    chapterTitle: '第一章 认知',
+    chapters: CHAPTERS,
+    notes,
+    format: 'diagram',
+    measure: ctx,
+  })
+  assert.equal(plan.format, 'diagram')
+  assert.equal(plan.totalCards, 6)
+  const content = plan.pages.filter((page) => page.kind === 'content')
+  assert.equal(content.length, 6)
+  assert.ok(content.every((page) => page.parts.length === 1))
+})

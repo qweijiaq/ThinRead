@@ -16,6 +16,7 @@ import {
 
 export type XhsScope = 'chapter' | 'book'
 export type XhsTheme = ShareTheme
+export type XhsFormat = 'notes' | 'diagram'
 
 export interface XhsCarouselCard {
   id: string
@@ -45,6 +46,7 @@ export interface XhsCarouselPage {
 
 export interface XhsCarouselPlan {
   scope: XhsScope
+  format: XhsFormat
   title: string
   subtitle: string
   bookTitle: string
@@ -74,6 +76,7 @@ interface PlanInput {
   notes: Note[]
   title?: string
   concise?: boolean
+  format?: XhsFormat
   measure: MeasureContext
 }
 
@@ -175,16 +178,23 @@ function splitLead(content: string): { heading: string; body: string } {
 /** 小红书卡片标题要短；把过长标题的后半句放回正文。 */
 function cutHeading(text: string, max = 28): { display: string; rest: string } {
   if (text.length <= max) return { display: text, rest: '' }
-  const candidates = [text.split(/[：:]/)[0], text.split(/[，,]/)[0], text.split(/[；;]/)[0]]
+  const candidates = [
+    text.split(/[：:]/)[0],
+    text.split(/[，,]/)[0],
+    text.split(/[；;]/)[0],
+    text.split(/[、]/)[0],
+  ]
   for (const candidate of candidates) {
     const value = candidate?.trim() ?? ''
     if (value.length >= 8 && value.length <= max) {
-      const rest = text.slice(value.length).replace(/^[，,：:；;\s]+/, '').trim()
+      const rest = text.slice(value.length).replace(/^[，,：:；;、\s]+/, '').trim()
       return { display: value, rest }
     }
   }
-  const cut = text.slice(0, max - 1).trim()
-  return { display: `${cut}…`, rest: text.slice(max - 1).trim() }
+  let cut = text.slice(0, max - 1).trim()
+  const lastSpace = cut.lastIndexOf(' ')
+  if (lastSpace > max * 0.5) cut = cut.slice(0, lastSpace)
+  return { display: `${cut}…`, rest: text.slice(cut.length).replace(/^[，,：:；;、\s]+/, '').trim() }
 }
 
 function normalizeCard(note: Note, number: number, bookTitle: string, chapterTitle: string | null): XhsCarouselCard | null {
@@ -398,6 +408,106 @@ function coverHook(cards: XhsCarouselCard[]): string {
   return clipHook(text).replace(/[。.]$/, '')
 }
 
+type DiagramKind = 'contrast' | 'steps' | 'categories' | 'cause' | 'quote'
+
+interface DiagramSpec {
+  kind: DiagramKind
+  wrong?: string
+  right?: string
+  steps?: string[]
+  categories?: string[]
+  cause?: string
+  effect?: string
+}
+
+function splitSentences(text: string): string[] {
+  return text
+    .split(/(?<=[。！？!?；;])/)
+    .map((sentence) => sentence.trim())
+    .filter(Boolean)
+}
+
+function detectDiagram(heading: string, body: string): DiagramSpec {
+  const text = `${heading}。${body}`
+  const contrast = text.match(/不是([^，。！？；]{2,32})[，,]?\s*而是([^，。！？；]{2,48})/)
+  if (contrast) {
+    return { kind: 'contrast', wrong: contrast[1]!.trim(), right: contrast[2]!.trim() }
+  }
+
+  const stepSource = body || heading
+  const cleanStep = (part: string): string =>
+    part
+      .replace(/^[，,：:\s]+/, '')
+      .replace(/[，,；;。.]+$/, '')
+      .trim()
+  const numbered = stepSource
+    .split(/(?:第[一二三四五六七八九十]+步|[①②③④⑤⑥]|[1-9][.、])/)
+    .map(cleanStep)
+    .filter((part) => part.length >= 4)
+  if (numbered.length >= 2) {
+    return { kind: 'steps', steps: numbered.slice(0, 4) }
+  }
+
+  const sequenced = stepSource
+    .split(/(?:首先|其次|然后|最后|接着)/)
+    .map(cleanStep)
+    .filter((part) => part.length >= 4)
+  if (sequenced.length >= 2) {
+    return { kind: 'steps', steps: sequenced.slice(0, 4) }
+  }
+
+  const grouped = text.match(/(?:分为|分成|包括|有三种|有三类|有四种|有四类|有两类)([^。；]{6,70})/)
+  if (grouped) {
+    const items = grouped[1]!
+      .replace(/^[0-9一二三四五六七八九十百两]+\s*[类种个方面层步]?\s*[：:，,]?\s*/, '')
+      .replace(/[，,]\s*或/g, '、')
+      .split(/[、,，]/)
+      .map((item) => item.replace(/^[和及与\s]+/, '').trim())
+      .filter((item) => item.length >= 2)
+    if (items.length >= 2) return { kind: 'categories', categories: items.slice(0, 4) }
+  }
+
+  const listed = text.match(/([^。；]{4,}(?:、[^。；]{2,}){2,})/)
+  if (listed) {
+    const items = listed[1]!
+      .replace(/[，,]\s*或/g, '、')
+      .split(/[、]/)
+      .map((item) => item.replace(/^[和及与或\s]+/, '').replace(/[，,；;。.\s]+$/, '').trim())
+      .filter((item) => item.length >= 2)
+    if (items.length >= 3) return { kind: 'categories', categories: items.slice(0, 4) }
+  }
+
+  const cause = text.match(/(?:因为|由于)([^。]{4,50})[，,]?(?:所以|因此|导致|于是)([^。]{4,50})/)
+  if (cause) {
+    const clean = (value: string): string => value.replace(/[，,；;。.\s]+$/, '').trim()
+    return { kind: 'cause', cause: clean(cause[1]!), effect: clean(cause[2]!) }
+  }
+
+  return { kind: 'quote', right: splitSentences(body)[0] ?? '' }
+}
+
+function diagramScore(card: XhsCarouselCard): number {
+  const spec = detectDiagram(card.heading, card.body)
+  let score = cardScore(card)
+  if (spec.kind === 'contrast') score += 8
+  else if (spec.kind === 'steps') score += 7
+  else if (spec.kind === 'cause') score += 6
+  else if (spec.kind === 'categories') score += 5
+  else score += 1
+  if (card.heading.length >= 10 && card.heading.length <= 30) score += 2
+  return score
+}
+
+/** 图解模式只挑最适合画成图的观点，一条一页。 */
+function pickDiagramCards(cards: XhsCarouselCard[], limit = 6): XhsCarouselCard[] {
+  return cards
+    .map((card, index) => ({ card, index, score: diagramScore(card) }))
+    .sort((left, right) => right.score - left.score || left.index - right.index)
+    .slice(0, limit)
+    .sort((left, right) => left.index - right.index)
+    .map((entry) => entry.card)
+}
+
 export function planXhsCarousel(input: PlanInput): XhsCarouselPlan {
   const groups = contentGroups(input)
   const cards: XhsCarouselCard[] = []
@@ -407,9 +517,14 @@ export function planXhsCarousel(input: PlanInput): XhsCarouselPlan {
       if (card) cards.push(card)
     }
   }
-  const selectedCards = input.concise ? pickStoryCards(cards, 7) : cards
+  const diagram = input.format === 'diagram'
+  const selectedCards = diagram
+    ? pickDiagramCards(cards, 6)
+    : input.concise
+      ? pickStoryCards(cards, 7)
+      : cards
   // 小红书单篇最多 18 张；先按这个上限估算每页几张，保证字号还能看清。
-  const perPage = Math.max(2, Math.min(5, Math.ceil(selectedCards.length / 16)))
+  const perPage = diagram ? 1 : Math.max(2, Math.min(5, Math.ceil(selectedCards.length / 16)))
   const contentPages = groups.flatMap((group) => {
     const groupCards = selectedCards.filter((card) =>
       group.notes.some((note) => note.id === card.id),
@@ -425,7 +540,9 @@ export function planXhsCarousel(input: PlanInput): XhsCarouselPlan {
     input.scope === 'chapter'
       ? coverHook(selectedCards) ||
         (selectedCards.length > 0
-          ? `${t('这一章，我划了 ')}${selectedCards.length}${t(' 句重点')}`
+          ? diagram
+            ? `${t('这一章，我画了 ')}${selectedCards.length}${t(' 张图')}`
+            : `${t('这一章，我划了 ')}${selectedCards.length}${t(' 句重点')}`
           : input.chapterTitle || input.bookTitle)
       : input.bookTitle
   const title = input.title?.trim() || fallbackTitle
@@ -441,12 +558,14 @@ export function planXhsCarousel(input: PlanInput): XhsCarouselPlan {
   const covered = new Set(effectivePages.flatMap((page) => page.parts.map((part) => part.cardId))).size
   const warnings: string[] = []
   if (selectedCards.length === 0) warnings.push(t('还没有核心观点卡片。'))
+  if (diagram) warnings.push(t('图解模式会精选 6 条观点，其余知识点不会排入。'))
   if (pages.length > 18) warnings.push(`${t('共 ')}${pages.length}${t(' 页，小红书单篇最多 18 张，建议按章节生成或分多篇发布。')}`)
   if (selectedCards.length > 60) warnings.push(t('知识点较多，整套图会很长，建议按章节拆分。'))
   if (covered !== selectedCards.length) warnings.push(`${t('有 ')}${selectedCards.length - covered}${t(' 个知识点没有排进页面。')}`)
 
   return {
     scope: input.scope,
+    format: input.format ?? 'notes',
     title,
     subtitle,
     bookTitle: input.bookTitle,
@@ -805,7 +924,7 @@ function drawCover(ctx: CanvasRenderingContext2D, plan: XhsCarouselPlan, palette
   ctx.fill()
   ctx.restore()
 
-  drawTopBar(ctx, '页边 · 读书笔记', `${total}${t(' 页')}`, 'rgba(255, 248, 239, 0.78)')
+  drawTopBar(ctx, plan.format === 'diagram' ? t('页边 · 章节图解') : '页边 · 读书笔记', `${total}${t(' 页')}`, 'rgba(255, 248, 239, 0.78)')
 
   const chapterLine =
     plan.scope === 'chapter'
@@ -821,6 +940,14 @@ function drawCover(ctx: CanvasRenderingContext2D, plan: XhsCarouselPlan, palette
   const titleTop = 252
   ctx.font = title.font
   title.lines.forEach((line, index) => {
+    const tail = title.lines.length === 1 ? line.match(/^(.*?)(\d[\s\S]*)$/) : null
+    if (tail) {
+      ctx.fillStyle = ink
+      ctx.fillText(tail[1]!, LEFT, titleTop)
+      ctx.fillStyle = palette.highlight
+      ctx.fillText(tail[2]!, LEFT + ctx.measureText(tail[1]!).width, titleTop)
+      return
+    }
     ctx.fillStyle =
       title.lines.length > 1 && index === title.lines.length - 1 ? palette.highlight : ink
     ctx.fillText(line, LEFT, titleTop + index * title.lineHeight)
@@ -871,7 +998,7 @@ function drawCover(ctx: CanvasRenderingContext2D, plan: XhsCarouselPlan, palette
   strokeRoundRect(ctx, LEFT, PAGE_HEIGHT - 360, CONTENT_WIDTH, 220, 28, 'rgba(255, 248, 239, 0.22)')
   ctx.fillStyle = ink
   ctx.font = `800 52px ${SANS}`
-  ctx.fillText(`${plan.totalCards}${t(' 条划重点')}`, LEFT + 40, PAGE_HEIGHT - 300)
+  ctx.fillText(`${plan.totalCards}${plan.format === 'diagram' ? t(' 张图解') : t(' 条划重点')}`, LEFT + 40, PAGE_HEIGHT - 300)
   ctx.globalAlpha = 0.78
   ctx.font = `500 25px ${SANS}`
   ctx.fillText(`${total}${t(' 页 · 向右滑 →')}`, LEFT + 40, PAGE_HEIGHT - 228)
@@ -1072,6 +1199,265 @@ function closingScore(card: XhsCarouselCard): number {
   return score
 }
 
+function drawContrastDiagram(
+  ctx: CanvasRenderingContext2D,
+  spec: DiagramSpec,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  palette: XhsPalette,
+): void {
+  const wrong = fitText(ctx, spec.wrong ?? '', width - 56, height * 0.34, 34, 24, 1.5, SANS, '500')
+  const right = fitText(ctx, spec.right ?? '', width - 56, height * 0.38, 42, 28, 1.48, SANS, '700')
+  const boxA = 64 + wrong.lines.length * wrong.lineHeight + 26
+  const boxB = 64 + right.lines.length * right.lineHeight + 26
+  const arrow = 54
+  let cy = y + 10
+  const softBox = palette.dark ? 'rgba(255, 247, 234, 0.06)' : 'rgba(34, 26, 21, 0.05)'
+
+  fillRoundRect(ctx, x, cy, width, boxA, 22, softBox)
+  drawTracked(ctx, t('不是'), x + 30, cy + 20, `700 18px ${SANS}`, palette.muted, 2)
+  ctx.fillStyle = palette.soft
+  ctx.font = wrong.font
+  wrong.lines.forEach((line, index) => ctx.fillText(line, x + 30, cy + 58 + index * wrong.lineHeight))
+  cy += boxA
+
+  ctx.strokeStyle = palette.accent
+  ctx.lineWidth = 3
+  ctx.beginPath()
+  ctx.moveTo(x + 44, cy + 10)
+  ctx.lineTo(x + 44, cy + arrow - 18)
+  ctx.stroke()
+  ctx.fillStyle = palette.accent
+  ctx.beginPath()
+  ctx.moveTo(x + 36, cy + arrow - 20)
+  ctx.lineTo(x + 52, cy + arrow - 20)
+  ctx.lineTo(x + 44, cy + arrow - 6)
+  ctx.closePath()
+  ctx.fill()
+  cy += arrow
+
+  fillRoundRect(ctx, x, cy, width, boxB, 22, palette.accentSoft)
+  drawTracked(ctx, t('而是'), x + 30, cy + 20, `700 18px ${SANS}`, palette.accent, 2)
+  ctx.fillStyle = palette.ink
+  ctx.font = right.font
+  right.lines.forEach((line, index) => ctx.fillText(line, x + 30, cy + 58 + index * right.lineHeight))
+}
+
+function drawStepsDiagram(
+  ctx: CanvasRenderingContext2D,
+  steps: string[],
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  palette: XhsPalette,
+): void {
+  const items = steps.slice(0, 4)
+  const gap = 22
+  const rowHeight = Math.min(128, (height - gap * (items.length - 1)) / Math.max(1, items.length))
+  const total = rowHeight * items.length + gap * (items.length - 1)
+  let cy = y + Math.max(0, (height - total) / 2)
+  const circle = 54
+  const textX = x + circle + 28
+  const textWidth = width - circle - 28
+
+  items.forEach((step, index) => {
+    const text = fitText(ctx, step, textWidth, rowHeight - 8, 30, 22, 1.55, SANS, '500')
+    if (index < items.length - 1) {
+      ctx.fillStyle = palette.line
+      ctx.fillRect(x + circle / 2 - 1, cy + circle + 6, 2, gap + circle / 2)
+    }
+    fillRoundRect(ctx, x, cy + 2, circle, circle, 27, palette.accent)
+    ctx.fillStyle = palette.dark ? '#1a1210' : '#fff8ef'
+    ctx.font = `800 22px ${SANS}`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(String(index + 1), x + circle / 2, cy + circle / 2 + 3)
+    ctx.textAlign = 'left'
+    ctx.textBaseline = 'top'
+    ctx.fillStyle = palette.ink
+    ctx.font = text.font
+    text.lines.forEach((line, lineIndex) => ctx.fillText(line, textX, cy + 6 + lineIndex * text.lineHeight))
+    cy += rowHeight + gap
+  })
+}
+
+function drawCategoriesDiagram(
+  ctx: CanvasRenderingContext2D,
+  items: string[],
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  palette: XhsPalette,
+): void {
+  const gap = 22
+  const rows = Math.ceil(items.length / 2)
+  const cellWidth = (width - gap) / 2
+  const cellHeight = Math.min(210, (height - gap * (rows - 1)) / Math.max(1, rows))
+  const startY = y + Math.max(0, (height - (cellHeight * rows + gap * (rows - 1))) / 2)
+  const softBox = palette.dark ? 'rgba(255, 247, 234, 0.06)' : 'rgba(34, 26, 21, 0.05)'
+
+  items.forEach((item, index) => {
+    const col = index % 2
+    const row = Math.floor(index / 2)
+    const cx = x + col * (cellWidth + gap)
+    const cy = startY + row * (cellHeight + gap)
+    fillRoundRect(ctx, cx, cy, cellWidth, cellHeight, 22, index % 2 === 0 ? palette.accentSoft : softBox)
+    ctx.fillStyle = palette.accent
+    ctx.font = `800 20px ${SANS}`
+    ctx.fillText(String(index + 1).padStart(2, '0'), cx + 26, cy + 24)
+    const text = fitText(ctx, item, cellWidth - 52, cellHeight - 84, 32, 22, 1.5, SANS, '700')
+    const textTop =
+      cy + 62 + Math.max(0, (cellHeight - 86 - text.lines.length * text.lineHeight) / 2)
+    ctx.fillStyle = palette.ink
+    ctx.font = text.font
+    text.lines.forEach((line, lineIndex) => ctx.fillText(line, cx + 26, textTop + lineIndex * text.lineHeight))
+  })
+}
+
+function drawCauseDiagram(
+  ctx: CanvasRenderingContext2D,
+  spec: DiagramSpec,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  palette: XhsPalette,
+): void {
+  const cause = fitText(ctx, spec.cause ?? '', width - 56, height * 0.32, 34, 24, 1.5, SANS, '500')
+  const effect = fitText(ctx, spec.effect ?? '', width - 56, height * 0.36, 42, 28, 1.48, SANS, '700')
+  const boxA = 64 + cause.lines.length * cause.lineHeight + 26
+  const boxB = 64 + effect.lines.length * effect.lineHeight + 26
+  const arrow = 54
+  let cy = y + 10
+  const softBox = palette.dark ? 'rgba(255, 247, 234, 0.06)' : 'rgba(34, 26, 21, 0.05)'
+
+  fillRoundRect(ctx, x, cy, width, boxA, 22, softBox)
+  drawTracked(ctx, t('因为'), x + 30, cy + 20, `700 18px ${SANS}`, palette.muted, 2)
+  ctx.fillStyle = palette.soft
+  ctx.font = cause.font
+  cause.lines.forEach((line, index) => ctx.fillText(line, x + 30, cy + 58 + index * cause.lineHeight))
+  cy += boxA
+
+  ctx.strokeStyle = palette.accent
+  ctx.lineWidth = 3
+  ctx.beginPath()
+  ctx.moveTo(x + 44, cy + 10)
+  ctx.lineTo(x + 44, cy + arrow - 18)
+  ctx.stroke()
+  ctx.fillStyle = palette.accent
+  ctx.beginPath()
+  ctx.moveTo(x + 36, cy + arrow - 20)
+  ctx.lineTo(x + 52, cy + arrow - 20)
+  ctx.lineTo(x + 44, cy + arrow - 6)
+  ctx.closePath()
+  ctx.fill()
+  cy += arrow
+
+  fillRoundRect(ctx, x, cy, width, boxB, 22, palette.accentSoft)
+  drawTracked(ctx, t('所以'), x + 30, cy + 20, `700 18px ${SANS}`, palette.accent, 2)
+  ctx.fillStyle = palette.ink
+  ctx.font = effect.font
+  effect.lines.forEach((line, index) => ctx.fillText(line, x + 30, cy + 58 + index * effect.lineHeight))
+}
+
+function drawQuoteDiagram(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  palette: XhsPalette,
+): void {
+  ctx.save()
+  ctx.globalAlpha = palette.dark ? 0.08 : 0.07
+  ctx.fillStyle = palette.accent
+  ctx.font = `800 240px ${SANS}`
+  ctx.fillText('“', x - 16, y - 70)
+  ctx.restore()
+
+  const quote = fitText(ctx, text, width - 20, height - 90, 46, 30, 1.72, SANS, '700')
+  let cy = y + 30
+  ctx.fillStyle = palette.ink
+  ctx.font = quote.font
+  quote.lines.forEach((line, index) => ctx.fillText(line, x + 10, cy + index * quote.lineHeight))
+  cy += quote.lines.length * quote.lineHeight + 28
+  ctx.fillStyle = palette.accent
+  ctx.fillRect(x + 10, cy, 120, 6)
+}
+
+function drawDiagramPage(
+  ctx: CanvasRenderingContext2D,
+  plan: XhsCarouselPlan,
+  page: XhsCarouselPage,
+  pageIndex: number,
+  total: number,
+  palette: XhsPalette,
+): void {
+  ctx.fillStyle = palette.bg
+  ctx.fillRect(0, 0, PAGE_WIDTH, PAGE_HEIGHT)
+  drawSpine(ctx, palette.accent)
+
+  drawTopBar(
+    ctx,
+    t('页边 · 章节图解'),
+    `${String(pageIndex + 1).padStart(2, '0')} / ${String(total).padStart(2, '0')}`,
+    palette.muted,
+  )
+
+  const chapter = page.chapterTitle ?? plan.title
+  const header = fitText(ctx, chapter, CONTENT_WIDTH - 60, 46, 30, 21, 1.2, SANS, '800')
+  ctx.fillStyle = palette.accent
+  ctx.fillRect(LEFT, 146, 8, 34)
+  ctx.fillStyle = palette.ink
+  ctx.font = header.font
+  ctx.fillText(header.lines[0] ?? '', LEFT + 26, 145)
+  ctx.fillStyle = palette.muted
+  ctx.font = `600 17px ${SANS}`
+  ctx.fillText(`《${plan.bookTitle}》`, LEFT + 26, 190)
+  ctx.fillStyle = palette.line
+  ctx.fillRect(LEFT, 228, CONTENT_WIDTH, 1)
+
+  const part = page.parts[0]!
+  const headingText = joinText(part.headingLines)
+  const bodyText = joinText(part.bodyLines)
+  const spec = detectDiagram(headingText, bodyText)
+
+  drawTracked(
+    ctx,
+    `${t('图解')} ${String(pageIndex).padStart(2, '0')}`,
+    LEFT,
+    256,
+    `700 19px ${SANS}`,
+    palette.accent,
+    2,
+  )
+  const title = fitText(ctx, cutHeading(headingText, 22).display, CONTENT_WIDTH, 200, 54, 36, 1.3, SANS, '800')
+  const titleTop = 292
+  ctx.fillStyle = palette.ink
+  ctx.font = title.font
+  title.lines.forEach((line, index) => ctx.fillText(line, LEFT, titleTop + index * title.lineHeight))
+  const titleBottom = titleTop + title.lines.length * title.lineHeight
+
+  const diagramTop = titleBottom + 48
+  const diagramBottom = PAGE_HEIGHT - 200
+  const quoteText = spec.right || bodyText || headingText
+  if (spec.kind === 'contrast') drawContrastDiagram(ctx, spec, LEFT, diagramTop, CONTENT_WIDTH, diagramBottom - diagramTop, palette)
+  else if (spec.kind === 'steps') drawStepsDiagram(ctx, spec.steps ?? [], LEFT, diagramTop, CONTENT_WIDTH, diagramBottom - diagramTop, palette)
+  else if (spec.kind === 'categories') drawCategoriesDiagram(ctx, spec.categories ?? [], LEFT, diagramTop, CONTENT_WIDTH, diagramBottom - diagramTop, palette)
+  else if (spec.kind === 'cause') drawCauseDiagram(ctx, spec, LEFT, diagramTop, CONTENT_WIDTH, diagramBottom - diagramTop, palette)
+  else drawQuoteDiagram(ctx, quoteText, LEFT, diagramTop, CONTENT_WIDTH, diagramBottom - diagramTop, palette)
+
+  if (part.tags.length > 0) drawTagPills(ctx, part.tags, LEFT, PAGE_HEIGHT - 172, palette)
+
+  drawDots(ctx, palette, pageIndex, total)
+  drawFooter(ctx, palette, plan.brand)
+}
+
 function drawClosing(ctx: CanvasRenderingContext2D, plan: XhsCarouselPlan, palette: XhsPalette, total: number): void {
   const ground = palette.dark ? '#171210' : palette.accent
   const ink = '#fff8ef'
@@ -1160,6 +1546,7 @@ export function renderXhsPage(
   if (!page) throw new Error(t('页面不存在。'))
   if (page.kind === 'cover') drawCover(ctx, plan, palette, plan.pages.length)
   else if (page.kind === 'closing') drawClosing(ctx, plan, palette, plan.pages.length)
+  else if (plan.format === 'diagram') drawDiagramPage(ctx, plan, page, pageIndex, plan.pages.length, palette)
   else drawContent(ctx, plan, page, pageIndex, plan.pages.length, palette)
 }
 

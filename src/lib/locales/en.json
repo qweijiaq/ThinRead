@@ -1935,5 +1935,19 @@
   "这一章，我划了 ": "I highlighted ",
   " 句重点": " lines in this chapter",
   "不是": "NOT",
-  "而是": "BUT"
+  "而是": "BUT",
+  "因为": "BECAUSE",
+  "所以": "SO",
+  "页边 · 章节图解": "THINREAD · VISUAL NOTES",
+  "图解": "Diagram",
+  "内容形式": "Format",
+  "笔记卡": "Note cards",
+  "章节图解": "Chapter diagrams",
+  "一条观点一页，自动画成对照、步骤、分类或因果图。": "One idea per page, drawn as a contrast, steps, categories or cause-and-effect diagram.",
+  "按知识点排成卡片，适合直接分享笔记。": "Lay out knowledge points as cards, ready to share.",
+  " 条图解": " diagrams",
+  " 张图解": " diagrams",
+  "这一章，我画了 ": "I turned this chapter into ",
+  " 张图": " diagrams",
+  "图解模式会精选 6 条观点，其余知识点不会排入。": "Diagram mode selects 6 ideas; the remaining knowledge points are left out."
 }

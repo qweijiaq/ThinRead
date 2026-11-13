@@ -11,6 +11,7 @@ import {
   renderXhsPage,
   xhsPageFilename,
   type XhsCarouselPlan,
+  type XhsFormat,
   type XhsScope,
   type XhsTheme,
 } from '../lib/xhs-carousel.js'
@@ -49,6 +50,7 @@ export function XhsCarouselDialog({
     [chapterOptions, selectedChapterId],
   )
   const [concise, setConcise] = useState(false)
+  const [format, setFormat] = useState<XhsFormat>('notes')
   const [notes, setNotes] = useState<Note[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -126,6 +128,7 @@ export function XhsCarouselDialog({
         notes: [...notes, ...supplements],
         brand,
         concise,
+        format,
         title: titleTouched ? title : '',
         measure: ctx,
       })
@@ -135,7 +138,7 @@ export function XhsCarouselDialog({
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
-  }, [author, bookTitle, brand, chapters, concise, error, loading, notes, scope, selectedChapter?.title, selectedChapterId, supplements, title, titleTouched])
+  }, [author, bookTitle, brand, chapters, concise, error, format, loading, notes, scope, selectedChapter?.title, selectedChapterId, supplements, title, titleTouched])
 
   useEffect(() => {
     if (!plan || plan.totalCards === 0 || plan.pages.length === 0) {
@@ -178,6 +181,8 @@ export function XhsCarouselDialog({
   function switchScope(next: XhsScope): void {
     if (next === scope) return
     setScope(next)
+    setTitle('')
+    setTitleTouched(false)
   }
 
   async function suggestTitle(): Promise<void> {
@@ -358,9 +363,11 @@ export function XhsCarouselDialog({
               {loading
                 ? t('正在读取知识点…')
                 : coverage
-                  ? concise && coverage.covered < coverage.total
-                    ? `${t('精选')} ${coverage.covered} / ${coverage.total} ${t('个知识点')} · ${coverage.pages} ${t('页')}`
-                    : `${t('全部')} ${coverage.total} ${t('个知识点')} · ${coverage.pages} ${t('页')}`
+                  ? format === 'diagram'
+                    ? `${coverage.total}${t(' 条图解')} · ${coverage.pages} ${t('页')}`
+                    : concise && coverage.covered < coverage.total
+                      ? `${t('精选')} ${coverage.covered} / ${coverage.total} ${t('个知识点')} · ${coverage.pages} ${t('页')}`
+                      : `${t('全部')} ${coverage.total} ${t('个知识点')} · ${coverage.pages} ${t('页')}`
                   : t('还没有可排的知识点')}
             </p>
           </div>
@@ -447,6 +454,39 @@ export function XhsCarouselDialog({
           <div className="xhs-controls">
             <section className="xhs-section">
               <h3>{t('内容')}</h3>
+            <div className="xhs-control-group">
+              <span className="xhs-control-label">{t('内容形式')}</span>
+              <div className="share-segmented">
+                <button
+                  type="button"
+                  className={format === 'notes' ? 'active' : ''}
+                  onClick={() => {
+                    setFormat('notes')
+                    setTitle('')
+                    setTitleTouched(false)
+                  }}
+                >
+                  {t('笔记卡')}
+                </button>
+                <button
+                  type="button"
+                  className={format === 'diagram' ? 'active' : ''}
+                  onClick={() => {
+                    setFormat('diagram')
+                    setTitle('')
+                    setTitleTouched(false)
+                  }}
+                >
+                  {t('章节图解')}
+                </button>
+              </div>
+              <p className="share-hint">
+                {format === 'diagram'
+                  ? t('一条观点一页，自动画成对照、步骤、分类或因果图。')
+                  : t('按知识点排成卡片，适合直接分享笔记。')}
+              </p>
+            </div>
+
             {chapterOptions.length > 0 ? (
               <div className="xhs-control-group">
                 <span className="xhs-control-label">{t('范围')}</span>
@@ -483,6 +523,7 @@ export function XhsCarouselDialog({
               </div>
             ) : null}
 
+{format === 'notes' ? (
             <div className="xhs-control-group">
               <span className="xhs-control-label">{t('篇幅')}</span>
               <div className="share-segmented">
@@ -497,6 +538,8 @@ export function XhsCarouselDialog({
                 {t('精选会挑出更适合作为观点的卡片，排成一条叙事线；完整版会排进全部知识点。')}
               </p>
             </div>
+
+            ) : null}
 
             <div className="share-field">
               <div className="share-field-head">
