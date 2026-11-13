@@ -32,8 +32,6 @@ const STORIES = [
   '小红书-xhscarouseldialog--default',
   '小红书-xhspagepreview--all-pages',
   '小红书-xhspagepreview--all-pages-ink',
-  '小红书-xhspagepreview--diagram-pages',
-  '小红书-xhspagepreview--diagram-pages-ink',
   '听读-listenpanel--qwen',
 ]
 const CHECK = process.argv.includes('--check')
