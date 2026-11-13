@@ -123,7 +123,7 @@ export function SettingsDialog({
   const locale = useLocale()
   const [dailyGoal, setDailyGoalState] = useState(getDailyGoal)
   const [autoNext, setAutoNextState] = useState(getAutoNext)
-  const dialogRef = useDialogFocus<HTMLDivElement>(open, onClose, 'input, select, textarea')
+  const dialogRef = useDialogFocus<HTMLDivElement>(open, onClose, '.settings-body')
   const [backupBusy, setBackupBusy] = useState<string | null>(null)
   const [backupError, setBackupError] = useState<string | null>(null)
   const [backupNotice, setBackupNotice] = useState<string | null>(null)
@@ -662,7 +662,7 @@ export function SettingsDialog({
           </button>
         </div>
 
-        <div className={`settings-body${showAdvanced ? ' show-advanced' : ''}`}>
+        <div className={`settings-body${showAdvanced ? ' show-advanced' : ''}`} tabIndex={-1}>
         <div className="settings-quick-jump">
           <button
             type="button"

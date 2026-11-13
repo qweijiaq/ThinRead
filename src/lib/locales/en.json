@@ -977,7 +977,7 @@
   "章节回收站": "Chapter trash",
   "摘要": "Summary",
   "读薄": "Condense",
-  "问题": "Questions",
+  "问题": "QUESTION",
   "章节问答": "Chapter Q&A",
   "问这一章": "Ask this chapter",
   "问答模式": "Q&A mode",
@@ -1912,5 +1912,9 @@
   "精选会挑出更适合作为观点的卡片，排成一条叙事线；完整版会排进全部知识点。": "Story mode picks the cards that work best as ideas and arranges them into a narrative; Full mode includes every card.",
   "内容": "Content",
   "样式": "Style",
-  "THE LAST PAGE / 带走这一句": "THE LAST PAGE / ONE LINE TO KEEP"
+  "THE LAST PAGE / 带走这一句": "THE LAST PAGE / ONE LINE TO KEEP",
+  "反常识": "COUNTERINTUITIVE",
+  "方法": "METHOD",
+  "数据": "DATA",
+  "观点": "IDEA"
 }

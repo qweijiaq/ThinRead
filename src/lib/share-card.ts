@@ -410,6 +410,34 @@ function drawKnowledge(
   drawFooter(ctx, input, palette, width, height)
 }
 
+type PointKind = 'contrast' | 'method' | 'question' | 'number' | 'idea'
+
+const POINT_TAG: Record<PointKind, string> = {
+  contrast: t('反常识'),
+  method: t('方法'),
+  question: t('问题'),
+  number: t('数据'),
+  idea: t('观点'),
+}
+
+/** 判断一个知识点属于哪种“说法”，用于给卡片加一点编辑层次。 */
+function pointKind(text: string): PointKind {
+  if (/不是[^。！？]{1,24}[，,]?\s*而是/.test(text)) return 'contrast'
+  if (/(第[一二三四五六七八九十]+|首先|其次|然后|最后|步骤|做法|方法)/.test(text)) return 'method'
+  if (/[？?]/.test(text)) return 'question'
+  if (/\d/.test(text)) return 'number'
+  return 'idea'
+}
+
+function pointScore(text: string): number {
+  let score = Math.min(text.length, 80) / 40
+  if (pointKind(text) === 'contrast') score += 6
+  if (/真正|关键|本质|意味着|核心|其实/.test(text)) score += 3
+  if (/[？?]/.test(text)) score += 2
+  if (/\d/.test(text)) score += 1
+  return score
+}
+
 function drawCondensed(
   ctx: CanvasRenderingContext2D,
   input: ShareCardInput,
@@ -449,31 +477,76 @@ function drawCondensed(
   y += 48
 
   const gap = compact ? 26 : 32
-  const blocks = points.map((point) =>
+  // 不再把所有知识点平均罗列：先挑一条最像“观点”的做主角，其余降为支持层级。
+  const heroIndex = points.reduce(
+    (best, point, index) => (pointScore(point) > pointScore(points[best] ?? '') ? index : best),
+    0,
+  )
+  const hero = points[heroIndex] ?? points[0] ?? ''
+  const rest = points.filter((_, index) => index !== heroIndex).slice(0, compact ? 3 : 3)
+
+  const heroTag = POINT_TAG[pointKind(hero)]
+  const heroBlock = fitBlock(ctx, hero, {
+    width: contentWidth,
+    maxHeight: compact ? 230 : 280,
+    maxSize: compact ? 38 : points.length <= 4 ? 48 : 42,
+    minSize: 24,
+    lineHeight: 1.55,
+    family: SERIF,
+    weight: '500',
+  })
+  const restBlocks = rest.map((point) =>
     fitBlock(ctx, point, {
-      width: contentWidth - 58,
-      maxHeight: 180,
-      maxSize: compact ? 26 : 30,
-      minSize: 21,
-      lineHeight: 1.65,
+      width: contentWidth - 52,
+      maxHeight: 132,
+      maxSize: compact ? 22 : 24,
+      minSize: 18,
+      lineHeight: 1.7,
       family: SERIF,
       weight: '400',
     }),
   )
-  const totalHeight =
-    blocks.reduce((sum, block) => sum + Math.max(block.lines.length * block.lineHeight, 44), 0) +
-    Math.max(0, blocks.length - 1) * gap
-  const listTop = y + Math.min(64, Math.max(24, (height - 240 - y - totalHeight) / 3))
+  const heroHeight = heroBlock.lines.length * heroBlock.lineHeight
+  const restHeight = restBlocks.reduce(
+    (sum, block) => sum + Math.max(block.lines.length * block.lineHeight, 36),
+    0,
+  )
+  const rawTotal = 26 + heroHeight + 34 + restHeight + Math.max(0, rest.length - 1) * gap
+  // 观点少的时候把空白摊到条目之间，而不是全堆在底部。
+  const extra = Math.max(0, height - 260 - y - rawTotal)
+  const spread = Math.min(compact ? 52 : 76, extra / Math.max(1, rest.length + 1))
+  const totalHeight = rawTotal + spread * (rest.length + 1)
+  const listTop = y + Math.min(40, Math.max(16, (height - 260 - y - totalHeight) / 3))
+
   let cursor = listTop
-  blocks.forEach((block, index) => {
-    const point = points[index] ?? ''
+  drawTracked(ctx, heroTag, left, cursor, `500 10px ${SANS}`, palette.accent, 2)
+  cursor += 24
+  drawEmphasizedLines(
+    ctx,
+    heroBlock.lines,
+    left,
+    cursor,
+    heroBlock.lineHeight,
+    heroBlock.font,
+    findKeyPhrase(hero),
+    palette,
+    palette.ink,
+  )
+  cursor += heroHeight + 20 + spread * 0.6
+  drawAccentRule(ctx, palette, left, cursor, 40, 2)
+  cursor += 34 + spread * 0.4
+
+  rest.forEach((point, index) => {
+    const block = restBlocks[index]!
+    const kind = POINT_TAG[pointKind(point)]
     ctx.fillStyle = palette.accent
-    ctx.font = `500 22px ${SERIF}`
-    ctx.fillText(String(index + 1).padStart(2, '0'), left, cursor + 2)
+    ctx.font = `500 20px ${SERIF}`
+    ctx.fillText(String(index + 2).padStart(2, '0'), left, cursor + 2)
+    drawTracked(ctx, kind, left + 44, cursor - 14, `500 9px ${SANS}`, palette.muted, 1.8)
     drawEmphasizedLines(
       ctx,
       block.lines,
-      left + 52,
+      left + 44,
       cursor,
       block.lineHeight,
       block.font,
@@ -482,9 +555,9 @@ function drawCondensed(
       palette.soft,
     )
     const used = block.lines.length * block.lineHeight
-    cursor += Math.max(used, 44) + gap
-    if (index < blocks.length - 1) {
-      drawHairline(ctx, palette, left + 52, right, cursor - gap / 2)
+    cursor += Math.max(used, 36) + gap + spread
+    if (index < rest.length - 1) {
+      drawHairline(ctx, palette, left + 44, right, cursor - gap / 2)
     }
   })
 
