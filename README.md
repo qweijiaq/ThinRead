@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  <strong>English</strong> · <a href="README.zh-CN.md">简体中文</a> · <a href="website/">Website</a> · <a href="docs/user-manual.md">Manual</a> · <a href="https://github.com/qweijiaq/ThinRead/releases">Releases</a>
+  <strong>English</strong> · <a href="README.zh-CN.md">简体中文</a> · <a href="https://qweijiaq.github.io/ThinRead/">Website</a> · <a href="docs/user-manual.md">Manual</a> · <a href="https://github.com/qweijiaq/ThinRead/releases">Releases</a>
 </p>
 
 > Most reading tools optimize for **capture**: more highlights, more excerpts, a bigger library.
