@@ -143,3 +143,30 @@ test('concise mode keeps a curated seven-card story', () => {
   assert.equal(new Set(ids).size, 7)
   assert.ok(ids.every((id) => ['n0', 'n1', 'n2', 'n3', 'n4', 'n5', 'n6', 'n7', 'n8', 'n9'].includes(id)))
 })
+
+test('chapter posts stay within 18 pages while books can run longer', () => {
+  const { ctx } = measure()
+  const notes = Array.from({ length: 80 }, (_, index) =>
+    note(`p${index}`, `观点 ${index}`, `这是第 ${index} 个观点，用来测试页数上限。`),
+  )
+  const chapterPlan = planXhsCarousel({
+    scope: 'chapter',
+    bookTitle: '一本很长的书',
+    author: '作者',
+    chapterTitle: '第一章 认知',
+    chapters: CHAPTERS,
+    notes,
+    measure: ctx,
+  })
+  assert.ok(chapterPlan.pages.length <= 18, `单章页数应 <= 18，实际 ${chapterPlan.pages.length}`)
+
+  const bookPlan = planXhsCarousel({
+    scope: 'book',
+    bookTitle: '一本很长的书',
+    author: '作者',
+    chapters: CHAPTERS,
+    notes,
+    measure: ctx,
+  })
+  assert.ok(bookPlan.pages.length > 18, '全书不压缩，可以超过 18 页')
+})

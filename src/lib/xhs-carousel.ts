@@ -5,7 +5,6 @@ import { titleRepeatsContent } from './note-display.js'
 
 import {
   SHARE_SANS,
-  findKeyPhrase,
   drawTracked,
   drawTrackedRight,
   segmentText,
@@ -21,6 +20,7 @@ export interface XhsCarouselCard {
   heading: string
   body: string
   quote: string | null
+  role: string | null
   tags: string[]
   chapterId: string | null
   chapterTitle: string | null
@@ -33,6 +33,8 @@ export interface XhsCarouselPart {
   headingLines: string[]
   bodyLines: string[]
   tags: string[]
+  quote: string
+  role: string
   continuation: boolean
 }
 
@@ -81,6 +83,7 @@ const PAGE_HEIGHT = 1440
 const LEFT = 88
 const RIGHT = 88
 const CONTENT_WIDTH = PAGE_WIDTH - LEFT - RIGHT
+const CARD_TEXT_WIDTH = CONTENT_WIDTH - 134
 const CONTENT_HEIGHT = 940
 const CARD_GAP = 44
 const HEADING_SIZE = 42
@@ -225,6 +228,7 @@ function normalizeCard(note: Note, number: number, bookTitle: string, chapterTit
     heading: cut.display,
     body,
     quote: note.quote ? flatten(note.quote) : null,
+    role: note.role ? flatten(note.role) : null,
     tags: note.tags.slice(0, 4),
     chapterId: note.chapterId,
     chapterTitle,
@@ -289,13 +293,13 @@ function packCards(
     const headingLines = wrapLines(
       measure,
       card.heading,
-      CONTENT_WIDTH - 92,
+      CARD_TEXT_WIDTH,
       HEADING_SIZE,
       SANS,
       '700',
     )
     const bodyLines = card.body
-      ? wrapLines(measure, card.body, CONTENT_WIDTH - 92, BODY_SIZE, SANS, '400')
+      ? wrapLines(measure, card.body, CARD_TEXT_WIDTH, BODY_SIZE, SANS, '400')
       : []
     let cursor = 0
     let first = true
@@ -323,6 +327,8 @@ function packCards(
         headingLines: first ? headingLines : [],
         bodyLines: chunk,
         tags: first ? card.tags : [],
+        quote: first ? card.quote ?? '' : '',
+        role: first ? card.role ?? '' : '',
         continuation: !first,
       })
       used += gap + headingHeight + chunk.length * BODY_LINE_HEIGHT + metaHeight
@@ -420,17 +426,29 @@ export function planXhsCarousel(input: PlanInput): XhsCarouselPlan {
   }
   const selectedCards = input.concise ? pickStoryCards(cards, 7) : cards
   // 小红书单篇最多 18 张；先按这个上限估算每页几张，保证字号还能看清。
-  const perPage = Math.max(2, Math.min(5, Math.ceil(selectedCards.length / 16)))
-  const contentPages = groups.flatMap((group) => {
-    const groupCards = selectedCards.filter((card) =>
-      group.notes.some((note) => note.id === card.id),
-    )
-    return packCards(groupCards, group.chapterTitle, input.measure, perPage)
-  })
+  const buildPages = (perPage: number): XhsCarouselPage[] =>
+    groups.flatMap((group) => {
+      const groupCards = selectedCards.filter((card) =>
+        group.notes.some((note) => note.id === card.id),
+      )
+      return packCards(groupCards, group.chapterTitle, input.measure, perPage)
+    })
+  // 单章是发一篇小红书，必须 <= 18 张；全书可以拆成多篇，不压缩。
+  let perPage = input.scope === 'book' ? 2 : Math.max(2, Math.ceil(selectedCards.length / 16))
+  let contentPages = buildPages(perPage)
+  if (input.scope === 'chapter') {
+    while (contentPages.length > 16 && perPage < 20) {
+      perPage += 1
+      contentPages = buildPages(perPage)
+    }
+  }
   const singleCardPages = contentPages.flatMap((page) =>
     page.parts.map((part) => ({ ...page, parts: [part] })),
   )
-  const effectivePages = singleCardPages.length + 2 <= 18 ? singleCardPages : contentPages
+  let effectivePages = singleCardPages.length + 2 <= 18 ? singleCardPages : contentPages
+  if (input.scope === 'chapter' && effectivePages.length > 16) {
+    effectivePages = effectivePages.slice(0, 16)
+  }
   const chapterTitles = [...new Set(selectedCards.map((card) => card.chapterTitle).filter(Boolean))] as string[]
   const fallbackTitle =
     input.scope === 'chapter'
@@ -693,11 +711,13 @@ function drawTagPills(
   x: number,
   y: number,
   palette: XhsPalette,
+  maxWidth = CONTENT_WIDTH,
 ): void {
   let cursor = x
   for (const tag of tags.slice(0, 3)) {
     ctx.font = `600 17px ${SANS}`
     const width = ctx.measureText(tag).width + 30
+    if (cursor + width > x + maxWidth) break
     fillRoundRect(ctx, cursor, y, width, 36, 18, palette.accentSoft)
     ctx.fillStyle = palette.accent
     ctx.textBaseline = 'middle'
@@ -855,6 +875,27 @@ function drawHighlightedLines(
   })
 }
 
+function fitOneLine(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  width: number,
+  font: string,
+): string {
+  ctx.font = font
+  if (ctx.measureText(text).width <= width) return text
+  let end = text.length
+  while (end > 0 && ctx.measureText(`${text.slice(0, end).trimEnd()}…`).width > width) end -= 1
+  return `${text.slice(0, end).trimEnd()}…`
+}
+
+function highlightTerm(part: XhsCarouselPart): string {
+  const text = joinText(part.bodyLines)
+  const tag = part.tags.find((item) => item.length >= 3 && text.includes(item))
+  if (tag) return tag
+  const contrast = text.match(/而是([^，。！？；]{2,12})/)
+  return contrast ? contrast[1]!.trim() : ''
+}
+
 function drawFeature(
   ctx: CanvasRenderingContext2D,
   page: XhsCarouselPage,
@@ -909,7 +950,7 @@ function drawFeature(
       body.size,
       body.lineHeight,
       body.font,
-      findKeyPhrase(bodyText),
+      highlightTerm(part),
       palette,
       palette.soft,
     )
@@ -917,7 +958,7 @@ function drawFeature(
   }
 
   if (part.tags.length > 0) {
-    drawTagPills(ctx, part.tags, LEFT + padding, y + 18, palette)
+    drawTagPills(ctx, part.tags, LEFT + padding, y + 18, palette, CONTENT_WIDTH - padding * 2)
   }
 }
 
@@ -935,7 +976,8 @@ function drawStack(
     const heading = part.headingLines.length * HEADING_LINE_HEIGHT
     const body = part.bodyLines.length * BODY_LINE_HEIGHT
     const tags = part.tags.length > 0 ? 40 : 0
-    return heading + (heading > 0 ? 20 : 0) + body + tags
+    const annotation = page.parts.length <= 2 && (part.quote || part.role) && part.bodyLines.length <= 3 ? 34 : 0
+    return heading + (heading > 0 ? 20 : 0) + body + tags + annotation
   }
   const cardHeight = (part: XhsCarouselPart): number => blockHeight(part) + padding * 2
   const totalHeight =
@@ -977,14 +1019,30 @@ function drawStack(
         BODY_SIZE,
         BODY_LINE_HEIGHT,
         `400 ${BODY_SIZE}px ${SANS}`,
-        findKeyPhrase(joinText(part.bodyLines)),
+        highlightTerm(part),
         palette,
         palette.soft,
       )
       cursor += part.bodyLines.length * BODY_LINE_HEIGHT
     }
+    if (page.parts.length <= 2 && part.bodyLines.length <= 3) {
+      const label = part.role ? t('作用') : part.quote ? t('原文') : ''
+      const annotation = part.role
+        ? part.role
+        : part.quote
+          ? `“${part.quote.replace(/[。.]$/, '')}”`
+          : ''
+      if (annotation) {
+        drawTracked(ctx, label, textX, cursor + 10, `700 14px ${SANS}`, palette.accent, 1.8)
+        const line = fitOneLine(ctx, annotation, CARD_TEXT_WIDTH - 44, `400 19px ${SANS}`)
+        ctx.fillStyle = palette.muted
+        ctx.font = `400 19px ${SANS}`
+        ctx.fillText(line, textX + 44, cursor + 8)
+        cursor += 32
+      }
+    }
     if (part.tags.length > 0) {
-      drawTagPills(ctx, part.tags, textX, cursor + 10, palette)
+      drawTagPills(ctx, part.tags, textX, cursor + 10, palette, CARD_TEXT_WIDTH)
     }
     y += height + gap
   })
