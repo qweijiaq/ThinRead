@@ -1,5 +1,5 @@
 {
-  "分享-sharecardpreview--quote-paper": "58b2ef1025001ba9b59b28e99d9abdfd7a311d43a6fea9918adf842b5c90ba7a",
+  "分享-sharecardpreview--quote-paper": "d1ab36449651e98ce0ca30b4376e809dc0eaf954ab6d6c7e4e6b0fca1e21c2b2",
   "分享-sharecardpreview--quote-ink": "129a5fac833a1f1df33f1414a4ecbd0910223cc4d8063c338449489e44e38b97",
   "分享-sharecardpreview--knowledge-ink": "329ee1537d2f7533680553b96d2c8d6e2a7748a49cbc268811f4a086ab8bd0fb",
   "分享-sharecardpreview--all-templates": "bb2a7d50fe492276c468253466d389893d93e2b5cbe292042db6acee34d3b525",
@@ -10,13 +10,13 @@
   "分享-sharedialog--deck": "3007f04f7fdf529134e6260f8f4562c88e3f3f4645f4bea0589aee477aecfdd2",
   "阅读-reader--folio-serif": "8d31bd1262ca61c8a5b7d39e4dfe4e209d49d467c69f8de60fc1246e7e845104",
   "阅读-reader--warm-serif": "8dbabda752369f46d520662d529221fcf105d20a98ca8613e7788cde6fe4fe71",
-  "书架-library--shelf": "24bdf201e7b018ea3e8af5da6d456949bea2f2ffd5629c3fd562d521edcc8c62",
+  "书架-library--shelf": "84a349018662a108d12ddc870b88f79c7433ba32fb9a49b88eeb60d1b1804076",
   "书架-library--warm-shelf": "87e0b498c4d8d39df18d2655dd80109c6302d29bf9e9f4b719dfde6b164e4b12",
   "笔记-notecard--point-with-quote": "670a9d4065b84140e8f5dc7cfc0604170f6c6f3f26457135e5b62a2b6fbd6c8d",
   "地图-knowledgemap--default": "d4005a8d847817a2dcd964d1e2bab0a9870ca4a2ec300abd91e0d6a0c0b20c21",
   "地图-labrelationgraph--default": "93c95f03e93ea20b42cebae6e8b7ecf76096a81e2f3d69d79ec6373bf6a5990d",
-  "小红书-xhscarouseldialog--default": "8dc0288290a215266ab530cf725c58f52d48c0916bd3ec4204fb8bb67beb2056",
-  "小红书-xhspagepreview--all-pages": "869659f3d04ed695baa19ad25aa426a8778e1a2ec99e2535000b9e0a527d4a16",
-  "小红书-xhspagepreview--all-pages-ink": "b98e7f71c78ea785a0a21d3545f72178c6e9de887eaa33c572cd5178a754e3d5",
-  "听读-listenpanel--qwen": "2003afd21777332cacf4d0ac1102e13d0ca4b22dcffc2b0bec6668bf30136619"
+  "小红书-xhscarouseldialog--default": "5e7ae64f28ffbbe1f9bf9fc1e835b5f0ed8dbce3cf7bff9a2b0784d1ca440374",
+  "小红书-xhspagepreview--all-pages": "163074cc93e32e910fb6d475c72f8fe01a8f698632594e043d6e0ee78aa5b8ab",
+  "小红书-xhspagepreview--all-pages-ink": "d39fe4e20bc95416ca743f1177ce2812cb6c4ba2e1b5f260d1ade53f4288ef76",
+  "听读-listenpanel--qwen": "f2479e90023bdc88df255a752caf50e6672e8e5a95cd0abb8847155dbafcd8cc"
 }

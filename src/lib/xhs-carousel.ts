@@ -172,6 +172,21 @@ function splitLead(content: string): { heading: string; body: string } {
   return { heading: text.slice(0, 74).trim(), body: text.slice(74).trim() }
 }
 
+/** 小红书卡片标题要短；把过长标题的后半句放回正文。 */
+function cutHeading(text: string, max = 28): { display: string; rest: string } {
+  if (text.length <= max) return { display: text, rest: '' }
+  const candidates = [text.split(/[：:]/)[0], text.split(/[，,]/)[0], text.split(/[；;]/)[0]]
+  for (const candidate of candidates) {
+    const value = candidate?.trim() ?? ''
+    if (value.length >= 8 && value.length <= max) {
+      const rest = text.slice(value.length).replace(/^[，,：:；;\s]+/, '').trim()
+      return { display: value, rest }
+    }
+  }
+  const cut = text.slice(0, max - 1).trim()
+  return { display: `${cut}…`, rest: text.slice(max - 1).trim() }
+}
+
 function normalizeCard(note: Note, number: number, bookTitle: string, chapterTitle: string | null): XhsCarouselCard | null {
   const content = flatten(
     note.content
@@ -190,12 +205,14 @@ function normalizeCard(note: Note, number: number, bookTitle: string, chapterTit
   } else {
     body = content
   }
+  const shortHeading = flatten(heading) || content.slice(0, 48)
+  const cut = cutHeading(shortHeading, 28)
+  if (cut.rest) body = [cut.rest, body].filter(Boolean).join(' ')
   if (body && body.length > 120) body = summarizeBody(body, 120)
-  const shortHeading = flatten(heading)
   return {
     id: note.id,
     number,
-    heading: shortHeading.length > 80 ? `${shortHeading.slice(0, 79)}…` : shortHeading || content.slice(0, 48),
+    heading: cut.display,
     body,
     tags: note.tags.slice(0, 4),
     chapterId: note.chapterId,
@@ -643,6 +660,120 @@ function drawDots(
   }
 }
 
+function drawSpine(ctx: CanvasRenderingContext2D, color: string): void {
+  ctx.fillStyle = color
+  ctx.fillRect(0, 0, 16, PAGE_HEIGHT)
+}
+
+function drawGhost(ctx: CanvasRenderingContext2D, text: string, palette: XhsPalette): void {
+  ctx.save()
+  ctx.globalAlpha = palette.dark ? 0.045 : 0.04
+  ctx.fillStyle = palette.accent
+  ctx.font = `800 300px ${SANS}`
+  ctx.textAlign = 'right'
+  ctx.fillText(text, PAGE_WIDTH - RIGHT + 24, 318)
+  ctx.restore()
+  ctx.textAlign = 'left'
+}
+
+function drawTagPills(
+  ctx: CanvasRenderingContext2D,
+  tags: string[],
+  x: number,
+  y: number,
+  palette: XhsPalette,
+): void {
+  let cursor = x
+  for (const tag of tags.slice(0, 3)) {
+    ctx.font = `600 17px ${SANS}`
+    const width = ctx.measureText(tag).width + 30
+    fillRoundRect(ctx, cursor, y, width, 36, 18, palette.accentSoft)
+    ctx.fillStyle = palette.accent
+    ctx.textBaseline = 'middle'
+    ctx.fillText(tag, cursor + 15, y + 19)
+    ctx.textBaseline = 'top'
+    cursor += width + 10
+  }
+}
+
+function parseContrast(text: string): { wrong: string; right: string } | null {
+  const match = text.match(/不是([^，。！？；]{2,32})[，,]?\s*而是([^，。！？；]{2,48})/)
+  if (!match) return null
+  return { wrong: match[1]!.trim(), right: match[2]!.trim() }
+}
+
+function drawContrastFeature(
+  ctx: CanvasRenderingContext2D,
+  part: XhsCarouselPart,
+  palette: XhsPalette,
+  heading: { lines: string[]; lineHeight: number; font: string },
+  bodyText: string,
+): void {
+  const contrast = parseContrast(bodyText)!
+  const areaTop = 300
+  const areaBottom = PAGE_HEIGHT - 236
+  const chip = 80
+  const wrong = fitText(ctx, contrast.wrong, CONTENT_WIDTH - 56, 110, 30, 22, 1.5, SANS, '500')
+  const right = fitText(ctx, contrast.right, CONTENT_WIDTH - 56, 150, 36, 26, 1.5, SANS, '700')
+  const boxA = 58 + wrong.lines.length * wrong.lineHeight + 24
+  const boxB = 58 + right.lines.length * right.lineHeight + 24
+  const arrow = 52
+  const headingHeight = heading.lines.length * heading.lineHeight
+  const tagsHeight = part.tags.length > 0 ? 46 : 0
+  const total = chip + 44 + headingHeight + 38 + boxA + arrow + boxB + tagsHeight
+  let y = areaTop + Math.max(0, (areaBottom - areaTop - total) / 2)
+
+  fillRoundRect(ctx, LEFT, y, chip, chip, 22, palette.accent)
+  ctx.fillStyle = palette.dark ? '#1a1210' : '#fff8ef'
+  ctx.font = `800 30px ${SANS}`
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(String(part.number).padStart(2, '0'), LEFT + chip / 2, y + chip / 2 + 1)
+  ctx.textAlign = 'left'
+  ctx.textBaseline = 'top'
+  drawTracked(ctx, t('划重点'), LEFT + chip + 24, y + 26, `700 22px ${SANS}`, palette.muted, 2)
+  y += chip + 44
+
+  ctx.fillStyle = palette.ink
+  ctx.font = heading.font
+  heading.lines.forEach((line, index) => ctx.fillText(line, LEFT, y + index * heading.lineHeight))
+  y += headingHeight + 38
+
+  const softBox = palette.dark ? 'rgba(255, 247, 234, 0.06)' : 'rgba(34, 26, 21, 0.05)'
+  fillRoundRect(ctx, LEFT, y, CONTENT_WIDTH, boxA, 20, softBox)
+  drawTracked(ctx, t('不是'), LEFT + 28, y + 18, `700 17px ${SANS}`, palette.muted, 2)
+  ctx.fillStyle = palette.soft
+  ctx.font = wrong.font
+  wrong.lines.forEach((line, index) => ctx.fillText(line, LEFT + 28, y + 54 + index * wrong.lineHeight))
+  y += boxA
+
+  ctx.strokeStyle = palette.accent
+  ctx.lineWidth = 3
+  ctx.beginPath()
+  ctx.moveTo(LEFT + 40, y + 10)
+  ctx.lineTo(LEFT + 40, y + arrow - 18)
+  ctx.stroke()
+  ctx.fillStyle = palette.accent
+  ctx.beginPath()
+  ctx.moveTo(LEFT + 32, y + arrow - 20)
+  ctx.lineTo(LEFT + 48, y + arrow - 20)
+  ctx.lineTo(LEFT + 40, y + arrow - 6)
+  ctx.closePath()
+  ctx.fill()
+  y += arrow
+
+  fillRoundRect(ctx, LEFT, y, CONTENT_WIDTH, boxB, 20, palette.accentSoft)
+  drawTracked(ctx, t('而是'), LEFT + 28, y + 18, `700 17px ${SANS}`, palette.accent, 2)
+  ctx.fillStyle = palette.ink
+  ctx.font = right.font
+  right.lines.forEach((line, index) => ctx.fillText(line, LEFT + 28, y + 54 + index * right.lineHeight))
+  y += boxB
+
+  if (part.tags.length > 0) {
+    drawTagPills(ctx, part.tags, LEFT, y + 8, palette)
+  }
+}
+
 function drawFooter(
   ctx: CanvasRenderingContext2D,
   palette: XhsPalette,
@@ -664,6 +795,7 @@ function drawCover(ctx: CanvasRenderingContext2D, plan: XhsCarouselPlan, palette
   const ink = '#fff8ef'
   ctx.fillStyle = ground
   ctx.fillRect(0, 0, PAGE_WIDTH, PAGE_HEIGHT)
+  drawSpine(ctx, palette.highlight)
 
   ctx.save()
   ctx.globalAlpha = palette.dark ? 0.08 : 0.12
@@ -687,9 +819,12 @@ function drawCover(ctx: CanvasRenderingContext2D, plan: XhsCarouselPlan, palette
 
   const title = fitText(ctx, plan.title, CONTENT_WIDTH, 560, 106, 58, 1.14, SANS, '800')
   const titleTop = 252
-  ctx.fillStyle = ink
   ctx.font = title.font
-  title.lines.forEach((line, index) => ctx.fillText(line, LEFT, titleTop + index * title.lineHeight))
+  title.lines.forEach((line, index) => {
+    ctx.fillStyle =
+      title.lines.length > 1 && index === title.lines.length - 1 ? palette.highlight : ink
+    ctx.fillText(line, LEFT, titleTop + index * title.lineHeight)
+  })
   const titleBottom = titleTop + title.lines.length * title.lineHeight
 
   ctx.fillStyle = palette.highlight
@@ -756,8 +891,13 @@ function drawFeature(
   const areaBottom = PAGE_HEIGHT - 236
 
   const headingText = joinText(part.headingLines)
-  const heading = fitText(ctx, headingText, CONTENT_WIDTH, 340, 68, 42, 1.32, SANS, '800')
   const bodyText = joinText(part.bodyLines)
+  const heading = fitText(ctx, headingText, CONTENT_WIDTH, 340, 68, 42, 1.32, SANS, '800')
+  const contrast = bodyText ? parseContrast(bodyText) : null
+  if (contrast) {
+    drawContrastFeature(ctx, part, palette, heading, bodyText)
+    return
+  }
   const body = bodyText ? fitText(ctx, bodyText, CONTENT_WIDTH, 460, 36, 26, 1.68, SANS, '400') : null
   const note = bodyText ? findKeyPhrase(bodyText) : ''
   const chip = 80
@@ -802,7 +942,7 @@ function drawFeature(
   }
 
   if (part.tags.length > 0) {
-    drawTracked(ctx, part.tags.slice(0, 3).join('   ·   '), LEFT, y + 24, `600 20px ${SANS}`, palette.muted, 1.6)
+    drawTagPills(ctx, part.tags, LEFT, y + 18, palette)
     y += tagsHeight
   }
 
@@ -875,15 +1015,7 @@ function drawStack(
       cursor += part.bodyLines.length * BODY_LINE_HEIGHT
     }
     if (part.tags.length > 0) {
-      drawTracked(
-        ctx,
-        part.tags.slice(0, 3).join('   ·   '),
-        LEFT + chip + 28,
-        cursor + 12,
-        `600 19px ${SANS}`,
-        palette.muted,
-        1.6,
-      )
+      drawTagPills(ctx, part.tags, LEFT + chip + 28, cursor + 8, palette)
     }
     y += blockHeight(part) + gap
   })
@@ -899,6 +1031,8 @@ function drawContent(
 ): void {
   ctx.fillStyle = palette.bg
   ctx.fillRect(0, 0, PAGE_WIDTH, PAGE_HEIGHT)
+  drawSpine(ctx, palette.accent)
+  drawGhost(ctx, String(page.parts[0]?.number ?? pageIndex + 1).padStart(2, '0'), palette)
 
   drawTopBar(
     ctx,
@@ -928,16 +1062,14 @@ function drawContent(
   drawFooter(ctx, palette, plan.brand)
 }
 
-/** 结尾选一句更像“人话”的句子；技术标题不适合当金句。 */
-function takeawayText(card: XhsCarouselCard): string {
-  const sentences = card.body
-    .split(/(?<=[。！？!?])/)
-    .map((sentence) => sentence.trim())
-    .filter((sentence) => sentence.length >= 12)
-  const preferred = sentences.find((sentence) =>
-    /不是|而是|真正|关键|本质|意味着|与其|不如/.test(sentence),
-  )
-  return (preferred ?? card.heading).replace(/[。.]$/, '').trim()
+/** 结尾金句更看重“人话”和反差，而不是信息量。 */
+function closingScore(card: XhsCarouselCard): number {
+  let score = 0
+  if (/不是|而是|真正|关键|本质|意味着|与其|不如/.test(card.heading)) score += 6
+  if (/[？?]$/.test(card.heading)) score += 3
+  if (card.heading.length >= 10 && card.heading.length <= 30) score += 2
+  if (/\d/.test(card.heading)) score -= 2
+  return score
 }
 
 function drawClosing(ctx: CanvasRenderingContext2D, plan: XhsCarouselPlan, palette: XhsPalette, total: number): void {
@@ -945,6 +1077,7 @@ function drawClosing(ctx: CanvasRenderingContext2D, plan: XhsCarouselPlan, palet
   const ink = '#fff8ef'
   ctx.fillStyle = ground
   ctx.fillRect(0, 0, PAGE_WIDTH, PAGE_HEIGHT)
+  drawSpine(ctx, palette.highlight)
 
   ctx.save()
   ctx.globalAlpha = palette.dark ? 0.08 : 0.12
@@ -968,38 +1101,34 @@ function drawClosing(ctx: CanvasRenderingContext2D, plan: XhsCarouselPlan, palet
   ctx.fillStyle = palette.highlight
   ctx.fillRect(LEFT, titleBottom + 26, 170, 10)
 
-  const takeaway = plan.cards.reduce(
-    (best, card) => (cardScore(card) > cardScore(best) ? card : best),
-    plan.cards[0]!,
-  )
+  const takeaway =
+    plan.cards
+      .filter(
+        (card) =>
+          card.heading.length >= 8 &&
+          card.heading.length <= 40 &&
+          !/[A-Za-z]{2,}/.test(card.heading),
+      )
+      .sort((left, right) => closingScore(right) - closingScore(left))[0] ?? plan.cards[plan.cards.length - 1]
+  let ctaTop = 858
   if (takeaway) {
-    fillRoundRect(ctx, LEFT, 520, CONTENT_WIDTH, 372, 28, 'rgba(255, 248, 239, 0.14)')
-    strokeRoundRect(ctx, LEFT, 520, CONTENT_WIDTH, 372, 28, 'rgba(255, 248, 239, 0.22)')
+    const quoteText = takeaway.heading.replace(/[。.]$/, '')
+    const quote = fitText(ctx, quoteText, CONTENT_WIDTH - 72, 176, 42, 28, 1.42, SANS, '700')
+    const cardHeight = 150 + quote.lines.length * quote.lineHeight
+    fillRoundRect(ctx, LEFT, 520, CONTENT_WIDTH, cardHeight, 28, 'rgba(255, 248, 239, 0.14)')
+    strokeRoundRect(ctx, LEFT, 520, CONTENT_WIDTH, cardHeight, 28, 'rgba(255, 248, 239, 0.22)')
     ctx.globalAlpha = 0.76
-    drawTracked(ctx, t('最想留给你的一句'), LEFT + 36, 556, `700 19px ${SANS}`, ink, 2)
+    drawTracked(ctx, t('最想留给你的一句'), LEFT + 36, 548, `700 19px ${SANS}`, ink, 2)
     ctx.globalAlpha = 1
-    const quoteText = takeawayText(takeaway)
-    const quote = fitText(ctx, quoteText, CONTENT_WIDTH - 72, 176, 40, 28, 1.42, SANS, '700')
     ctx.fillStyle = ink
     ctx.font = quote.font
-    quote.lines.forEach((line, index) => ctx.fillText(line, LEFT + 36, 604 + index * quote.lineHeight))
-    const quoteBottom = 604 + quote.lines.length * quote.lineHeight
-    const bodyText = quoteText === takeaway.heading ? takeaway.body : ''
-    const body = bodyText
-      ? fitText(ctx, bodyText, CONTENT_WIDTH - 72, 124, 25, 19, 1.65, SANS, '400')
-      : null
-    if (body) {
-      ctx.globalAlpha = 0.8
-      ctx.fillStyle = ink
-      ctx.font = body.font
-      body.lines.forEach((line, index) => ctx.fillText(line, LEFT + 36, quoteBottom + 26 + index * body.lineHeight))
-      ctx.globalAlpha = 1
-    }
+    quote.lines.forEach((line, index) => ctx.fillText(line, LEFT + 36, 586 + index * quote.lineHeight))
+    ctaTop = 520 + cardHeight + 56
   }
 
   ctx.fillStyle = ink
   ctx.font = `700 30px ${SANS}`
-  ctx.fillText(t('哪一句最戳你？评论区聊聊。'), LEFT, 952)
+  ctx.fillText(t('哪一句最戳你？评论区聊聊。'), LEFT, ctaTop)
   ctx.globalAlpha = 0.72
   ctx.font = `500 20px ${SANS}`
   ctx.fillText(
@@ -1007,7 +1136,7 @@ function drawClosing(ctx: CanvasRenderingContext2D, plan: XhsCarouselPlan, palet
       ? `${plan.bookTitle}${takeaway?.chapterTitle ? ` · ${takeaway.chapterTitle}` : ''}`
       : `${plan.bookTitle} · ${plan.author || t('未署名')}`,
     LEFT,
-    1002,
+    ctaTop + 50,
   )
   ctx.globalAlpha = 1
 
