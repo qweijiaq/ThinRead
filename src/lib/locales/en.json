@@ -1949,5 +1949,7 @@
   " 张图解": " diagrams",
   "这一章，我画了 ": "I turned this chapter into ",
   " 张图": " diagrams",
-  "图解模式会精选 6 条观点，其余知识点不会排入。": "Diagram mode selects 6 ideas; the remaining knowledge points are left out."
+  "图解模式会精选 6 条观点，其余知识点不会排入。": "Diagram mode selects 6 ideas; the remaining knowledge points are left out.",
+  "图解模式会精选 12 条观点，其余知识点不会排入。": "Diagram mode selects 12 ideas; the remaining knowledge points are left out.",
+  "批注": "Margin note"
 }

@@ -23,6 +23,7 @@ export interface XhsCarouselCard {
   number: number
   heading: string
   body: string
+  quote: string | null
   tags: string[]
   chapterId: string | null
   chapterTitle: string | null
@@ -177,6 +178,10 @@ function splitLead(content: string): { heading: string; body: string } {
 
 /** 小红书卡片标题要短；把过长标题的后半句放回正文。 */
 function cutHeading(text: string, max = 28): { display: string; rest: string } {
+  const colonParts = text.split(/[：:]/)
+  if (colonParts.length > 1 && colonParts[0]!.length >= 8 && /[、,，]/.test(colonParts.slice(1).join('：'))) {
+    return { display: colonParts[0]!.trim(), rest: colonParts.slice(1).join('：').trim() }
+  }
   if (text.length <= max) return { display: text, rest: '' }
   const candidates = [
     text.split(/[：:]/)[0],
@@ -224,6 +229,7 @@ function normalizeCard(note: Note, number: number, bookTitle: string, chapterTit
     number,
     heading: cut.display,
     body,
+    quote: note.quote ? flatten(note.quote) : null,
     tags: note.tags.slice(0, 4),
     chapterId: note.chapterId,
     chapterTitle,
@@ -519,7 +525,7 @@ export function planXhsCarousel(input: PlanInput): XhsCarouselPlan {
   }
   const diagram = input.format === 'diagram'
   const selectedCards = diagram
-    ? pickDiagramCards(cards, 6)
+    ? pickDiagramCards(cards, 12)
     : input.concise
       ? pickStoryCards(cards, 7)
       : cards
@@ -558,7 +564,7 @@ export function planXhsCarousel(input: PlanInput): XhsCarouselPlan {
   const covered = new Set(effectivePages.flatMap((page) => page.parts.map((part) => part.cardId))).size
   const warnings: string[] = []
   if (selectedCards.length === 0) warnings.push(t('还没有核心观点卡片。'))
-  if (diagram) warnings.push(t('图解模式会精选 6 条观点，其余知识点不会排入。'))
+  if (diagram) warnings.push(t('图解模式会精选 12 条观点，其余知识点不会排入。'))
   if (pages.length > 18) warnings.push(`${t('共 ')}${pages.length}${t(' 页，小红书单篇最多 18 张，建议按章节生成或分多篇发布。')}`)
   if (selectedCards.length > 60) warnings.push(t('知识点较多，整套图会很长，建议按章节拆分。'))
   if (covered !== selectedCards.length) warnings.push(`${t('有 ')}${selectedCards.length - covered}${t(' 个知识点没有排进页面。')}`)
@@ -1208,41 +1214,64 @@ function drawContrastDiagram(
   height: number,
   palette: XhsPalette,
 ): void {
-  const wrong = fitText(ctx, spec.wrong ?? '', width - 56, height * 0.34, 34, 24, 1.5, SANS, '500')
-  const right = fitText(ctx, spec.right ?? '', width - 56, height * 0.38, 42, 28, 1.48, SANS, '700')
-  const boxA = 64 + wrong.lines.length * wrong.lineHeight + 26
-  const boxB = 64 + right.lines.length * right.lineHeight + 26
-  const arrow = 54
-  let cy = y + 10
+  const gap = 76
+  const boxWidth = (width - gap) / 2
+  const boxHeight = Math.min(620, height - 20)
+  const boxY = y + 24
   const softBox = palette.dark ? 'rgba(255, 247, 234, 0.06)' : 'rgba(34, 26, 21, 0.05)'
 
-  fillRoundRect(ctx, x, cy, width, boxA, 22, softBox)
-  drawTracked(ctx, t('不是'), x + 30, cy + 20, `700 18px ${SANS}`, palette.muted, 2)
+  const wrong = fitText(ctx, spec.wrong ?? '', boxWidth - 56, boxHeight - 150, 40, 26, 1.5, SANS, '500')
+  const right = fitText(ctx, spec.right ?? '', boxWidth - 56, boxHeight - 150, 42, 28, 1.48, SANS, '700')
+
+  fillRoundRect(ctx, x, boxY, boxWidth, boxHeight, 24, softBox)
+  ctx.save()
+  ctx.globalAlpha = 0.06
+  ctx.fillStyle = palette.ink
+  ctx.font = `800 200px ${SANS}`
+  ctx.textAlign = 'right'
+  ctx.fillText('×', x + boxWidth - 26, boxY + boxHeight - 30)
+  ctx.restore()
+  ctx.textAlign = 'left'
+  const wrongGroup = 44 + wrong.lines.length * wrong.lineHeight
+  const wrongTop = boxY + Math.max(30, (boxHeight - wrongGroup) / 2)
+  drawTracked(ctx, t('不是'), x + 28, wrongTop, `700 20px ${SANS}`, palette.muted, 2)
   ctx.fillStyle = palette.soft
   ctx.font = wrong.font
-  wrong.lines.forEach((line, index) => ctx.fillText(line, x + 30, cy + 58 + index * wrong.lineHeight))
-  cy += boxA
+  wrong.lines.forEach((line, index) => ctx.fillText(line, x + 28, wrongTop + 44 + index * wrong.lineHeight))
 
+  const rightX = x + boxWidth + gap
+  fillRoundRect(ctx, rightX, boxY, boxWidth, boxHeight, 24, palette.accentSoft)
+  ctx.save()
+  ctx.globalAlpha = 0.08
+  ctx.fillStyle = palette.accent
+  ctx.font = `800 200px ${SANS}`
+  ctx.textAlign = 'right'
+  ctx.fillText('✓', rightX + boxWidth - 26, boxY + boxHeight - 30)
+  ctx.restore()
+  ctx.textAlign = 'left'
+  const rightGroup = 44 + right.lines.length * right.lineHeight
+  const rightTop = boxY + Math.max(30, (boxHeight - rightGroup) / 2)
+  drawTracked(ctx, t('而是'), rightX + 28, rightTop, `700 20px ${SANS}`, palette.accent, 2)
+  ctx.fillStyle = palette.ink
+  ctx.font = right.font
+  right.lines.forEach((line, index) => ctx.fillText(line, rightX + 28, rightTop + 44 + index * right.lineHeight))
+
+  const midY = boxY + boxHeight / 2
+  const arrowStart = x + boxWidth + 16
+  const arrowEnd = rightX - 16
   ctx.strokeStyle = palette.accent
-  ctx.lineWidth = 3
+  ctx.lineWidth = 4
   ctx.beginPath()
-  ctx.moveTo(x + 44, cy + 10)
-  ctx.lineTo(x + 44, cy + arrow - 18)
+  ctx.moveTo(arrowStart, midY)
+  ctx.lineTo(arrowEnd - 14, midY)
   ctx.stroke()
   ctx.fillStyle = palette.accent
   ctx.beginPath()
-  ctx.moveTo(x + 36, cy + arrow - 20)
-  ctx.lineTo(x + 52, cy + arrow - 20)
-  ctx.lineTo(x + 44, cy + arrow - 6)
+  ctx.moveTo(arrowEnd - 16, midY - 14)
+  ctx.lineTo(arrowEnd - 16, midY + 14)
+  ctx.lineTo(arrowEnd + 2, midY)
   ctx.closePath()
   ctx.fill()
-  cy += arrow
-
-  fillRoundRect(ctx, x, cy, width, boxB, 22, palette.accentSoft)
-  drawTracked(ctx, t('而是'), x + 30, cy + 20, `700 18px ${SANS}`, palette.accent, 2)
-  ctx.fillStyle = palette.ink
-  ctx.font = right.font
-  right.lines.forEach((line, index) => ctx.fillText(line, x + 30, cy + 58 + index * right.lineHeight))
 }
 
 function drawStepsDiagram(
@@ -1263,12 +1292,13 @@ function drawStepsDiagram(
   const textX = x + circle + 28
   const textWidth = width - circle - 28
 
+  const firstCenter = cy + circle / 2
+  const lastCenter = cy + (rowHeight + gap) * (items.length - 1) + circle / 2
+  ctx.fillStyle = palette.line
+  ctx.fillRect(x + circle / 2 - 1, firstCenter, 2, lastCenter - firstCenter)
+
   items.forEach((step, index) => {
-    const text = fitText(ctx, step, textWidth, rowHeight - 8, 30, 22, 1.55, SANS, '500')
-    if (index < items.length - 1) {
-      ctx.fillStyle = palette.line
-      ctx.fillRect(x + circle / 2 - 1, cy + circle + 6, 2, gap + circle / 2)
-    }
+    const text = fitText(ctx, step, textWidth, rowHeight - 8, 34, 24, 1.52, SANS, '500')
     fillRoundRect(ctx, x, cy + 2, circle, circle, 27, palette.accent)
     ctx.fillStyle = palette.dark ? '#1a1210' : '#fff8ef'
     ctx.font = `800 22px ${SANS}`
@@ -1309,7 +1339,7 @@ function drawCategoriesDiagram(
     ctx.fillStyle = palette.accent
     ctx.font = `800 20px ${SANS}`
     ctx.fillText(String(index + 1).padStart(2, '0'), cx + 26, cy + 24)
-    const text = fitText(ctx, item, cellWidth - 52, cellHeight - 84, 32, 22, 1.5, SANS, '700')
+    const text = fitText(ctx, item, cellWidth - 52, cellHeight - 84, 36, 24, 1.48, SANS, '700')
     const textTop =
       cy + 62 + Math.max(0, (cellHeight - 86 - text.lines.length * text.lineHeight) / 2)
     ctx.fillStyle = palette.ink
@@ -1327,8 +1357,8 @@ function drawCauseDiagram(
   height: number,
   palette: XhsPalette,
 ): void {
-  const cause = fitText(ctx, spec.cause ?? '', width - 56, height * 0.32, 34, 24, 1.5, SANS, '500')
-  const effect = fitText(ctx, spec.effect ?? '', width - 56, height * 0.36, 42, 28, 1.48, SANS, '700')
+  const cause = fitText(ctx, spec.cause ?? '', width - 64, height * 0.32, 38, 26, 1.5, SANS, '500')
+  const effect = fitText(ctx, spec.effect ?? '', width - 64, height * 0.38, 48, 30, 1.46, SANS, '700')
   const boxA = 64 + cause.lines.length * cause.lineHeight + 26
   const boxB = 64 + effect.lines.length * effect.lineHeight + 26
   const arrow = 54
@@ -1364,30 +1394,142 @@ function drawCauseDiagram(
   effect.lines.forEach((line, index) => ctx.fillText(line, x + 30, cy + 58 + index * effect.lineHeight))
 }
 
-function drawQuoteDiagram(
+function quoteEvidence(card: XhsCarouselCard | undefined, fallback: string): string {
+  if (!card) return fallback
+  if (card.quote) return card.quote
+  const sentences = splitSentences(card.body)
+  return (
+    sentences.find((sentence) => /不是|而是|真正|关键|本质|意味着/.test(sentence)) ??
+    sentences[0] ??
+    card.heading
+  )
+}
+
+function drawMarkedLines(
   ctx: CanvasRenderingContext2D,
-  text: string,
+  lines: string[],
+  x: number,
+  y: number,
+  size: number,
+  lineHeight: number,
+  font: string,
+  phrase: string,
+  palette: XhsPalette,
+): void {
+  ctx.font = font
+  lines.forEach((line, index) => {
+    const hit = phrase ? line.indexOf(phrase) : -1
+    if (hit >= 0) {
+      const prefix = line.slice(0, hit)
+      ctx.save()
+      ctx.globalAlpha = palette.dark ? 0.26 : 0.34
+      ctx.fillStyle = palette.highlight
+      ctx.fillRect(
+        x + ctx.measureText(prefix).width - 3,
+        y + index * lineHeight + size * 0.2,
+        ctx.measureText(phrase).width + 6,
+        size * 1.04,
+      )
+      ctx.restore()
+    }
+    ctx.fillStyle = palette.ink
+    ctx.fillText(line, x, y + index * lineHeight)
+  })
+}
+
+function drawBookQuote(
+  ctx: CanvasRenderingContext2D,
+  plan: XhsCarouselPlan,
+  card: XhsCarouselCard | undefined,
+  fallback: string,
   x: number,
   y: number,
   width: number,
   height: number,
   palette: XhsPalette,
 ): void {
+  const text = quoteEvidence(card, fallback)
+  const pad = 46
+  const quote = fitText(
+    ctx,
+    text.replace(/[。.]$/, ''),
+    width - pad * 2,
+    360,
+    44,
+    28,
+    1.82,
+    SANS,
+    '600',
+  )
+  const cardHeight = Math.min(
+    600,
+    Math.max(430, pad * 2 + 92 + quote.lines.length * quote.lineHeight),
+  )
+  const cardY = y + Math.max(0, (height - cardHeight) / 2)
+  const paper = palette.dark ? '#1d1916' : '#fffdf7'
+
   ctx.save()
-  ctx.globalAlpha = palette.dark ? 0.08 : 0.07
+  ctx.shadowColor = palette.dark ? 'rgba(0,0,0,0.5)' : 'rgba(40,30,20,0.16)'
+  ctx.shadowBlur = 34
+  ctx.shadowOffsetY = 16
+  fillRoundRect(ctx, x, cardY, width, cardHeight, 26, paper)
+  ctx.restore()
+  strokeRoundRect(ctx, x, cardY, width, cardHeight, 26, palette.line)
+
   ctx.fillStyle = palette.accent
-  ctx.font = `800 240px ${SANS}`
-  ctx.fillText('“', x - 16, y - 70)
+  ctx.fillRect(x, cardY + 28, 6, cardHeight - 56)
+
+  drawTracked(ctx, t('原文摘录'), x + pad, cardY + pad, `700 18px ${SANS}`, palette.accent, 2)
+  const quoteTop = cardY + pad + 46
+
+  // 想让它像一页真的书：淡淡的横线 + 行间留白。
+  ctx.save()
+  ctx.strokeStyle = palette.line
+  ctx.globalAlpha = 0.55
+  ctx.lineWidth = 1
+  for (let lineY = quoteTop + quote.lineHeight - 8; lineY < cardY + cardHeight - 72; lineY += quote.lineHeight) {
+    ctx.beginPath()
+    ctx.moveTo(x + pad, lineY)
+    ctx.lineTo(x + width - pad, lineY)
+    ctx.stroke()
+  }
   ctx.restore()
 
-  const quote = fitText(ctx, text, width - 20, height - 90, 46, 30, 1.72, SANS, '700')
-  let cy = y + 30
-  ctx.fillStyle = palette.ink
-  ctx.font = quote.font
-  quote.lines.forEach((line, index) => ctx.fillText(line, x + 10, cy + index * quote.lineHeight))
-  cy += quote.lines.length * quote.lineHeight + 28
+  drawMarkedLines(
+    ctx,
+    quote.lines,
+    x + pad,
+    quoteTop,
+    quote.size,
+    quote.lineHeight,
+    quote.font,
+    findKeyPhrase(text),
+    palette,
+  )
+
+  ctx.fillStyle = palette.muted
+  ctx.font = `600 18px ${SANS}`
+  const source = `《${plan.bookTitle}》${card?.chapterTitle ? ` · ${card.chapterTitle}` : ''}`
+  ctx.fillText(source, x + pad, cardY + cardHeight - pad - 14)
+  ctx.textAlign = 'right'
+  ctx.fillText(`P.${String(card?.number ?? 1).padStart(2, '0')}`, x + width - pad, cardY + cardHeight - pad - 14)
+  ctx.textAlign = 'left'
+}
+
+function drawEvidence(
+  ctx: CanvasRenderingContext2D,
+  quote: string,
+  x: number,
+  y: number,
+  width: number,
+  palette: XhsPalette,
+): void {
+  const text = fitText(ctx, `“${quote.replace(/[。.]$/, '')}”`, width - 30, 64, 21, 17, 1.55, SANS, '400')
   ctx.fillStyle = palette.accent
-  ctx.fillRect(x + 10, cy, 120, 6)
+  ctx.fillRect(x, y - 6, 4, text.lines.length * text.lineHeight + 12)
+  ctx.fillStyle = palette.muted
+  ctx.font = text.font
+  text.lines.forEach((line, index) => ctx.fillText(line, x + 20, y + index * text.lineHeight))
 }
 
 function drawDiagramPage(
@@ -1436,21 +1578,43 @@ function drawDiagramPage(
     palette.accent,
     2,
   )
-  const title = fitText(ctx, cutHeading(headingText, 22).display, CONTENT_WIDTH, 200, 54, 36, 1.3, SANS, '800')
+  const title = fitText(ctx, cutHeading(headingText, 26).display, CONTENT_WIDTH, 220, 56, 36, 1.3, SANS, '800')
   const titleTop = 292
   ctx.fillStyle = palette.ink
   ctx.font = title.font
   title.lines.forEach((line, index) => ctx.fillText(line, LEFT, titleTop + index * title.lineHeight))
   const titleBottom = titleTop + title.lines.length * title.lineHeight
 
-  const diagramTop = titleBottom + 48
-  const diagramBottom = PAGE_HEIGHT - 200
+  const diagramTop = titleBottom + 46
+  const diagramBottom = PAGE_HEIGHT - 198
+  const card = plan.cards.find((item) => item.id === part.cardId)
   const quoteText = spec.right || bodyText || headingText
   if (spec.kind === 'contrast') drawContrastDiagram(ctx, spec, LEFT, diagramTop, CONTENT_WIDTH, diagramBottom - diagramTop, palette)
   else if (spec.kind === 'steps') drawStepsDiagram(ctx, spec.steps ?? [], LEFT, diagramTop, CONTENT_WIDTH, diagramBottom - diagramTop, palette)
   else if (spec.kind === 'categories') drawCategoriesDiagram(ctx, spec.categories ?? [], LEFT, diagramTop, CONTENT_WIDTH, diagramBottom - diagramTop, palette)
   else if (spec.kind === 'cause') drawCauseDiagram(ctx, spec, LEFT, diagramTop, CONTENT_WIDTH, diagramBottom - diagramTop, palette)
-  else drawQuoteDiagram(ctx, quoteText, LEFT, diagramTop, CONTENT_WIDTH, diagramBottom - diagramTop, palette)
+  else drawBookQuote(ctx, plan, card, quoteText, LEFT, diagramTop, CONTENT_WIDTH, diagramBottom - diagramTop, palette)
+
+  if ((spec.kind === 'contrast' || spec.kind === 'cause') && card?.quote) {
+    drawEvidence(ctx, card.quote, LEFT, PAGE_HEIGHT - 314, CONTENT_WIDTH, palette)
+  }
+
+  if (spec.kind === 'categories' || spec.kind === 'steps') {
+    const sentences = splitSentences(bodyText)
+    const last = sentences[sentences.length - 1]?.replace(/[。.]$/, '').trim() ?? ''
+    const inSteps = (spec.steps ?? []).some((step) => last.includes(step) || step.includes(last))
+    if (last.length >= 10 && last.length <= 80 && !inSteps) {
+      const caption = fitText(ctx, last, CONTENT_WIDTH, 70, 24, 18, 1.55, SANS, '500')
+      ctx.fillStyle = palette.accent
+      ctx.fillRect(LEFT, PAGE_HEIGHT - 326, 28, 2)
+      drawTracked(ctx, t('所以'), LEFT, PAGE_HEIGHT - 304, `700 16px ${SANS}`, palette.accent, 2)
+      ctx.fillStyle = palette.soft
+      ctx.font = caption.font
+      caption.lines.forEach((line, index) =>
+        ctx.fillText(line, LEFT, PAGE_HEIGHT - 272 + index * caption.lineHeight),
+      )
+    }
+  }
 
   if (part.tags.length > 0) drawTagPills(ctx, part.tags, LEFT, PAGE_HEIGHT - 172, palette)
 

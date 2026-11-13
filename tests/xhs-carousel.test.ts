@@ -125,7 +125,7 @@ test('renders cover, content and closing pages at 1080 x 1440', () => {
 
 test('concise mode keeps a curated seven-card story', () => {
   const { ctx } = measure()
-  const notes = Array.from({ length: 10 }, (_, index) =>
+  const notes = Array.from({ length: 15 }, (_, index) =>
     note(`n${index}`, `知识点 ${index}`, `这是第 ${index} 个知识点的内容，用来测试精简模式。`),
   )
   const plan = planXhsCarousel({
@@ -145,9 +145,9 @@ test('concise mode keeps a curated seven-card story', () => {
 })
 
 
-test('diagram mode picks six cards and gives each its own page', () => {
+test('diagram mode picks up to twelve cards and gives each its own page', () => {
   const { ctx } = measure()
-  const notes = Array.from({ length: 10 }, (_, index) =>
+  const notes = Array.from({ length: 15 }, (_, index) =>
     note(
       `d${index}`,
       index === 0 ? '拒绝是给重要的事让路' : `观点 ${index}`,
@@ -169,8 +169,8 @@ test('diagram mode picks six cards and gives each its own page', () => {
     measure: ctx,
   })
   assert.equal(plan.format, 'diagram')
-  assert.equal(plan.totalCards, 6)
+  assert.equal(plan.totalCards, 12)
   const content = plan.pages.filter((page) => page.kind === 'content')
-  assert.equal(content.length, 6)
+  assert.equal(content.length, 12)
   assert.ok(content.every((page) => page.parts.length === 1))
 })
