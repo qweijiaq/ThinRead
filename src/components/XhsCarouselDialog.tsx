@@ -48,7 +48,7 @@ export function XhsCarouselDialog({
     () => chapterOptions.find((chapter) => chapter.id === selectedChapterId) ?? null,
     [chapterOptions, selectedChapterId],
   )
-  const [concise, setConcise] = useState(true)
+  const [concise, setConcise] = useState(false)
   const [notes, setNotes] = useState<Note[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -326,7 +326,15 @@ export function XhsCarouselDialog({
           <div>
             <p className="xhs-kicker">XHS CAROUSEL / 3:4</p>
             <h2>{modalTitle}</h2>
-            <p>{loading ? t('正在读取知识点…') : coverage ? `${coverage.total} ${t('个知识点')} · ${coverage.pages} ${t('页')}` : t('还没有可排的知识点')}</p>
+            <p>
+              {loading
+                ? t('正在读取知识点…')
+                : coverage
+                  ? concise && coverage.covered < coverage.total
+                    ? `${t('精选')} ${coverage.covered} / ${coverage.total} ${t('个知识点')} · ${coverage.pages} ${t('页')}`
+                    : `${t('全部')} ${coverage.total} ${t('个知识点')} · ${coverage.pages} ${t('页')}`
+                  : t('还没有可排的知识点')}
+            </p>
           </div>
           <button type="button" className="icon-button" onClick={onClose} aria-label={t('关闭')}>
             ×
@@ -451,7 +459,7 @@ export function XhsCarouselDialog({
               <span className="xhs-control-label">{t('篇幅')}</span>
               <div className="share-segmented">
                 <button type="button" className={!concise ? 'active' : ''} onClick={() => setConcise(false)}>
-                  {t('全部')}
+                  {t('全部知识点')}
                 </button>
                 <button type="button" className={concise ? 'active' : ''} onClick={() => setConcise(true)}>
                   {t('精选 7 条')}
