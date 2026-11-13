@@ -317,6 +317,29 @@ function packCards(
   return pages
 }
 
+/**
+ * 精选模式：不从第一张开始按顺序截断，而是挑出更像“观点”的卡片，
+ * 优先对比句、数字、问句和有标签的卡片，再按原顺序排成一条叙事线。
+ */
+function pickStoryCards(cards: XhsCarouselCard[], limit = 7): XhsCarouselCard[] {
+  if (cards.length <= limit) return cards
+  const score = (card: XhsCarouselCard): number => {
+    const text = `${card.heading} ${card.body}`
+    let value = 0
+    if (/不是|而是|与其|不如|真正|关键|本质|意味着/.test(text)) value += 4
+    if (/\d/.test(text)) value += 1
+    if (/[？?]$/.test(card.heading)) value += 2
+    if (card.tags.length > 0) value += 1
+    return value
+  }
+  return cards
+    .map((card, index) => ({ card, index, score: score(card) }))
+    .sort((left, right) => right.score - left.score || left.index - right.index)
+    .slice(0, limit)
+    .sort((left, right) => left.index - right.index)
+    .map((entry) => entry.card)
+}
+
 export function planXhsCarousel(input: PlanInput): XhsCarouselPlan {
   const groups = contentGroups(input)
   const cards: XhsCarouselCard[] = []
@@ -326,7 +349,7 @@ export function planXhsCarousel(input: PlanInput): XhsCarouselPlan {
       if (card) cards.push(card)
     }
   }
-  const selectedCards = input.concise ? cards.slice(0, 3) : cards
+  const selectedCards = input.concise ? pickStoryCards(cards, 7) : cards
   const contentPages = groups.flatMap((group) => {
     const groupCards = selectedCards.filter((card) =>
       group.notes.some((note) => note.id === card.id),
@@ -338,7 +361,11 @@ export function planXhsCarousel(input: PlanInput): XhsCarouselPlan {
   )
   const effectivePages = singleCardPages.length + 2 <= 18 ? singleCardPages : contentPages
   const chapterTitles = [...new Set(selectedCards.map((card) => card.chapterTitle).filter(Boolean))] as string[]
-  const title = input.title?.trim() || (input.scope === 'chapter' ? input.chapterTitle ?? input.bookTitle : input.bookTitle)
+  const fallbackTitle =
+    input.scope === 'chapter'
+      ? selectedCards[0]?.heading || input.chapterTitle || input.bookTitle
+      : input.bookTitle
+  const title = input.title?.trim() || fallbackTitle
   const subtitle =
     input.scope === 'chapter'
       ? `${input.bookTitle}${input.author ? ` · ${input.author}` : ''}`
@@ -458,11 +485,16 @@ function drawCover(ctx: CanvasRenderingContext2D, plan: XhsCarouselPlan, palette
     2.2,
   )
 
+  const chapterLine = plan.scope === 'chapter' ? plan.cards[0]?.chapterTitle ?? '' : ''
+  if (chapterLine) {
+    drawTracked(ctx, chapterLine, LEFT, 190, `500 11px ${SANS}`, palette.muted, 1.6)
+  }
+  const titleTop = chapterLine ? 222 : 206
   const title = fitText(ctx, plan.title, CONTENT_WIDTH - 140, 280, 58, 38, 1.32, SERIF, '500')
   ctx.fillStyle = palette.ink
   ctx.font = title.font
-  title.lines.forEach((line, index) => ctx.fillText(line, LEFT, 206 + index * title.lineHeight))
-  const titleBottom = 206 + title.lines.length * title.lineHeight
+  title.lines.forEach((line, index) => ctx.fillText(line, LEFT, titleTop + index * title.lineHeight))
+  const titleBottom = titleTop + title.lines.length * title.lineHeight
 
   drawAccentRule(ctx, palette, LEFT, titleBottom + 18, 40, 2)
   ctx.fillStyle = palette.soft
@@ -474,14 +506,14 @@ function drawCover(ctx: CanvasRenderingContext2D, plan: XhsCarouselPlan, palette
   drawChip(ctx, `${t('已覆盖 ')}${plan.coveredCards} / ${plan.totalCards}`, LEFT + chipWidth + 8, statsY, palette)
   drawHairline(ctx, palette, LEFT, PAGE_WIDTH - RIGHT, statsY + 44)
 
-  const sample = plan.cards[0]
+  const sample = plan.cards[1] ?? plan.cards[0]
   if (sample) {
     const selectedTop = Math.max(statsY + 92, 560)
     drawAccentRule(ctx, palette, LEFT, selectedTop, 40, 3)
     drawTracked(ctx, t('SELECTED / 选读'), LEFT + 54, selectedTop - 6, `500 11px ${MONO}`, palette.accent, 2)
 
     const quoteTop = selectedTop + 64
-    const quoteText = [sample.heading, sample.body].filter(Boolean).join(' ')
+    const quoteText = sample.heading === plan.title ? sample.body : [sample.heading, sample.body].filter(Boolean).join(' ')
     const quote = fitText(
       ctx,
       quoteText,
@@ -672,23 +704,55 @@ function drawClosing(ctx: CanvasRenderingContext2D, plan: XhsCarouselPlan, palet
   drawMasthead(ctx, palette, LEFT, PAGE_WIDTH - RIGHT, 66)
   drawPageNo(ctx, total - 1, total, palette)
 
+  if (plan.scope === 'chapter' && plan.cards.length > 0) {
+    const card = plan.cards[plan.cards.length - 1]!
+    drawTracked(ctx, t('THE LAST PAGE / 带走这一句'), LEFT, 174, `500 10px ${SANS}`, palette.muted, 2.2)
+
+    const heading = fitText(ctx, card.heading, CONTENT_WIDTH, 300, 54, 34, 1.4, SERIF, '500')
+    ctx.fillStyle = palette.ink
+    ctx.font = heading.font
+    heading.lines.forEach((line, index) => ctx.fillText(line, LEFT, 230 + index * heading.lineHeight))
+    let y = 230 + heading.lines.length * heading.lineHeight + 28
+    drawAccentRule(ctx, palette, LEFT, y, 40, 2)
+    y += 44
+
+    if (card.body) {
+      const body = fitText(ctx, card.body, CONTENT_WIDTH, 260, 28, 20, 1.75, SERIF, '400')
+      ctx.fillStyle = palette.soft
+      ctx.font = body.font
+      body.lines.forEach((line, index) => ctx.fillText(line, LEFT, y + index * body.lineHeight))
+      y += body.lines.length * body.lineHeight + 24
+    }
+
+    drawTracked(
+      ctx,
+      [plan.bookTitle, card.chapterTitle].filter(Boolean).join(' · '),
+      LEFT,
+      y,
+      `500 11px ${SANS}`,
+      palette.muted,
+      1.6,
+    )
+    drawGhostNumber(ctx, String(card.number).padStart(2, '0'), PAGE_WIDTH - RIGHT, PAGE_HEIGHT - 218, 300, palette.accent, 0.04)
+    drawProgress(ctx, palette, total - 1, total)
+    drawFooter(ctx, palette, plan.brand)
+    return
+  }
+
   drawTracked(ctx, t('THE LAST PAGE / 回顾'), LEFT, 174, `500 10px ${SANS}`, palette.muted, 2.2)
   const title =
     plan.scope === 'chapter'
       ? `${t('这一章，留下 ')}${plan.totalCards}${t(' 个知识点')}`
       : `${t('这本书，留下 ')}${plan.totalCards}${t(' 个知识点')}`
-  const block = fitText(ctx, title, CONTENT_WIDTH, 240, 50, 34, 1.32, SERIF, '600')
+  const block = fitText(ctx, title, CONTENT_WIDTH, 240, 50, 34, 1.32, SERIF, '500')
   ctx.fillStyle = palette.ink
   ctx.font = block.font
   block.lines.forEach((line, index) => ctx.fillText(line, LEFT, 222 + index * block.lineHeight))
   let y = 222 + block.lines.length * block.lineHeight + 26
-  drawAccentRule(ctx, palette, LEFT, y, 52, 3)
+  drawAccentRule(ctx, palette, LEFT, y, 40, 2)
   y += 52
 
-  const items =
-    plan.scope === 'chapter'
-      ? plan.cards.slice(0, 4).map((card) => card.heading)
-      : plan.chapterTitles.slice(0, 6)
+  const items = plan.chapterTitles.slice(0, 6)
   items.forEach((item, index) => {
     ctx.fillStyle = palette.accent
     ctx.font = `500 22px ${SERIF}`

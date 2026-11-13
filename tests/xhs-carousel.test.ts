@@ -123,9 +123,9 @@ test('renders cover, content and closing pages at 1080 x 1440', () => {
   }
 })
 
-test('concise mode keeps only three cards', () => {
+test('concise mode keeps a curated seven-card story', () => {
   const { ctx } = measure()
-  const notes = Array.from({ length: 6 }, (_, index) =>
+  const notes = Array.from({ length: 10 }, (_, index) =>
     note(`n${index}`, `知识点 ${index}`, `这是第 ${index} 个知识点的内容，用来测试精简模式。`),
   )
   const plan = planXhsCarousel({
@@ -138,9 +138,8 @@ test('concise mode keeps only three cards', () => {
     concise: true,
     measure: ctx,
   })
-  assert.equal(plan.totalCards, 3)
-  assert.deepEqual(
-    plan.pages.flatMap((page) => page.parts.map((part) => part.cardId)),
-    ['n0', 'n1', 'n2'],
-  )
+  assert.equal(plan.totalCards, 7)
+  const ids = plan.pages.flatMap((page) => page.parts.map((part) => part.cardId))
+  assert.equal(new Set(ids).size, 7)
+  assert.ok(ids.every((id) => ['n0', 'n1', 'n2', 'n3', 'n4', 'n5', 'n6', 'n7', 'n8', 'n9'].includes(id)))
 })

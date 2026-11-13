@@ -48,11 +48,12 @@ export function XhsCarouselDialog({
     () => chapterOptions.find((chapter) => chapter.id === selectedChapterId) ?? null,
     [chapterOptions, selectedChapterId],
   )
-  const [concise, setConcise] = useState(false)
+  const [concise, setConcise] = useState(true)
   const [notes, setNotes] = useState<Note[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [title, setTitle] = useState(initialScope === 'chapter' ? selectedChapter?.title ?? bookTitle : bookTitle)
+  const [title, setTitle] = useState('')
+  const [titleTouched, setTitleTouched] = useState(false)
   const [theme, setTheme] = useState<XhsTheme>('ink')
   const [brand, setBrand] = useState(() => {
     try {
@@ -82,7 +83,8 @@ export function XhsCarouselDialog({
     setNotice(null)
     setAudit(null)
     setSupplements([])
-    setTitle(scope === 'chapter' ? selectedChapter?.title ?? bookTitle : bookTitle)
+    setTitle('')
+    setTitleTouched(false)
     const request =
       scope === 'chapter' && selectedChapterId
         ? bridge.listNotes(bookId, selectedChapterId)
@@ -121,17 +123,18 @@ export function XhsCarouselDialog({
         chapterTitle: selectedChapter?.title ?? null,
         chapters,
         notes: [...notes, ...supplements],
-        title,
         brand,
         concise,
+        title: titleTouched ? title : '',
         measure: ctx,
       })
       setPlan(next)
+      if (!titleTouched && !title && next.title) setTitle(next.title)
       setIndex(0)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
-  }, [author, bookTitle, brand, chapters, concise, error, loading, notes, scope, selectedChapter?.title, selectedChapterId, supplements, title])
+  }, [author, bookTitle, brand, chapters, concise, error, loading, notes, scope, selectedChapter?.title, selectedChapterId, supplements, title, titleTouched])
 
   useEffect(() => {
     if (!plan || plan.totalCards === 0 || plan.pages.length === 0) {
@@ -406,6 +409,8 @@ export function XhsCarouselDialog({
           </div>
 
           <div className="xhs-controls">
+            <section className="xhs-section">
+              <h3>{t('内容')}</h3>
             {chapterOptions.length > 0 ? (
               <div className="xhs-control-group">
                 <span className="xhs-control-label">{t('范围')}</span>
@@ -431,6 +436,8 @@ export function XhsCarouselDialog({
                     value={selectedChapterId ?? ''}
                     onChange={(value) => {
                       setSelectedChapterId(value)
+                      setTitle('')
+                      setTitleTouched(false)
                       if (scope !== 'chapter') setScope('chapter')
                     }}
                     ariaLabel={t('选择章节')}
@@ -447,15 +454,29 @@ export function XhsCarouselDialog({
                   {t('全部')}
                 </button>
                 <button type="button" className={concise ? 'active' : ''} onClick={() => setConcise(true)}>
-                  {t('精简 3 条')}
+                  {t('精选 7 条')}
                 </button>
               </div>
+              <p className="share-hint">
+                {t('精选会挑出更适合作为观点的卡片，排成一条叙事线；完整版会排进全部知识点。')}
+              </p>
             </div>
 
             <label className="share-field">
               {t('封面标题')}
-              <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder={bookTitle} />
+              <input
+                value={title}
+                onChange={(event) => {
+                  setTitle(event.target.value)
+                  setTitleTouched(true)
+                }}
+                placeholder={bookTitle}
+              />
             </label>
+            </section>
+
+            <section className="xhs-section">
+              <h3>{t('样式')}</h3>
             <label className="share-field">
               {t('署名 / 品牌（可选）')}
               <input
@@ -487,6 +508,10 @@ export function XhsCarouselDialog({
               </div>
             </div>
 
+            </section>
+
+            <section className="xhs-section">
+              <h3>{t('检查')}</h3>
             {coverage ? (
               <div className={`xhs-coverage${coverage.total > 0 && coverage.covered === coverage.total ? ' complete' : ''}`}>
                 <strong>{coverage.covered} / {coverage.total}</strong>
@@ -541,6 +566,9 @@ export function XhsCarouselDialog({
               {t('每一张卡片只出现一次；长卡片会自动续页，不截断正文。整本书会按章节顺序编排。')}
             </p>
 
+            </section>
+
+            <div className="xhs-save-bar">
             <button
               type="button"
               className="primary-button"
@@ -549,6 +577,7 @@ export function XhsCarouselDialog({
             >
               {busy === 'save-all' ? t('保存中…') : `${t('保存全部')} ${previews.length || 0} ${t('张 PNG')}`}
             </button>
+            </div>
             {notice ? <div className="inline-notice" role="status" aria-live="polite">{notice}</div> : null}
           </div>
         </div>

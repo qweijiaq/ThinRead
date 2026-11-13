@@ -1907,5 +1907,10 @@
   "批注会保存为一条带原文引用的笔记": "The annotation is saved as a note with the source quote",
   "全章批注": "Whole-chapter annotations",
   "IDEA / 观点": "IDEA / KEY POINT",
-  "DIGEST / 改写": "DIGEST / REWRITE"
+  "DIGEST / 改写": "DIGEST / REWRITE",
+  "精选 7 条": "Top 7 story cards",
+  "精选会挑出更适合作为观点的卡片，排成一条叙事线；完整版会排进全部知识点。": "Story mode picks the cards that work best as ideas and arranges them into a narrative; Full mode includes every card.",
+  "内容": "Content",
+  "样式": "Style",
+  "THE LAST PAGE / 带走这一句": "THE LAST PAGE / ONE LINE TO KEEP"
 }

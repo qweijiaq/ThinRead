@@ -2816,13 +2816,13 @@ button {
 }
 
 .form-row {
-  margin-bottom: 14px;
+  margin-bottom: 20px;
 }
 .form-row label {
   display: block;
-  font-size: 12px;
+  font-size: 12.5px;
   color: var(--muted);
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
 .form-row input,
 .form-row select {
@@ -2839,16 +2839,16 @@ button {
   border-color: var(--accent);
 }
 .field-hint {
-  font-size: 11px;
-  line-height: 1.55;
+  font-size: 11.5px;
+  line-height: 1.65;
   color: var(--muted);
-  margin: 6px 0 0;
+  margin: 8px 0 0;
   word-break: break-all;
 }
 
 .settings-divider {
   height: 1px;
-  margin: 4px 0 16px;
+  margin: 8px 0 22px;
   background: var(--line);
 }
 
@@ -6802,17 +6802,17 @@ button {
 }
 .share-segmented {
   display: flex;
-  gap: 3px;
-  padding: 3px;
+  gap: 4px;
+  padding: 4px;
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: 10px;
   background: var(--paper-3);
 }
 .share-segmented button {
   flex: 1;
-  padding: 6px 10px;
+  padding: 8px 12px;
   border: 0;
-  border-radius: 6px;
+  border-radius: 7px;
   background: transparent;
   color: var(--ink-soft);
   font-size: 11.5px;
@@ -6831,16 +6831,16 @@ button {
 .share-field {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   color: var(--muted);
-  font-size: 10.5px;
+  font-size: 11.5px;
 }
 .share-field input,
 .share-field textarea {
   width: 100%;
-  padding: 8px 10px;
+  padding: 10px 12px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 10px;
   background: var(--white);
   color: var(--ink);
   font-family: inherit;
@@ -9604,7 +9604,7 @@ html.theme-plain .primary-button.is-danger:hover {
   width: min(1180px, 94vw);
   max-height: 92vh;
   overflow: auto;
-  padding: 26px;
+  padding: 32px;
   border: 1px solid var(--line);
   background: var(--paper);
   box-shadow: 0 30px 80px rgba(20, 18, 14, 0.24);
@@ -9614,8 +9614,8 @@ html.theme-plain .primary-button.is-danger:hover {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 20px;
-  padding-bottom: 16px;
+  gap: 24px;
+  padding-bottom: 20px;
   border-bottom: 1px solid var(--line);
 }
 
@@ -9641,9 +9641,9 @@ html.theme-plain .primary-button.is-danger:hover {
 
 .xhs-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(280px, 0.75fr);
-  gap: 28px;
-  padding-top: 20px;
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+  gap: 36px;
+  padding-top: 28px;
 }
 
 .xhs-preview-pane {
@@ -9732,20 +9732,26 @@ html.theme-plain .primary-button.is-danger:hover {
 }
 
 .xhs-controls {
+  display: flex;
   min-width: 0;
-  padding-left: 24px;
+  flex-direction: column;
+  gap: 28px;
+  padding-left: 28px;
   border-left: 1px solid var(--line);
 }
 
 .xhs-control-group {
-  margin-bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 0;
 }
 
 .xhs-control-label {
   display: block;
-  margin-bottom: 7px;
+  margin-bottom: 0;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 11.5px;
   font-weight: 600;
 }
 
@@ -12965,4 +12971,59 @@ html.theme-plain .primary-button.is-danger:hover {
 .notes-panel[data-active-tab='cards'] .notes-tab-section:not([data-tab~='cards']),
 .notes-panel[data-active-tab='audit'] .notes-tab-section:not([data-tab~='audit']) {
   display: none;
+}
+
+
+/* ─── 小红书弹窗：分区与留白 ───────────────────────────── */
+.xhs-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.xhs-section + .xhs-section {
+  padding-top: 28px;
+  border-top: 1px solid var(--line);
+}
+
+.xhs-section h3 {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+}
+
+.xhs-section .xhs-coverage {
+  margin: 0;
+  padding: 14px 16px;
+  border-radius: 8px;
+}
+
+.xhs-section .xhs-warnings {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 8px;
+}
+
+.xhs-audit {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border: 1px dashed var(--line-strong, var(--line));
+  border-radius: 10px;
+}
+
+.xhs-save-bar {
+  position: sticky;
+  bottom: -32px;
+  margin: 0 -32px -32px;
+  padding: 16px 32px;
+  border-top: 1px solid var(--line);
+  background: var(--paper);
+}
+
+.xhs-save-bar .primary-button {
+  width: 100%;
 }
