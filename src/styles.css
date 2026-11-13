@@ -13049,3 +13049,15 @@ html.theme-plain .primary-button.is-danger:hover {
 .xhs-save-bar .primary-button {
   width: 100%;
 }
+
+.share-field-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.share-field-head .text-button {
+  margin: 0;
+  font-size: 11.5px;
+}

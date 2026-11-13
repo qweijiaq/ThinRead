@@ -2025,6 +2025,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
       demo: isDemoMode(),
       title: typeof input.title === 'string' ? input.title.slice(0, 120) : '',
       body: input.body.slice(0, 20_000),
+      kind: typeof input.kind === 'string' ? input.kind.slice(0, 20) : undefined,
     })
   })
 

@@ -54,6 +54,7 @@ export function XhsCarouselDialog({
   const [error, setError] = useState<string | null>(null)
   const [title, setTitle] = useState('')
   const [titleTouched, setTitleTouched] = useState(false)
+  const [titleBusy, setTitleBusy] = useState(false)
   const [theme, setTheme] = useState<XhsTheme>('ink')
   const [brand, setBrand] = useState(() => {
     try {
@@ -177,6 +178,33 @@ export function XhsCarouselDialog({
   function switchScope(next: XhsScope): void {
     if (next === scope) return
     setScope(next)
+  }
+
+  async function suggestTitle(): Promise<void> {
+    if (titleBusy || loading) return
+    setTitleBusy(true)
+    setNotice(null)
+    try {
+      const source = notes
+        .slice(0, 14)
+        .map((note) => `${note.title}\n${note.content}`)
+        .join('\n\n')
+        .slice(0, 9000)
+      const result = await bridge.optimizeShareCopy({
+        title: plan?.title || bookTitle,
+        body: source,
+        kind: 'xhs',
+      })
+      if (result.title) {
+        setTitle(result.title)
+        setTitleTouched(true)
+        setNotice(result.note ?? null)
+      }
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : String(err))
+    } finally {
+      setTitleBusy(false)
+    }
   }
 
   async function runCoverageAudit(): Promise<void> {
@@ -470,8 +498,18 @@ export function XhsCarouselDialog({
               </p>
             </div>
 
-            <label className="share-field">
-              {t('封面标题')}
+            <div className="share-field">
+              <div className="share-field-head">
+                <span>{t('封面标题')}</span>
+                <button
+                  type="button"
+                  className="text-button"
+                  onClick={() => void suggestTitle()}
+                  disabled={titleBusy || loading || notes.length === 0}
+                >
+                  {titleBusy ? t('起标题中…') : t('AI 起标题')}
+                </button>
+              </div>
               <input
                 value={title}
                 onChange={(event) => {
@@ -480,7 +518,7 @@ export function XhsCarouselDialog({
                 }}
                 placeholder={bookTitle}
               />
-            </label>
+            </div>
             </section>
 
             <section className="xhs-section">

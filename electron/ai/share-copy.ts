@@ -8,6 +8,7 @@ interface OptimizeArgs {
   demo: boolean
   title: string
   body: string
+  kind?: string
 }
 
 function plainText(markdown: string): string {
@@ -65,21 +66,38 @@ export async function optimizeShareCopy(args: OptimizeArgs): Promise<ShareCopyRe
   }
   if (!source) throw new Error('没有可以优化的正文。')
 
+  const xhs = args.kind === 'xhs'
   const { text } = await tracedGenerateText(
-    { step: 'share-copy', provider: args.config.provider, model: args.config.model, promptVersion: 'share-copy-v2' },
+    {
+      step: 'share-copy',
+      provider: args.config.provider,
+      model: args.config.model,
+      promptVersion: xhs ? 'xhs-cover-copy-v1' : 'share-copy-v2',
+    },
     {
       model: createLanguageModel(args.config),
-      system:
-        '你是中文阅读分享编辑。把用户给出的笔记改写成适合社交平台分享的短文案，保留原意，不编造事实，不使用 Markdown。',
-      prompt: [
-        '把下面的笔记改写成 1 个标题和 3 条要点。',
-        '要求：标题 12–20 字；每条要点 18–45 字，彼此不重复；语气克制、具体，不要口号。',
-        '只输出 JSON：{"title":"...","points":["...","...","..."]}',
-        '',
-        `原标题：${args.title}`,
-        `正文：${source}`,
-      ].join('\n'),
-      temperature: 0.4,
+      system: xhs
+        ? '你是小红书读书博主，擅长写让人想点开的封面标题。保留原意，不编造事实，不夸张承诺，不使用 Markdown 或 emoji。'
+        : '你是中文阅读分享编辑。把用户给出的笔记改写成适合社交平台分享的短文案，保留原意，不编造事实，不使用 Markdown。',
+      prompt: xhs
+        ? [
+            '根据下面的读书笔记，起 1 个适合小红书封面的标题，并给出 3 句可以直接放进图文的金句。',
+            '标题要求：14–22 字；具体、有钩子，可以用反差、提问或数字；像人在分享，不要像论文标题；不要用“必看”“震惊”这类标题党。',
+            '金句要求：每句 18–40 字，来自笔记本身，彼此不重复。',
+            '只输出 JSON：{"title":"...","points":["...","...","..."]}',
+            '',
+            `原章节：${args.title}`,
+            `笔记：${source}`,
+          ].join('\n')
+        : [
+            '把下面的笔记改写成 1 个标题和 3 条要点。',
+            '要求：标题 12–20 字；每条要点 18–45 字，彼此不重复；语气克制、具体，不要口号。',
+            '只输出 JSON：{"title":"...","points":["...","...","..."]}',
+            '',
+            `原标题：${args.title}`,
+            `正文：${source}`,
+          ].join('\n'),
+      temperature: xhs ? 0.7 : 0.4,
       maxOutputTokens: 800,
     },
   )
