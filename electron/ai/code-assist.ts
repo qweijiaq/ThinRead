@@ -45,19 +45,40 @@ function commentMarker(language: string, code: string): string {
   return '//'
 }
 
-function parseFixedCode(value: string): string {
-  const cleaned = value.replace(/^```(?:[a-z0-9+#.-]+)?\s*/i, '').replace(/```\s*$/i, '').trim()
-  const start = cleaned.indexOf('{')
-  const end = cleaned.lastIndexOf('}')
-  if (start >= 0 && end > start) {
-    try {
-      const parsed = JSON.parse(cleaned.slice(start, end + 1)) as { code?: unknown }
-      if (typeof parsed.code === 'string' && parsed.code.trim()) return parsed.code.replace(/\r\n?/g, '\n')
-    } catch {
-      // 退回纯文本。
-    }
+function codeFromJson(text: string): string {
+  const start = text.indexOf('{')
+  const end = text.lastIndexOf('}')
+  if (start < 0 || end <= start) return ''
+  try {
+    const parsed = JSON.parse(text.slice(start, end + 1)) as { code?: unknown }
+    if (typeof parsed.code === 'string' && parsed.code.trim()) return parsed.code.replace(/\r\n?/g, '\n')
+  } catch {
+    // 不是 JSON，继续按代码处理。
   }
-  return cleaned.replace(/\r\n?/g, '\n')
+  return ''
+}
+
+export function parseFixedCode(value: string): string {
+  const raw = value.replace(/\r\n?/g, '\n').trim()
+  if (!raw) return ''
+
+  const direct = codeFromJson(raw)
+  if (direct.trim()) return direct
+
+  const blocks = [...raw.matchAll(/```[^\n]*\n?([\s\S]*?)```/g)]
+    .map((match) => match[1])
+    .sort((a, b) => b.length - a.length)
+  for (const block of blocks) {
+    const fromJson = codeFromJson(block)
+    const code = fromJson.trim() ? fromJson : block
+    if (code.trim()) return code.replace(/\s+$/, '')
+  }
+
+  return raw
+    .replace(/^(?:修复后的代码|修复后|修复结果|代码如下)\s*[：:]\s*/i, '')
+    .replace(/^```(?:[a-z0-9+#.-]+)?\s*/i, '')
+    .replace(/```\s*$/i, '')
+    .trim()
 }
 
 async function askCode(args: {
@@ -86,35 +107,59 @@ async function askCode(args: {
 
   if (args.mode === 'fix') {
     const marker = commentMarker(args.language, args.code)
-    const response = await tracedGenerateText(
-      {
-        step: 'code-fix',
-        scope: args.chapterTitle,
-        provider: args.config.provider,
-        model: args.config.model,
-        promptVersion: 'code-fix-v1',
-        timeoutMs: 120_000,
-      },
-      {
-        model,
-        system:
-          '你是谨慎的代码修复助手。只修能确定的错误，不重构，不改变代码意图，不添加无关功能。',
-        prompt: [
-          common,
-          '请修复这段代码里的语法错误、拼写错误、错误符号、括号/引号不匹配、明显缺字符或多字符、缩进混乱。',
-          '如果代码块里混入了正文、旁注或说明文字，不要删除它们，用该语言的行注释符把它们注释掉；本段优先使用 ' + marker + '。',
-          '保持原有代码结构和语言，不要改写成另一种写法，不要输出解释。',
-          '只返回一个 JSON 对象，字段为 code，值是修复后的完整代码字符串。不要输出 Markdown 代码块。',
-        ].join('\n\n'),
-        temperature: 0.05,
-        maxOutputTokens: Math.min(6_000, Math.max(1_200, Math.ceil(args.code.length * 1.6))),
-        ...(providerOptions ? { providerOptions } : {}),
-        maxRetries: 1,
-        abortSignal: args.signal,
-      },
-    )
-    const fixed = parseFixedCode(response.text)
-    if (!fixed.trim()) throw new Error('模型没有返回修复后的代码。')
+    const budget = Math.min(10_000, Math.max(4_000, Math.ceil(args.code.length * 1.6) + 1_200))
+    const run = async (maxOutputTokens: number, strict = false) =>
+      tracedGenerateText(
+        {
+          step: 'code-fix',
+          scope: args.chapterTitle,
+          provider: args.config.provider,
+          model: args.config.model,
+          promptVersion: 'code-fix-v2',
+          timeoutMs: 120_000,
+        },
+        {
+          model,
+          system:
+            '你是谨慎的代码修复助手。只修能确定的错误，不重构，不改变代码意图，不添加无关功能。直接给出修复结果，不要复述推理过程。',
+          prompt: [
+            common,
+            '请修复这段代码里的语法错误、拼写错误、错误符号、括号/引号不匹配、明显缺字符或多字符、缩进混乱。',
+            '如果代码块里混入了正文、旁注或说明文字，不要删除它们，用该语言的行注释符把它们注释掉；本段优先使用 ' + marker + '。',
+            '保持原有代码结构和语言，不要改写成另一种写法，不要输出解释、分析或修改说明。',
+            '只输出修复后的完整代码，放在一个三反引号代码块里；代码块前后不要写任何文字。',
+            strict
+              ? '上一次没有返回可解析的代码。这一次请直接输出一个三反引号代码块，块内只放完整代码，不要解释、不要思考过程。'
+              : '',
+          ]
+            .filter(Boolean)
+            .join('\n\n'),
+          temperature: 0.05,
+          maxOutputTokens,
+          ...(providerOptions ? { providerOptions } : {}),
+          maxRetries: 1,
+          abortSignal: args.signal,
+        },
+      )
+
+    let response = await run(budget)
+    let fixed = parseFixedCode(response.text)
+    if (!fixed.trim()) {
+      // 有的模型会把预算花在思考上，finishReason 仍可能是 stop；空结果时强制再要一次。
+      const retryBudget =
+        response.finishReason === 'length'
+          ? Math.min(16_000, budget * 2)
+          : Math.min(12_000, budget + 2_000)
+      response = await run(retryBudget, true)
+      fixed = parseFixedCode(response.text)
+    }
+    if (!fixed.trim()) {
+      throw new Error(
+        response.finishReason === 'length'
+          ? '修复结果被截断，没能拿到完整代码。请缩短这段代码或换一个模型重试。'
+          : '模型没有返回修复后的代码，请重试或换一个模型。',
+      )
+    }
     if (fixed.length < args.code.length * 0.4 || fixed.length > args.code.length * 2.5 + 300) {
       throw new Error('修复结果长度异常，已保留原代码。')
     }
