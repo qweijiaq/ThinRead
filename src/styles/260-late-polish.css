@@ -1,0 +1,569 @@
+/* ─── 笔记卡片：紧凑双列 ─────────────────────────────────── */
+
+.note-group {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.note-group-head {
+  grid-column: 1 / -1;
+  margin-bottom: 0;
+}
+
+/* 编辑中的卡片横跨两栏，编辑区不至于过窄 */
+.note-group .note-card:has(.note-textarea) {
+  grid-column: 1 / -1;
+}
+
+.note-group .note-card {
+  margin-bottom: 0;
+  padding: 10px 11px 9px;
+  border-radius: var(--radius-sm);
+}
+
+.note-group .note-card .note-head {
+  flex-wrap: wrap;
+  gap: 4px 5px;
+}
+
+.note-group .kind-badge,
+.note-group .author-badge,
+.note-group .importance-badge {
+  padding: 1px 6px;
+  font-size: 9px;
+  letter-spacing: 0.04em;
+}
+
+.note-group .note-time {
+  font-size: 9.5px;
+}
+
+.note-group .note-actions {
+  gap: 6px;
+  margin-left: auto;
+}
+
+.note-group .note-actions .text-button {
+  padding: 1px 0;
+  font-size: 10px;
+}
+
+.note-group .note-section {
+  margin: 6px 0 0;
+  font-size: 9px;
+}
+
+.note-group .note-title {
+  margin: 8px 0 4px;
+  font-size: 13px;
+  line-height: 1.45;
+  letter-spacing: 0.005em;
+}
+
+.note-group .markdown {
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.note-group .markdown h1 {
+  font-size: 1.2em;
+}
+.note-group .markdown h2 {
+  font-size: 1.12em;
+}
+.note-group .markdown h3,
+.note-group .markdown h4,
+.note-group .markdown h5,
+.note-group .markdown h6 {
+  font-size: 1.04em;
+}
+.note-group .markdown ul,
+.note-group .markdown ol {
+  padding-left: 1.15em;
+}
+.note-group .markdown blockquote {
+  padding-left: 0.7em;
+}
+.note-group .markdown code {
+  font-size: 0.9em;
+}
+.note-group .markdown img {
+  max-width: 100%;
+  height: auto;
+}
+
+.note-group .note-quote {
+  gap: 6px;
+  margin-top: 8px;
+  padding: 7px 8px;
+  border-radius: var(--radius-xs);
+  font-size: 10.5px;
+  line-height: 1.6;
+}
+.note-group .quote-label,
+.note-group .verify-chip {
+  font-size: 8.5px;
+}
+
+.note-group .tag-row {
+  gap: 4px;
+  margin-top: 7px;
+}
+.note-group .tag {
+  padding: 1px 6px;
+  font-size: 9px;
+}
+
+.note-group .backlinks {
+  gap: 4px;
+  margin-top: 8px;
+  padding-top: 6px;
+  font-size: 10px;
+}
+
+.note-group .note-role {
+  font-size: 10px;
+  line-height: 1.55;
+}
+.note-group .note-role span {
+  font-size: 9px;
+}
+
+.note-group .note-divergences {
+  margin-top: 8px;
+  padding-top: 6px;
+}
+
+.note-group .wiki-link {
+  border-bottom-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+/* ─── 窄栏防断行：控件与标签保持单行 ─────────────────────── */
+
+.primary-button,
+.ghost-button,
+.text-button,
+.icon-button,
+.filter-chip,
+.side-tab,
+.notes-jump button,
+.topbar-nav .ghost-button,
+.topbar-right .ghost-button,
+.add-note-button,
+.book-actions .text-button {
+  white-space: nowrap;
+}
+
+.kind-badge,
+.author-badge,
+.importance-badge,
+.verify-chip,
+.quote-label,
+.note-time,
+.note-group-head span,
+.backlinks-label,
+.book-meta span,
+.part-count,
+.chapter-count {
+  white-space: nowrap;
+}
+
+.note-group .note-actions {
+  flex-wrap: nowrap;
+}
+
+.note-group .tag {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 1180px) {
+  .topbar-book,
+  .topbar-book-button {
+    max-width: 112px;
+  }
+  .topbar-right .model-pill {
+    max-width: 128px;
+  }
+}
+
+/* ─── 读薄稿工具条：标题行 + 操作行，避免挤成两截 ───────── */
+
+.condensed-head {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 6px 8px;
+  margin-bottom: 10px;
+}
+
+.condensed-title {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--ink-soft);
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+.condensed-ratio {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--paper-3);
+  color: var(--muted);
+  font-size: 9.5px;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.condensed-export {
+  margin-left: auto;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.condensed-tools {
+  flex: 1 1 100%;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding-top: 7px;
+  border-top: 1px solid var(--line);
+}
+
+.condensed-head .text-button {
+  font-size: 11px;
+  letter-spacing: 0;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.condensed-head .text-button:hover {
+  color: var(--accent);
+}
+.condensed-head .text-button[aria-pressed='true'] {
+  color: var(--accent-dark);
+  font-weight: 500;
+}
+.condensed-head .export-check {
+  gap: 5px;
+  font-size: 11px;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+/* ─── 笔记库：标签单行滚动 + 卡片双列 ────────────────────── */
+
+.tag-filter {
+  flex-wrap: nowrap;
+  gap: 6px;
+  padding-bottom: 2px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.tag-filter::-webkit-scrollbar {
+  display: none;
+}
+.tag-filter button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.notes-library-list {
+  max-width: none;
+  align-items: stretch;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.notes-library-list .library-note-wrap,
+.notes-library-list .library-note {
+  height: 100%;
+}
+.notes-library-list .library-note-snippet {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+.notes-library-list .library-note-tags {
+  margin-top: 8px;
+}
+
+@media (max-width: 900px) {
+  .notes-library-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ─── 侧栏宽度可拖拽 ─────────────────────────────────────── */
+
+.workspace {
+  grid-template-columns: 232px minmax(0, 1fr) 6px var(--side-width, 500px);
+}
+.workspace.is-side-collapsed {
+  grid-template-columns: 228px minmax(0, 1fr) 34px;
+}
+.side-resizer {
+  position: relative;
+  z-index: 3;
+  cursor: col-resize;
+  background: transparent;
+}
+.side-resizer::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 2px;
+  background: var(--line);
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.side-resizer:hover::before,
+.side-resizer:focus-visible::before {
+  background: var(--accent);
+}
+.side-resizer:focus-visible {
+  outline: none;
+}
+@media (max-width: 1200px) {
+  .workspace {
+    grid-template-columns: 208px minmax(0, 1fr) 6px var(--side-width, 500px);
+  }
+}
+
+/* ─── 笔记库：吸顶筛选、标签滚动、骨架屏 ────────────────── */
+
+.notes-filters {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  margin: 0 0 6px;
+  padding: 8px 0 4px;
+  background: var(--paper);
+}
+.notes-filters .notes-toolbar {
+  margin-bottom: 9px;
+}
+.notes-filters .tag-filter {
+  margin-bottom: 9px;
+}
+.tag-filter-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.tag-filter-wrap .tag-filter {
+  flex: 1;
+  min-width: 0;
+  margin-bottom: 0;
+}
+.tag-scroll {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--white);
+  color: var(--muted);
+  cursor: pointer;
+}
+.tag-scroll:hover:not(:disabled) {
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+.tag-scroll:disabled {
+  opacity: 0.32;
+  cursor: default;
+}
+
+.notes-skeleton {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.skeleton-card {
+  display: grid;
+  gap: 10px;
+  min-height: 110px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--white);
+}
+.skeleton-card span {
+  display: block;
+  height: 10px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--paper-3) 0%, var(--paper-2) 45%, var(--paper-3) 90%);
+  background-size: 220% 100%;
+  animation: skeleton-sweep 1.5s var(--ease-out) infinite;
+}
+.skeleton-card span:first-child {
+  width: 40%;
+  height: 12px;
+}
+.skeleton-card span:nth-child(2) {
+  width: 84%;
+}
+.skeleton-card span:nth-child(3) {
+  width: 62%;
+}
+@keyframes skeleton-sweep {
+  from {
+    background-position: 120% 0;
+  }
+  to {
+    background-position: -120% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-card span {
+    animation: none;
+  }
+}
+@media (max-width: 900px) {
+  .notes-skeleton {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ─── 笔记编辑：标签与自动保存提示 ──────────────────────── */
+
+.note-tags-input {
+  width: 100%;
+  margin-top: 8px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--white);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+}
+.note-tags-input:focus {
+  border-color: var(--line-strong);
+}
+.note-save-hint {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 10.5px;
+}
+
+/* ─── 可读性下限与点击热区 ──────────────────────────────── */
+
+.kind-badge,
+.author-badge,
+.importance-badge {
+  font-size: 9.5px;
+}
+.note-time {
+  font-size: 10px;
+}
+.note-group .kind-badge,
+.note-group .author-badge,
+.note-group .importance-badge {
+  font-size: 9.5px;
+}
+.note-group .note-time {
+  font-size: 10px;
+}
+.note-group .quote-label,
+.note-group .verify-chip {
+  font-size: 9.5px;
+}
+.note-group .tag {
+  font-size: 10px;
+}
+.note-group .note-actions .text-button {
+  font-size: 11px;
+}
+
+.text-button,
+.filter-chip,
+.tag-filter button,
+.notes-jump button,
+.notes-audit button,
+.library-pager button,
+.book-actions .text-button {
+  min-height: 24px;
+}
+.filter-chip,
+.tag-filter button,
+.notes-jump button,
+.notes-audit button,
+.library-pager button,
+.book-actions .text-button,
+.note-actions .text-button,
+.condensed-head .text-button,
+.note-editor-tools .text-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.od-icon-inline {
+  display: inline-block;
+  vertical-align: -0.12em;
+}
+
+/* ─── 夜间主题 ──────────────────────────────────────────── */
+
+html.theme-night {
+  color-scheme: dark;
+  --paper: #15171a;
+  --paper-2: #191c20;
+  --paper-3: #23272d;
+  --white: #1d2126;
+  --ink: #e9e7e1;
+  --ink-soft: #c4c2bb;
+  --muted: #939089;
+  --line: #2b3037;
+  --line-strong: #3b414a;
+  --accent: #8fb4d8;
+  --accent-dark: #b6d0ea;
+  --accent-soft: #22303c;
+  --ai: #8fbfa8;
+  --ai-soft: #1e2e28;
+  --warn: #d6ae74;
+  --danger: #e09188;
+  --note-highlight: #b3a2d6;
+  --note-thought: #8fb0c8;
+  --hover: rgba(255, 255, 255, 0.06);
+  --reader-bg: #15171a;
+}
+html.theme-night .code-block {
+  --code-bg: #1d1b18;
+  --code-head-bg: #25221e;
+  --code-fg: #e7e0d2;
+  --code-muted: #a59d8e;
+  --code-line: #3a352d;
+  --hljs-comment: #8b8375;
+  --hljs-keyword: #e6a07a;
+  --hljs-string: #9fd0b3;
+  --hljs-number: #e0c07a;
+  --hljs-title: #8fb4f0;
+  --hljs-builtin: #c4a6e8;
+  --hljs-meta: #b8ad9a;
+}
+html.theme-night .code-block-action:hover {
+  background: rgba(255, 255, 255, 0.09);
+  color: #f2ebdd;
+}
+html.theme-night img {
+  filter: brightness(0.88);
+}
+
+.app.is-focus .workspace > .side-resizer {
+  display: none;
+}
+html.theme-night .primary-button.is-danger {
+  color: var(--paper);
+}

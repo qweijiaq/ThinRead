@@ -2850,10 +2850,18 @@ export function listLibraryNotesPage(filter: LibraryFilter = {}): PageResult<Lib
   const total = Number(
     (database().prepare(`SELECT COUNT(*) AS total ${from}`).get(...params) as { total: number } | undefined)?.total ?? 0,
   )
+  const orderBy =
+    filter.sort === 'created'
+      ? 'n.created_at DESC, n.rowid DESC'
+      : filter.sort === 'title'
+        ? 'n.title COLLATE NOCASE ASC, n.updated_at DESC'
+        : filter.sort === 'book'
+          ? 'b.title COLLATE NOCASE ASC, c.idx ASC, n.updated_at DESC'
+          : 'n.updated_at DESC, n.rowid DESC'
   const rows = database()
     .prepare(
       `SELECT n.*, b.title AS book_title, c.title AS chapter_title ${from}
-       ORDER BY n.updated_at DESC, n.rowid DESC LIMIT ? OFFSET ?`,
+       ORDER BY ${orderBy} LIMIT ? OFFSET ?`,
     )
     .all(...params, limit, offset) as unknown as LibraryRow[]
   return { items: rows.map(mapLibraryNote), total }

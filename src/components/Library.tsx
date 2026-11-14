@@ -8,9 +8,11 @@ import { readingPlanDateKey, readingPlanMinutes } from '../lib/reading-plan.js'
 import { getReadingSummary, readingMinutes } from '../lib/reading-stats.js'
 import { confirmDialog } from './ConfirmDialog.js'
 import { Select } from './Select.js'
+import { SkeletonBlock } from './Skeleton.js'
 
 interface LibraryProps {
   books: BookSummary[]
+  loading?: boolean
   importing: boolean
   onOpen(bookId: string): void
   onImport(): void
@@ -41,7 +43,7 @@ function formatWords(value: number): string {
 
 type LibrarySort = 'recent' | 'title' | 'progress' | 'chars'
 
-export function Library({ books, importing, onOpen, onImport, onOpenTrash, onDelete, onRename, onCompose, onPlan, onShelfStatus, onOpenPlan, planVersion, onMerge, onSettings, onStats, demo }: LibraryProps): JSX.Element {
+export function Library({ books, loading = false, importing, onOpen, onImport, onOpenTrash, onDelete, onRename, onCompose, onPlan, onShelfStatus, onOpenPlan, planVersion, onMerge, onSettings, onStats, demo }: LibraryProps): JSX.Element {
   useLocale()
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState<LibrarySort>('recent')
@@ -141,6 +143,47 @@ export function Library({ books, importing, onOpen, onImport, onOpenTrash, onDel
       return 0
     })
   }, [books, query, sort, shelfFilter])
+
+  if (loading) {
+    return (
+      <main className="library library-loading" role="status" aria-busy="true">
+        <span className="sr-only">{t('正在加载…')}</span>
+        <div className="library-head">
+          <div>
+            <SkeletonBlock className="sk-title" />
+            <SkeletonBlock className="sk-sub" />
+          </div>
+          <div className="library-head-actions">
+            <SkeletonBlock className="sk-pill" />
+            <SkeletonBlock className="sk-button" />
+          </div>
+        </div>
+        <div className="library-toolbar">
+          <SkeletonBlock className="sk-input" />
+          <SkeletonBlock className="sk-select" />
+        </div>
+        <div className="library-shelf-filter">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <SkeletonBlock key={index} className="sk-chip" />
+          ))}
+        </div>
+        <div className="book-grid">
+          {Array.from({ length: 6 }).map((_, index) => (
+            <article key={index} className="book-card sk-book-card" aria-hidden="true">
+              <div className="book-spine sk-spine" />
+              <div className="book-body">
+                <SkeletonBlock className="sk-w-75 sk-book-title" />
+                <SkeletonBlock className="sk-w-40" />
+                <SkeletonBlock className="sk-w-85" />
+                <SkeletonBlock className="sk-w-60" />
+                <SkeletonBlock className="sk-bar" />
+              </div>
+            </article>
+          ))}
+        </div>
+      </main>
+    )
+  }
 
   if (books.length === 0) {
     return (

@@ -1,4 +1,4 @@
-import { useEffect, useState, type Dispatch, type SetStateAction } from 'react'
+import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 
 export interface ToastAction {
   label: string
@@ -16,14 +16,31 @@ const ACTION_MS = 9000
 
 /**
  * 全局提示条：负责自动消失的计时。单独抽出来，App 里只保留展示和触发。
- * 注意它仍然是“单槽位”——新的提示会覆盖旧的（包括撤销按钮），这是已知取舍。
+ * 可撤销提示不会被普通信息提示顶掉；普通提示会排在它消失后再显示。
  */
 export function useToast(): [ToastState | null, Dispatch<SetStateAction<ToastState | null>>] {
-  const [toast, setToast] = useState<ToastState | null>(null)
+  const [toast, setToastState] = useState<ToastState | null>(null)
+  const pendingRef = useRef<ToastState | null>(null)
+
+  const setToast = useCallback<Dispatch<SetStateAction<ToastState | null>>>((value) => {
+    setToastState((current) => {
+      const next = typeof value === 'function' ? value(current) : value
+      if (current?.action && next?.kind === 'info' && !next.action) {
+        pendingRef.current = next
+        return current
+      }
+      pendingRef.current = null
+      return next
+    })
+  }, [])
 
   useEffect(() => {
     if (!toast) return
-    const timer = window.setTimeout(() => setToast(null), toast.action ? ACTION_MS : PLAIN_MS)
+    const timer = window.setTimeout(() => {
+      const queued = pendingRef.current
+      pendingRef.current = null
+      setToastState(queued)
+    }, toast.action ? ACTION_MS : PLAIN_MS)
     return () => window.clearTimeout(timer)
   }, [toast])
 

@@ -164,13 +164,22 @@ fs.writeFileSync('docs/user-manual.html', html)
 console.log('wrote docs/user-manual.html')
 
 const chrome = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
-const pdf = spawnSync(chrome, [
-  '--headless=new',
-  '--no-sandbox',
-  '--disable-gpu',
-  '--no-pdf-header-footer',
-  `--print-to-pdf=${path.join(process.cwd(), 'docs/user-manual.pdf')}`,
-  pathToFileURL(path.join(process.cwd(), 'docs/user-manual.html')).href,
-], { stdio: 'ignore' })
-if (pdf.status === 0) console.log('wrote docs/user-manual.pdf')
+const pdfPath = path.join(process.cwd(), 'docs/user-manual.pdf')
+const before = fs.existsSync(pdfPath) ? fs.statSync(pdfPath).mtimeMs : 0
+const pdf = spawnSync(
+  chrome,
+  [
+    '--headless=new',
+    '--no-sandbox',
+    '--disable-gpu',
+    '--no-pdf-header-footer',
+    `--print-to-pdf=${pdfPath}`,
+    pathToFileURL(path.join(process.cwd(), 'docs/user-manual.html')).href,
+  ],
+  { stdio: 'ignore' },
+)
+const after = fs.existsSync(pdfPath) ? fs.statSync(pdfPath).mtimeMs : 0
+// Chrome 有时写完 PDF 后在退出阶段被 watchdog 终止，spawnSync 会返回非零；
+// 只要文件确实被刷新，就按成功处理。
+if (pdf.status === 0 || after > before) console.log('wrote docs/user-manual.pdf')
 else console.warn('PDF skipped: Chrome not available or print failed')

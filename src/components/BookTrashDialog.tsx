@@ -5,6 +5,7 @@ import type { TrashedBook } from '../../shared/types.js'
 import { t } from '../lib/i18n.js'
 import { useDialogFocus } from '../lib/useDialogFocus.js'
 import { confirmDialog } from './ConfirmDialog.js'
+import { SkeletonRows } from './Skeleton.js'
 
 interface BookTrashDialogProps {
   open: boolean
@@ -128,7 +129,12 @@ export function BookTrashDialog({ open, onClose, onChanged }: BookTrashDialogPro
         </div>
 
         {error ? <div className="inline-error" role="alert">{error}</div> : null}
-        {loading ? <p className="trash-empty">{t('正在加载…')}</p> : null}
+        {loading ? (
+          <div className="trash-loading" role="status" aria-busy="true">
+            <span className="sr-only">{t('正在加载…')}</span>
+            <SkeletonRows rows={3} />
+          </div>
+        ) : null}
         {!loading && books.length === 0 ? <p className="trash-empty">{t('回收站是空的。')}</p> : null}
 
         {books.length > 0 ? (

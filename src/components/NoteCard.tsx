@@ -7,6 +7,7 @@ import { confirmDialog } from './ConfirmDialog.js'
 import { Select } from './Select.js'
 import { TextDiffDialog } from './TextDiffDialog.js'
 import { titleRepeatsContent } from '../lib/note-display.js'
+import { SparkleIcon } from './Icon.js'
 import { Markdown } from './Markdown.js'
 import { SentenceCheck } from './SentenceCheck.js'
 
@@ -53,6 +54,15 @@ function titleFromContent(content: string): string {
   return first ? first.slice(0, 26) : t('未命名笔记')
 }
 
+function parseTags(value: string): string[] {
+  const seen = new Set<string>()
+  for (const raw of value.split(/[,，]/)) {
+    const tag = raw.trim().replace(/^#/, '').slice(0, 24)
+    if (tag) seen.add(tag)
+  }
+  return [...seen].slice(0, 8)
+}
+
 function formatTime(iso: string): string {
   const date = new Date(iso)
   if (getLocale() === 'en') return `${date.getMonth() + 1}/${date.getDate()}`
@@ -81,6 +91,11 @@ function NoteCardImpl({
   const [editing, setEditing] = useState(note.author === 'user' && note.content.trim() === '')
   const [draftTitle, setDraftTitle] = useState(note.title)
   const [draftContent, setDraftContent] = useState(note.content)
+  const [draftTags, setDraftTags] = useState(note.tags.join('，'))
+  const [autoSaved, setAutoSaved] = useState(false)
+  const busyRef = useRef(false)
+  const closeAfterRef = useRef(false)
+  const initialRef = useRef({ title: note.title, content: note.content, tags: note.tags })
   const [previewOpen, setPreviewOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -102,41 +117,108 @@ function NoteCardImpl({
     rootRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
     rootRef.current?.classList.add('flash')
     const timer = window.setTimeout(() => rootRef.current?.classList.remove('flash'), 1400)
-    if (note.author === 'user' && note.content.trim() === '') setEditing(true)
+    if (note.author === 'user' && note.content.trim() === '') beginEdit()
     return () => window.clearTimeout(timer)
   }, [focusKey, note.author, note.content])
 
-  async function save(): Promise<void> {
+  function computedTitle(): string {
     const titleUnchanged = draftTitle.trim() === note.title.trim()
-    const title =
-      titleUnchanged && repeatsTitle
-        ? titleFromContent(draftContent)
-        : draftTitle.trim() && draftTitle.trim() !== t('未命名笔记')
-          ? draftTitle.trim()
-          : titleFromContent(draftContent)
+    return titleUnchanged && repeatsTitle
+      ? titleFromContent(draftContent)
+      : draftTitle.trim() && draftTitle.trim() !== t('未命名笔记')
+        ? draftTitle.trim()
+        : titleFromContent(draftContent)
+  }
+
+  function currentPatch(): NotePatch {
+    return { title: computedTitle(), content: draftContent, tags: parseTags(draftTags) }
+  }
+
+  function isDirty(): boolean {
+    const patch = currentPatch()
+    return (
+      patch.title !== note.title ||
+      patch.content !== note.content ||
+      patch.tags!.join('\u0000') !== note.tags.join('\u0000')
+    )
+  }
+
+  function beginEdit(): void {
+    initialRef.current = { title: note.title, content: note.content, tags: note.tags }
+    setDraftTitle(note.title)
+    setDraftContent(note.content)
+    setDraftTags(note.tags.join('，'))
+    setPreviewOpen(false)
+    setSaveError(null)
+    setAutoSaved(false)
+    setEditing(true)
+  }
+
+  async function persist(close: boolean): Promise<void> {
+    if (busyRef.current) {
+      if (close) closeAfterRef.current = true
+      return
+    }
+    busyRef.current = true
+    closeAfterRef.current = close
     setSaving(true)
     setSaveError(null)
+    let ok = true
     try {
-      await onUpdate(note.id, { title, content: draftContent })
-      setEditing(false)
-      setPreviewOpen(false)
+      await onUpdate(note.id, currentPatch())
     } catch (error) {
+      ok = false
+      closeAfterRef.current = false
       // 保存失败不能悄悄把编辑框关掉，用户会以为已经存上了。
       setSaveError(error instanceof Error ? error.message : String(error))
     } finally {
+      busyRef.current = false
       setSaving(false)
+      if (ok) setAutoSaved(true)
+      if (ok && closeAfterRef.current) {
+        setEditing(false)
+        setPreviewOpen(false)
+        setAutoSaved(false)
+      }
+      closeAfterRef.current = false
     }
   }
 
-  function cancel(): void {
-    if (!note.content.trim() && note.author === 'user') {
+  useEffect(() => {
+    if (!editing || !isDirty()) return
+    if (!draftContent.trim() && !draftTitle.trim()) return
+    const timer = window.setTimeout(() => void persist(false), 1200)
+    return () => window.clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing, draftTitle, draftContent, draftTags, note.title, note.content, note.tags])
+
+  async function cancel(): Promise<void> {
+    const initial = initialRef.current
+    const startedEmpty = !initial.content.trim() && !initial.title.trim()
+    if (startedEmpty && note.author === 'user') {
+      setEditing(false)
+      setPreviewOpen(false)
       void onDelete(note.id)
       return
     }
-    setDraftTitle(note.title)
-    setDraftContent(note.content)
-    setPreviewOpen(false)
+    const patch = currentPatch()
+    const changed =
+      patch.title !== initial.title ||
+      patch.content !== initial.content ||
+      patch.tags!.join('\u0000') !== initial.tags.join('\u0000')
     setEditing(false)
+    setPreviewOpen(false)
+    setAutoSaved(false)
+    setDraftTitle(initial.title)
+    setDraftContent(initial.content)
+    setDraftTags(initial.tags.join('，'))
+    if (changed) {
+      try {
+        await onUpdate(note.id, { title: initial.title, content: initial.content, tags: initial.tags })
+      } catch (error) {
+        setSaveError(error instanceof Error ? error.message : String(error))
+      }
+    }
   }
 
   async function rewriteSelection(): Promise<void> {
@@ -202,10 +284,10 @@ function NoteCardImpl({
         <div className="note-actions">
           {editing ? (
             <>
-              <button type="button" className="text-button" onClick={() => void save()} disabled={saving}>
-                {saving ? t('保存中…') : t('保存')}
+              <button type="button" className="text-button" onClick={() => void persist(true)} disabled={saving}>
+                {saving ? t('保存中…') : t('完成')}
               </button>
-              <button type="button" className="text-button muted" onClick={cancel}>
+              <button type="button" className="text-button muted" onClick={() => void cancel()}>
                 {t('取消')}
               </button>
             </>
@@ -222,7 +304,7 @@ function NoteCardImpl({
                   {t('分享')}
                 </button>
               ) : null}
-              <button type="button" className="text-button" onClick={() => setEditing(true)}>
+              <button type="button" className="text-button" onClick={beginEdit}>
                 {t('编辑')}
               </button>
               <button
@@ -261,6 +343,13 @@ function NoteCardImpl({
             onChange={(event) => setDraftTitle(event.target.value)}
             placeholder={t('笔记标题')}
           />
+          <input
+            className="note-tags-input"
+            value={draftTags}
+            onChange={(event) => setDraftTags(event.target.value)}
+            placeholder={t('标签，用逗号分隔（最多 8 个）')}
+            aria-label={t('标签')}
+          />
           <textarea
             className="note-textarea"
             value={draftContent}
@@ -287,6 +376,9 @@ function NoteCardImpl({
             <button type="button" className="text-button" onClick={() => setPreviewOpen((value) => !value)}>
               {previewOpen ? t('隐藏预览') : t('预览 Markdown')}
             </button>
+            <span className="note-save-hint" role="status">
+              {saving ? t('正在保存…') : autoSaved ? t('已自动保存') : ''}
+            </span>
             {linkCandidates.length > 0 ? (
               <Select
                 className="link-select"
@@ -380,7 +472,7 @@ function NoteCardImpl({
           onClick={() => onExpand(note.id)}
           disabled={expanding}
         >
-          {expanding ? t('正在延伸…') : t('✦ 延伸')}
+          {expanding ? t('正在延伸…') : <><SparkleIcon /> {t('延伸此笔记')}</>}
         </button>
       ) : null}
 

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { insertCodeUnderstanding, replaceCodeBlock } from '../electron/ai/code-assist.js'
+import { insertCodeUnderstanding, parseFixedCode, replaceCodeBlock } from '../electron/ai/code-assist.js'
 
 test('inserts code explanation after the matching code block', () => {
   const code = 'def add(a, b):\n    return a + b'
@@ -34,4 +34,23 @@ test('replaces code and removes stale explanation when fixed', () => {
   assert.match(result.html ?? '', /const x = 2/)
   assert.doesNotMatch(result.html ?? '', /data-code-understood/)
   assert.doesNotMatch(result.html ?? '', /旧说明/)
+})
+
+test('extracts fixed code from a fenced block with prose around it', () => {
+  const text = '修复后的代码：\n\n```python\ndef add(a, b):\n    return a + b\n```\n\n以上。'
+  assert.equal(parseFixedCode(text), 'def add(a, b):\n    return a + b')
+})
+
+test('extracts fixed code from the legacy JSON payload', () => {
+  const text = '{"code": "const x = 1\\nconsole.log(x)"}'
+  assert.equal(parseFixedCode(text), 'const x = 1\nconsole.log(x)')
+})
+
+test('extracts code from JSON inside a fenced block', () => {
+  const text = '```json\n{"code": "print(1)"}\n```'
+  assert.equal(parseFixedCode(text), 'print(1)')
+})
+
+test('keeps plain code when the model returns no fence', () => {
+  assert.equal(parseFixedCode('SELECT 1;'), 'SELECT 1;')
 })

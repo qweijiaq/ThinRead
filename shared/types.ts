@@ -101,7 +101,7 @@ export interface ReaderStyle {
   lineHeight: number
   paragraphSpacing: number
   indent: boolean
-  theme: 'paper' | 'plain' | 'warm' | 'folio'
+  theme: 'paper' | 'plain' | 'warm' | 'folio' | 'night'
   /** 正文版心最大宽度（px）。 */
   maxWidth: number
 }
@@ -328,6 +328,8 @@ export interface LibraryFilter {
   ids?: string[]
   limit?: number
   offset?: number
+  /** 笔记库排序：默认最近更新。 */
+  sort?: 'updated' | 'created' | 'title' | 'book'
 }
 
 export interface LibraryNoteAudit {
@@ -1611,6 +1613,7 @@ export interface ReadingApi {
   getDoclingStatus(): Promise<DoclingStatus>
   understandChapterImage(chapterId: string, imageSrc: string): Promise<ImageUnderstandingResult>
   codeAssist(chapterId: string, code: string, mode: 'review' | 'explain' | 'fix', language?: string): Promise<CodeAssistResult>
+  applyCodeFix(chapterId: string, code: string, fixed: string): Promise<{ changed: boolean; html?: string; chars?: number }>
   saveChapterContent(chapterId: string, html: string): Promise<ChapterContentSaveResult>
   onDoclingProgress(cb: (event: DoclingProgressEvent) => void): () => void
   importText(input: TextImportInput): Promise<BookSummary>

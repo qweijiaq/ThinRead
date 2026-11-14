@@ -22,6 +22,7 @@ import { CodeReviewDialog } from './CodeReviewDialog.js'
 import { EchoDialog } from './EchoDialog.js'
 import { PdfOriginalView } from './PdfOriginalView.js'
 import { ReadingSummaryDialog } from './ReadingSummaryDialog.js'
+import { TextDiffDialog } from './TextDiffDialog.js'
 
 interface ReaderProps {
   chapter: ChapterContent | null
@@ -316,6 +317,7 @@ export function Reader({
   const codeAssistRef = useRef(false)
   const [editing, setEditing] = useState(false)
   const [savingBody, setSavingBody] = useState(false)
+  const [pendingFix, setPendingFix] = useState<{ code: string; fixed: string; model: string } | null>(null)
   const [codeReview, setCodeReview] = useState<{
     open: boolean
     loading: boolean
@@ -500,13 +502,11 @@ export function Reader({
     if (input.action === 'fix') {
       try {
         const result = await bridge.codeAssist(chapter.id, input.code, 'fix', input.language)
-        if (result.html) setLocalHtml(result.html)
-        onNotify?.({
-          kind: 'info',
-          text: result.changed
-            ? `${t('已修复代码')}${result.model ? ` · ${result.model}` : ''}`
-            : t('代码没有需要修复的地方'),
-        })
+        if (result.text.trim() === input.code.trim()) {
+          onNotify?.({ kind: 'info', text: t('代码没有需要修复的地方') })
+        } else {
+          setPendingFix({ code: input.code, fixed: result.text, model: result.model ?? '' })
+        }
       } catch (error) {
         onNotify?.({ kind: 'error', text: messageOf(error) })
       } finally {
@@ -976,8 +976,15 @@ export function Reader({
         onScroll={handleReaderScroll}
       >
         {loading || !chapter ? (
-          <div className="reader-skeleton">
+          <div className="reader-skeleton" role="status" aria-busy="true" style={{ maxWidth: `${style.maxWidth}px` }}>
+            <span className="sr-only">{t('正在加载…')}</span>
+            <div className="skeleton-line kicker" />
             <div className="skeleton-line wide" />
+            <div className="skeleton-line" />
+            <div className="skeleton-line" />
+            <div className="skeleton-line" />
+            <div className="skeleton-line short" />
+            <div className="skeleton-quote" />
             <div className="skeleton-line" />
             <div className="skeleton-line" />
             <div className="skeleton-line short" />
@@ -1342,6 +1349,34 @@ export function Reader({
             setSelection('')
             setToolbar(null)
           }}
+        />
+      ) : null}
+      {pendingFix ? (
+        <TextDiffDialog
+          title={t('代码修复对比')}
+          before={pendingFix.code}
+          after={pendingFix.fixed}
+          applyLabel={t('应用修复')}
+          onApply={() => {
+            const pending = pendingFix
+            setPendingFix(null)
+            void (async () => {
+              if (!chapter) return
+              try {
+                const result = await bridge.applyCodeFix(chapter.id, pending.code, pending.fixed)
+                if (result.html) setLocalHtml(result.html)
+                onNotify?.({
+                  kind: 'info',
+                  text: result.changed
+                    ? `${t('已修复代码')}${pending.model ? ` · ${pending.model}` : ''}`
+                    : t('代码没有需要修复的地方'),
+                })
+              } catch (error) {
+                onNotify?.({ kind: 'error', text: messageOf(error) })
+              }
+            })()
+          }}
+          onClose={() => setPendingFix(null)}
         />
       ) : null}
       <CodeReviewDialog

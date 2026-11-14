@@ -859,7 +859,17 @@ export function KnowledgeMap({ books, onBack, onOpenNote, onOpenBook }: Knowledg
       ) : null}
 
       <div className="map-stage" ref={stageRef}>
-        {loading && !data ? <p className="map-empty">{t('正在整理知识地图…')}</p> : null}
+        {loading && !data ? (
+          <div className="map-skeleton" role="status" aria-busy="true">
+            <span className="sr-only">{t('正在整理知识地图…')}</span>
+            <span className="map-skeleton-node n1" aria-hidden="true" />
+            <span className="map-skeleton-node n2" aria-hidden="true" />
+            <span className="map-skeleton-node n3" aria-hidden="true" />
+            <span className="map-skeleton-node n4" aria-hidden="true" />
+            <span className="map-skeleton-node n5" aria-hidden="true" />
+            <span className="map-skeleton-card" aria-hidden="true" />
+          </div>
+        ) : null}
         {!loading && data && data.nodes.length === 0 ? (
           <p className="map-empty">{t('还没有带标签的笔记。先去读一章生成卡片，地图会从概念里长出来。')}</p>
         ) : null}

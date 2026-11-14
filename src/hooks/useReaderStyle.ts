@@ -31,7 +31,7 @@ export function withMigratedTypography(style: ReaderStyle): ReaderStyle {
 function loadStoredTheme(): ReaderStyle['theme'] {
   try {
     const stored = localStorage.getItem(THEME_KEY)
-    if (stored === 'paper' || stored === 'plain' || stored === 'warm' || stored === 'folio') return stored
+    if (stored === 'paper' || stored === 'plain' || stored === 'warm' || stored === 'folio' || stored === 'night') return stored
   } catch {
     // localStorage 不可用时使用默认主题。
   }

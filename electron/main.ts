@@ -274,7 +274,7 @@ function createWindow(): void {
     minHeight: 680,
     show: false,
     enableLargerThanScreen: true,
-    backgroundColor: '#f5f0e6',
+    backgroundColor: '#f6f6f4',
     title: '页边',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     trafficLightPosition: { x: 18, y: 18 },

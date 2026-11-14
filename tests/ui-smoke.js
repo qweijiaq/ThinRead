@@ -410,7 +410,9 @@
     notePreview.querySelector('.mermaid-diagram, code.language-mermaid'),
     '笔记预览没有识别 Mermaid 代码块',
   )
-  const saveNoteButton = [...document.querySelectorAll('.note-card button')].find((button) => button.textContent.trim() === '保存')
+  const saveNoteButton = [...document.querySelectorAll('.note-card button')].find((button) =>
+    ['保存', '完成'].includes(button.textContent.trim()),
+  )
   assert(saveNoteButton, '笔记编辑没有保存按钮')
   saveNoteButton.click()
   await waitFor(() => !document.querySelector('.note-textarea'), '笔记保存完成')

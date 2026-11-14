@@ -1,6 +1,6 @@
 {
   "name": "reading-notes",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "license": "MIT",
   "description": "页边 · ThinRead — 本地优先的 AI 读书笔记应用",
@@ -28,6 +28,7 @@
     "capture:storybook": "node scripts/capture-storybook.mjs",
     "i18n:inventory": "node scripts/i18n-inventory.mjs",
     "manual": "node scripts/build-manual.mjs",
+    "version:sync": "node scripts/sync-version.mjs",
     "check:extensions": "node scripts/check-capabilities.mjs",
     "check:docs": "node scripts/check-docs.mjs",
     "install:docling": "bash scripts/install-docling.sh",

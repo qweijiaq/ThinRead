@@ -5,6 +5,7 @@ import type { CitationMeta, CitationStyle } from '../../shared/types.js'
 import { citationExtension, citationFilename, formatCitation } from '../lib/citation.js'
 import { t } from '../lib/i18n.js'
 import { Select } from './Select.js'
+import { useDialogFocus } from '../lib/useDialogFocus.js'
 
 interface CitationDialogProps {
   open: boolean
@@ -39,6 +40,7 @@ export function CitationDialog({ open, title, author, onClose }: CitationDialogP
   }, [author, open, title])
 
   const preview = useMemo(() => formatCitation(style, meta), [meta, style])
+  const dialogRef = useDialogFocus<HTMLDivElement>(open, onClose, 'input')
 
   if (!open) return null
 
@@ -72,6 +74,7 @@ export function CitationDialog({ open, title, author, onClose }: CitationDialogP
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
       <div
+        ref={dialogRef}
         className="modal citation-modal"
         role="dialog"
         aria-modal="true"

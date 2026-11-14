@@ -1,5 +1,5 @@
 const DOWNLOAD_URL =
-  'https://github.com/qweijiaq/ThinRead/releases/latest/download/ThinRead-0.2.0-mac-arm64.dmg'
+  'https://github.com/qweijiaq/ThinRead/releases/latest/download/ThinRead-0.2.1-mac-arm64.dmg'
 const LIKE_BASE = 'https://abacus.jasoncameron.dev'
 const LIKE_KEY = 'thinread/website-likes'
 const LIKED_STORAGE = 'thinread-website-liked'
@@ -228,7 +228,7 @@ function setupTheme() {
       toggle.setAttribute('aria-pressed', String(theme === 'dark'))
     }
     if (meta instanceof HTMLMetaElement) {
-      meta.content = theme === 'dark' ? '#09090b' : '#ffffff'
+      meta.content = theme === 'dark' ? '#141310' : '#f7f4ee'
     }
   }
   apply(root.dataset.theme === 'dark' ? 'dark' : 'light')
@@ -1102,6 +1102,77 @@ function setupFeedbackListActions() {
   })
 }
 
+function setupGallery() {
+  const grid = document.querySelector('#shotGrid')
+  const filters = document.querySelector('#shotFilters')
+  if (grid && filters) {
+    filters.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-filter]')
+      if (!(button instanceof HTMLButtonElement)) return
+      const filter = button.dataset.filter || 'all'
+      filters.querySelectorAll('[data-filter]').forEach((item) => {
+        const active = item === button
+        item.classList.toggle('is-active', active)
+        item.setAttribute('aria-pressed', String(active))
+      })
+      grid.querySelectorAll('[data-cat]').forEach((card) => {
+        card.hidden = filter !== 'all' && card.dataset.cat !== filter
+      })
+    })
+  }
+
+  const dialog = document.querySelector('#lightbox')
+  if (!(dialog instanceof HTMLDialogElement)) return
+  const image = dialog.querySelector('#lightboxImage')
+  const caption = dialog.querySelector('#lightboxCaption')
+  let links = []
+  let index = 0
+
+  const show = (next) => {
+    if (!links.length) return
+    index = (next + links.length) % links.length
+    const link = links[index]
+    if (image instanceof HTMLImageElement) {
+      image.src = link.getAttribute('href') || ''
+      const source = link.querySelector('img')
+      image.alt = source instanceof HTMLImageElement ? source.alt : ''
+    }
+    if (caption) caption.textContent = link.dataset.caption || `${index + 1} / ${links.length}`
+  }
+
+  document.addEventListener('click', (event) => {
+    const link = event.target.closest('[data-lightbox]')
+    if (!(link instanceof HTMLAnchorElement)) return
+    event.preventDefault()
+    const group = link.closest('#shotGrid, .flow, .hero') || document
+    links = [...group.querySelectorAll('[data-lightbox]')].filter((item) => item.offsetParent !== null)
+    if (!links.length) return
+    const start = links.indexOf(link)
+    if (dialog.open) dialog.close()
+    show(start < 0 ? 0 : start)
+    dialog.showModal()
+  })
+
+  dialog.addEventListener('click', (event) => {
+    if (event.target === dialog) dialog.close()
+    const action = event.target.closest('[data-lightbox-prev], [data-lightbox-next], [data-lightbox-close]')
+    if (!(action instanceof HTMLButtonElement)) return
+    if (action.hasAttribute('data-lightbox-prev')) show(index - 1)
+    else if (action.hasAttribute('data-lightbox-next')) show(index + 1)
+    else dialog.close()
+  })
+
+  dialog.addEventListener('keydown', (event) => {
+    if (event.key === 'ArrowLeft') {
+      event.preventDefault()
+      show(index - 1)
+    } else if (event.key === 'ArrowRight') {
+      event.preventDefault()
+      show(index + 1)
+    }
+  })
+}
+
 function revealVisible() {
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
   if (!('IntersectionObserver' in window)) {
@@ -1144,6 +1215,7 @@ function boot() {
   setupFeedbackView()
   setupVotes()
   setupSimilarSuggestions()
+  setupGallery()
   renderNotes()
   revealVisible()
   loadLikes()

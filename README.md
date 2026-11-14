@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  <strong>English</strong> · <a href="README.zh-CN.md">简体中文</a> · <a href="https://qweijiaq.github.io/ThinRead/">Website</a> · <a href="docs/user-manual.md">Manual</a> · <a href="https://github.com/qweijiaq/ThinRead/releases">Releases</a>
+  <strong>English</strong> · <a href="README.zh-CN.md">简体中文</a> · <a href="https://qweijiaq.github.io/ThinRead/">Website</a> · <a href="docs/user-manual.md">Manual</a> · <a href="docs/user-manual.pdf">PDF</a> · <a href="docs/user-manual.html">HTML</a> · <a href="https://github.com/qweijiaq/ThinRead/releases">Releases</a>
 </p>
 
 > Most reading tools optimize for **capture**: more highlights, more excerpts, a bigger library.
@@ -67,7 +67,11 @@ Note titles, tags, and bodies are embedded locally with BGE-small-zh and cached.
 | --- | --- | --- |
 | ![Compose](docs/features/04-compose.png) | ![Share](docs/features/05-share.png) | ![Carousel](docs/features/06-xhs.png) |
 
-More screens and reading statistics: [feature gallery](docs/features/README.md).
+| Reading statistics | Character graph | Listening & podcast |
+| --- | --- | --- |
+| ![Stats](docs/features/07-stats.png) | ![Character graph](docs/features/11-relation.png) | ![Listening](docs/features/12-listen.png) |
+
+More screens, import, notes library, map, themes, and night mode: [feature gallery](docs/features/README.md). The [manual](docs/user-manual.md) covers every workflow in detail.
 
 ---
 
@@ -246,7 +250,7 @@ You can assign separate models to condensing, composition, and the workbench, an
 
 ### Reading and formatting
 
-- **Editorial typography**: serif body and headings, ~1.86 line height, ink-blue accent, and complete styling for quotes, inline code, code blocks, tables, and images. Four themes (ink blue / paper / white / warm), applied app-wide.
+- **Editorial typography**: serif body and headings, ~1.86 line height, ink-blue accent, and complete styling for quotes, inline code, code blocks, tables, and images. Five themes (ink blue / paper / white / warm / night), applied app-wide.
 - **Direct body editing**: edit the current chapter and remove noise; saves back to `formatted_html` and strips reader-only buttons and syntax-highlight wrappers.
 - **AI formatting**: one click removes ads, promos, duplicate headings, page watermarks, and garbled text, and normalizes heading, paragraph, quote, and list hierarchy. Every removal lists a reason and the original fragment; each can be kept individually, or the whole run reverted.
 - **Code block tools**: review conventions and error characters, one-click fix for definite errors, comment out prose that leaked into a code block using the language's own comment marker, and have the model explain code inline.
@@ -429,7 +433,7 @@ For the full set of edge cases, see the [manual](docs/user-manual.md).
 
 ## Release
 
-Latest unsigned macOS builds are on [Releases](https://github.com/qweijiaq/ThinRead/releases). v0.2.0 is a beta pre-release with arm64 DMG / zip and a full bundle. v0.1.0 was the first public build.
+Latest unsigned macOS builds are on [Releases](https://github.com/qweijiaq/ThinRead/releases). v0.2.1 is the latest beta pre-release with arm64 DMG / zip and a full bundle; v0.2.0 added Docling deep PDF parsing. v0.1.0 was the first public build.
 
 Pushing a `v*` tag runs a hard gate: typecheck, tests, renderer and PDF smoke tests, and a check that the tag matches `package.json` — only then is the same build artifact packaged. The release job uploads dmg, zip, and blockmaps (needed for incremental updates).
 
@@ -452,6 +456,7 @@ Signing is optional: set `MAC_CERT_P12`, `MAC_CERT_PASSWORD`, `APPLE_ID`, `APPLE
 
 ## Changelog
 
+- **2026-11-14** — v0.2.1. Encrypted snapshot sync with cross-device merge, PDF original-page annotations, shelf status, AI budget guard and retry backoff, system TTS fallback, English Beta, OpenDesign Cloud, and redesigned editorial share cards. New warm-paper website with an 18-shot filterable gallery and lightbox; refreshed 12-image manual and README galleries.
 - **2026-11-11** — v0.2.0. Docling deep PDF parsing with outline-based chaptering and reconstructed code-block line breaks and indentation; direct body editing, image understanding, and code review/fix/explain; automatic selection of an available vision model; cleanup of small images, bullet symbols, and table noise in PDF imports.
 - **2026-11-08** — Repackaged v0.1.5 for macOS arm64; feature-identical to v0.1.4, with light/dark website updates.
 - **2026-11-06** — v0.1.4. Reading plans, app lock, note audit/export, version diffs, paragraph rewrite, weekly reviews, Qwen TTS voices with MP3 and paragraph gaps, share-card and carousel visual rework.

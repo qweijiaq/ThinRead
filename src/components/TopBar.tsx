@@ -149,7 +149,7 @@ export function TopBar({
           </>
         ) : null}
       </div>
-      <div className="topbar-right">
+      <nav className="topbar-nav" aria-label={t('主要导航')}>
         {!coreMode ? (
           <button
             type="button"
@@ -225,6 +225,8 @@ export function TopBar({
             ) : null}
           </div>
         ) : null}
+      </nav>
+      <div className="topbar-right">
         <button type="button" className="ghost-button small" onClick={onSearch} title={t('搜索（⌘K）')}>
           {t('搜索')}
         </button>
@@ -242,10 +244,19 @@ export function TopBar({
           {importing ? t('导入中…') : t('导入')}
         </button>
         <button type="button" className="icon-button" onClick={onManual} title={t('使用手册')} aria-label={t('使用手册')}>
-          ?
+          <svg className="od-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M9.6 9.3a2.5 2.5 0 1 1 3.3 2.4c-.6.24-.9.68-.9 1.3v.5" />
+            <path d="M12 17h.01" />
+          </svg>
         </button>
         <button type="button" className="icon-button" onClick={onSettings} title={t('设置')} aria-label={t('设置')}>
-          ⚙
+          <svg className="od-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 7h8M16 7h4M4 12h4M12 12h8M4 17h10M18 17h2" />
+            <circle cx="14" cy="7" r="2" />
+            <circle cx="10" cy="12" r="2" />
+            <circle cx="16" cy="17" r="2" />
+          </svg>
         </button>
       </div>
     </header>

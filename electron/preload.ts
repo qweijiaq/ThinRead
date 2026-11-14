@@ -157,6 +157,8 @@ const api: ReadingApi = {
   getDoclingStatus: () => ipcRenderer.invoke('docling:status') as Promise<DoclingStatus>,
   understandChapterImage: (chapterId: string, imageSrc: string) =>
     ipcRenderer.invoke('chapters:understand-image', chapterId, imageSrc) as Promise<ImageUnderstandingResult>,
+  applyCodeFix: (chapterId: string, code: string, fixed: string) =>
+    ipcRenderer.invoke('chapters:apply-code-fix', chapterId, code, fixed),
   codeAssist: (chapterId: string, code: string, mode: 'review' | 'explain' | 'fix', language?: string) =>
     ipcRenderer.invoke('chapters:code-assist', chapterId, code, mode, language) as Promise<CodeAssistResult>,
   saveChapterContent: (chapterId: string, html: string) =>

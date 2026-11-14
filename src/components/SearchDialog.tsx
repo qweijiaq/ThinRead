@@ -4,6 +4,7 @@ import type { SearchResult, SearchResultType } from '../../shared/types.js'
 import { t, useLocale } from '../lib/i18n.js'
 import { mergeSearchResults } from '../lib/search-merge.js'
 import { useDialogFocus } from '../lib/useDialogFocus.js'
+import { SkeletonRows } from './Skeleton.js'
 
 interface SearchDialogProps {
   open: boolean
@@ -305,7 +306,10 @@ export function SearchDialog({ open, hasBook = false, onClose, onOpen, onCommand
           ) : !trimmedQuery ? (
             <p className="search-empty">{t('输入关键词，跨所有书搜索书名、章节正文、笔记和生成内容。')}</p>
           ) : loading && results.length === 0 ? (
-            <p className="search-empty">{t('正在搜索…')}</p>
+            <div className="search-loading" role="status" aria-busy="true">
+              <span className="sr-only">{t('正在搜索…')}</span>
+              <SkeletonRows rows={5} className="sk-search-rows" />
+            </div>
           ) : results.length === 0 ? (
             <p className="search-empty">{t('没有找到')}「{trimmedQuery}」。</p>
           ) : ordered.length === 0 ? (

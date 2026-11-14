@@ -1,10 +1,11 @@
 import { bridge } from '../lib/bridge.js'
-import { useEffect, useState, type JSX } from 'react'
+import { useEffect, useRef, useState, type JSX } from 'react'
 import type { BookSummary, LibraryNote, LibraryNoteAudit, NoteAuditFilter, NoteKind, TagCount } from '../../shared/types.js'
 import { countUnit, t, useLocale } from '../lib/i18n.js'
 import { snippet } from '../lib/links.js'
 import { noteDisplayTitle, titleRepeatsContent } from '../lib/note-display.js'
 import { NoteTrashDialog } from './NoteTrashDialog.js'
+import { ChevronIcon } from './Icon.js'
 import { Select } from './Select.js'
 
 interface NotesLibraryProps {
@@ -54,6 +55,9 @@ export function NotesLibrary({ books, onBack, onOpen, onShare, onShareDeck }: No
   const [exporting, setExporting] = useState(false)
   const [page, setPage] = useState(0)
   const [total, setTotal] = useState(0)
+  const [sort, setSort] = useState<'updated' | 'created' | 'title' | 'book'>('updated')
+  const tagStripRef = useRef<HTMLDivElement | null>(null)
+  const [tagScroll, setTagScroll] = useState({ left: false, right: false })
   const [selectMode, setSelectMode] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [trashOpen, setTrashOpen] = useState(false)
@@ -89,11 +93,32 @@ export function NotesLibrary({ books, onBack, onOpen, onShare, onShareDeck }: No
   useEffect(() => {
     setPage(0)
     setSelected(new Set())
-  }, [bookId, kind, tag, query, auditFilter])
+  }, [bookId, kind, tag, query, auditFilter, sort])
 
   useEffect(() => {
     setSelected(new Set())
   }, [page])
+
+  useEffect(() => {
+    const element = tagStripRef.current
+    if (!element) {
+      setTagScroll({ left: false, right: false })
+      return
+    }
+    const update = () => {
+      setTagScroll({
+        left: element.scrollLeft > 4,
+        right: element.scrollLeft + element.clientWidth < element.scrollWidth - 4,
+      })
+    }
+    update()
+    element.addEventListener('scroll', update, { passive: true })
+    window.addEventListener('resize', update)
+    return () => {
+      element.removeEventListener('scroll', update)
+      window.removeEventListener('resize', update)
+    }
+  }, [tags, bookId])
 
   useEffect(() => {
     let cancelled = false
@@ -106,6 +131,7 @@ export function NotesLibrary({ books, onBack, onOpen, onShare, onShareDeck }: No
           tag,
           query: query.trim() || undefined,
           audit: auditFilter || null,
+          sort,
           limit: PAGE_SIZE,
           offset: page * PAGE_SIZE,
         })
@@ -128,15 +154,26 @@ export function NotesLibrary({ books, onBack, onOpen, onShare, onShareDeck }: No
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [bookId, kind, tag, query, page, auditFilter, refreshTick])
+  }, [bookId, kind, tag, query, page, auditFilter, sort, refreshTick])
 
   function toggleSelected(id: string): void {
     setSelected((current) => {
       const next = new Set(current)
       if (next.has(id)) next.delete(id)
       else if (next.size < 12) next.add(id)
+      else window.setTimeout(() => setNotice(t('一次最多选择 12 条笔记。')), 0)
       return next
     })
+  }
+
+  function selectAllVisible(): void {
+    const ids = notes.slice(0, 12).map((note) => note.id)
+    setSelected(new Set(ids))
+    if (notes.length > 12) setNotice(t('已选当前页前 12 条；一次最多 12 条。'))
+  }
+
+  function scrollTags(direction: 1 | -1): void {
+    tagStripRef.current?.scrollBy({ left: direction * 260, behavior: 'smooth' })
   }
 
   function exitSelectMode(): void {
@@ -210,13 +247,16 @@ export function NotesLibrary({ books, onBack, onOpen, onShare, onShareDeck }: No
               <button type="button" className="ghost-button" onClick={exitSelectMode}>
                 {t('取消多选')}
               </button>
+              <button type="button" className="ghost-button" onClick={selectAllVisible} disabled={notes.length === 0}>
+                {t('全选本页')}
+              </button>
               <button
                 type="button"
                 className="primary-button"
                 onClick={shareSelected}
                 disabled={selected.size < 2}
               >
-                {t('长图')} · {t('已选')} {selected.size}
+                {t('长图')} · {t('已选')} {selected.size}/12
               </button>
               <button
                 type="button"
@@ -251,6 +291,7 @@ export function NotesLibrary({ books, onBack, onOpen, onShare, onShareDeck }: No
         </div>
       </div>
 
+      <div className="notes-filters">
       <div className="notes-toolbar">
         <input
           className="notes-filter-input"
@@ -276,26 +317,59 @@ export function NotesLibrary({ books, onBack, onOpen, onShare, onShareDeck }: No
           ariaLabel={t('按类型筛选')}
           options={KIND_OPTIONS.map((option) => ({ value: option.value, label: t(option.label) }))}
         />
+        <Select
+          className="filter-select"
+          value={sort}
+          onChange={(value) => setSort(value as 'updated' | 'created' | 'title' | 'book')}
+          ariaLabel={t('排序')}
+          options={[
+            { value: 'updated', label: t('最近更新') },
+            { value: 'created', label: t('创建时间') },
+            { value: 'title', label: t('按标题') },
+            { value: 'book', label: t('按书名') },
+          ]}
+        />
       </div>
 
       {tags.length > 0 ? (
-        <div className="tag-filter">
-          <button type="button" className={tag === null ? 'is-active' : ''} onClick={() => setTag(null)}>
-            {t('全部标签')}
+        <div className="tag-filter-wrap">
+          <button
+            type="button"
+            className="tag-scroll"
+            onClick={() => scrollTags(-1)}
+            disabled={!tagScroll.left}
+            aria-label={t('向左滚动标签')}
+          >
+            <ChevronIcon direction="left" />
           </button>
-          {tags.map((item) => (
-            <button
-              key={item.tag}
-              type="button"
-              className={tag === item.tag ? 'is-active' : ''}
-              onClick={() => setTag((current) => (current === item.tag ? null : item.tag))}
-            >
-              {item.tag}
-              <span>{item.count}</span>
+          <div className="tag-filter" ref={tagStripRef}>
+            <button type="button" className={tag === null ? 'is-active' : ''} onClick={() => setTag(null)}>
+              {t('全部标签')}
             </button>
-          ))}
+            {tags.map((item) => (
+              <button
+                key={item.tag}
+                type="button"
+                className={tag === item.tag ? 'is-active' : ''}
+                onClick={() => setTag((current) => (current === item.tag ? null : item.tag))}
+              >
+                {item.tag}
+                <span>{item.count}</span>
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            className="tag-scroll"
+            onClick={() => scrollTags(1)}
+            disabled={!tagScroll.right}
+            aria-label={t('向右滚动标签')}
+          >
+            <ChevronIcon direction="right" />
+          </button>
         </div>
       ) : null}
+      </div>
 
       {audit ? (
         <div className="notes-audit" role="group" aria-label={t('笔记审计')}>
@@ -348,7 +422,15 @@ export function NotesLibrary({ books, onBack, onOpen, onShare, onShareDeck }: No
       </div>
 
       {loading && notes.length === 0 ? (
-        <p className="notes-library-empty">{t('正在加载笔记…')}</p>
+        <div className="notes-library-list notes-skeleton" aria-hidden="true">
+          {Array.from({ length: 6 }).map((_, index) => (
+            <div key={index} className="skeleton-card">
+              <span />
+              <span />
+              <span />
+            </div>
+          ))}
+        </div>
       ) : notes.length === 0 ? (
         <p className="notes-library-empty">{t('没有符合筛选条件的笔记。换个标签或去读一章生成笔记。')}</p>
       ) : (

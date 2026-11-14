@@ -1,0 +1,182 @@
+:root {
+  /* 纸色主题：暖白纸面，克制的墨色与单一的赭红强调 */
+  --paper: #f7f5f0;
+  --paper-2: #fcfbf7;
+  --paper-3: #efede6;
+  --white: #fffefb;
+  --ink: #1b1a17;
+  --ink-soft: #45433d;
+  --muted: #6f6a5e;
+  --faint: color-mix(in srgb, var(--muted) 55%, transparent);
+  --soft: var(--ink-soft);
+  --line: #e6e2d8;
+  --line-strong: #d5cfc2;
+  --accent: #9c4a2f;
+  --accent-dark: #7e3a24;
+  --accent-soft: #f3e7e0;
+  --ai: #35604f;
+  --ai-soft: #e8f0eb;
+  --warn: #8a6420;
+  --danger: #9d3b30;
+  --note-highlight: #6a5c88;
+  --note-thought: #536a7c;
+  --hover: rgba(27, 26, 23, 0.045);
+  --reader-bg: #f7f5f0;
+
+  /* 共同的尺度与节奏 */
+  --font-sans: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans SC', 'Helvetica Neue', sans-serif;
+  --font-serif: 'Songti SC', 'STSong', 'Noto Serif CJK SC', 'SimSun', Georgia, serif;
+  --font-mono: 'SFMono-Regular', Menlo, Consolas, monospace;
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 9px;
+  --radius-lg: 13px;
+  --shadow-sm: 0 1px 2px rgba(20, 22, 25, 0.05);
+  --shadow-md: 0 6px 20px rgba(20, 22, 25, 0.07);
+  --shadow-lg: 0 24px 64px rgba(16, 18, 22, 0.16);
+  --ease-out: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --ease-in: cubic-bezier(0.55, 0.06, 0.68, 0.19);
+  --dur-fast: 140ms;
+  --dur: 200ms;
+  --dur-slow: 320ms;
+  --focus-ring: 0 0 0 2px var(--paper-2), 0 0 0 4px color-mix(in srgb, var(--accent) 45%, transparent);
+  color-scheme: light;
+}
+
+html.theme-plain {
+  /* 纯白主题：冷白纸面，高对比 */
+  --paper: #ffffff;
+  --paper-2: #fbfbfb;
+  --paper-3: #f1f2f2;
+  --white: #ffffff;
+  --ink: #141517;
+  --ink-soft: #3d4147;
+  --muted: #666a70;
+  --line: #e6e7e5;
+  --line-strong: #d4d6d3;
+  --accent: #2b4a63;
+  --accent-dark: #1d3548;
+  --accent-soft: #edf1f4;
+  --ai: #35604f;
+  --ai-soft: #e9f0ec;
+  --warn: #7f5c1c;
+  --danger: #9c3a30;
+  --note-highlight: #6a5c88;
+  --note-thought: #52687a;
+  --hover: rgba(20, 21, 23, 0.04);
+  --reader-bg: #ffffff;
+}
+
+html.theme-warm {
+  /* 暖色主题：米色纸面，保留手作温度 */
+  --paper: #f6efe3;
+  --paper-2: #fdf8ee;
+  --paper-3: #efe6d6;
+  --white: #fffcf5;
+  --ink: #1f1c17;
+  --ink-soft: #474038;
+  --muted: #6d6658;
+  --line: #e5dac7;
+  --line-strong: #d3c3aa;
+  --accent: #8f4a2c;
+  --accent-dark: #733a22;
+  --accent-soft: #f4e5da;
+  --ai: #35604f;
+  --ai-soft: #e8efe6;
+  --warn: #7f5c1c;
+  --danger: #9c3a30;
+  --note-highlight: #7c6478;
+  --note-thought: #5e6f78;
+  --hover: rgba(31, 28, 23, 0.045);
+  --reader-bg: #f6efe3;
+}
+
+html.theme-folio {
+  /* 墨蓝主题（默认）：冷调近白，编辑感最强 */
+  --paper: #f6f6f4;
+  --paper-2: #fbfbfa;
+  --paper-3: #eeefec;
+  --white: #ffffff;
+  --ink: #17181a;
+  --ink-soft: #3c4046;
+  --muted: #64686e;
+  --line: #e5e6e2;
+  --line-strong: #d3d5d0;
+  --accent: #2b4a63;
+  --accent-dark: #1d3548;
+  --accent-soft: #eaf0f4;
+  --ai: #35604f;
+  --ai-soft: #e8f0eb;
+  --warn: #856021;
+  --danger: #9d3b30;
+  --note-highlight: #6a5c88;
+  --note-thought: #536a7c;
+  --hover: rgba(23, 24, 26, 0.045);
+  --reader-bg: #f6f6f4;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  color: var(--ink);
+  background: var(--paper);
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  line-height: 1.55;
+  letter-spacing: 0.006em;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+  border: 0;
+  background: none;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--muted) 26%, transparent);
+  border: 4px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--muted) 42%, transparent);
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.app {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}

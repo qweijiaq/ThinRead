@@ -3,6 +3,7 @@ import { useEffect, useState, type JSX } from 'react'
 
 import type { TrashedNote } from '../../shared/types.js'
 import { t, useLocale } from '../lib/i18n.js'
+import { SkeletonRows } from './Skeleton.js'
 import { useDialogFocus } from '../lib/useDialogFocus.js'
 import { confirmDialog } from './ConfirmDialog.js'
 
@@ -139,7 +140,12 @@ export function NoteTrashDialog({ open, onClose, onChanged }: NoteTrashDialogPro
         </div>
 
         {error ? <div className="inline-error" role="alert">{error}</div> : null}
-        {loading ? <p className="trash-empty">{t('正在加载…')}</p> : null}
+        {loading ? (
+          <div className="trash-loading" role="status" aria-busy="true">
+            <span className="sr-only">{t('正在加载…')}</span>
+            <SkeletonRows rows={3} />
+          </div>
+        ) : null}
         {!loading && notes.length === 0 ? <p className="trash-empty">{t('回收站是空的。')}</p> : null}
 
         {notes.length > 0 ? (

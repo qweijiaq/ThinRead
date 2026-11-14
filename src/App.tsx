@@ -1,3 +1,5 @@
+import type * as React from 'react'
+
 import { bridge } from './lib/bridge.js'
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 
@@ -19,6 +21,7 @@ import { useRename } from './hooks/useRename.js'
 import { useViews, type MainView } from './hooks/useViews.js'
 import { useShare } from './hooks/useShare.js'
 import { useToast } from './hooks/useToast.js'
+import { ChevronIcon } from './components/Icon.js'
 import { t, useLocale } from './lib/i18n.js'
 import { hydratePreferences } from './lib/preferences.js'
 import { hydrateReadingStats } from './lib/reading-stats.js'
@@ -39,6 +42,7 @@ import { ChatPanel } from './components/ChatPanel.js'
 import { FeynmanPanel } from './components/FeynmanPanel.js'
 import { FormatPanel } from './components/FormatPanel.js'
 import { Library } from './components/Library.js'
+import { ViewSkeleton } from './components/Skeleton.js'
 import { ListenPanel } from './components/ListenPanel.js'
 import { NotesPanel } from './components/NotesPanel.js'
 import { DeepParseOverlay } from './components/DeepParseOverlay.js'
@@ -57,6 +61,26 @@ const ContentView = lazy(async () => ({ default: (await import('./components/Con
 const KnowledgeMap = lazy(async () => ({ default: (await import('./components/KnowledgeMap.js')).KnowledgeMap }))
 const LabView = lazy(async () => ({ default: (await import('./components/LabView.js')).LabView }))
 const NotesLibrary = lazy(async () => ({ default: (await import('./components/NotesLibrary.js')).NotesLibrary }))
+function loadSideCollapsed(): boolean {
+  try {
+    const stored = localStorage.getItem('reading-notes-side-collapsed')
+    if (stored === '1' || stored === '0') return stored === '1'
+  } catch {
+    // localStorage 不可用时按窗口宽度决定。
+  }
+  return window.innerWidth <= 1150
+}
+
+function loadSideWidth(): number {
+  try {
+    const stored = Number(localStorage.getItem('reading-notes-side-width'))
+    if (Number.isFinite(stored) && stored >= 340 && stored <= 720) return stored
+  } catch {
+    // localStorage 不可用时用默认宽度。
+  }
+  return 500
+}
+
 const ReadingPlanDialog = lazy(async () => ({ default: (await import('./components/ReadingPlanDialog.js')).ReadingPlanDialog }))
 const StatsView = lazy(async () => ({ default: (await import('./components/StatsView.js')).StatsView }))
 const WeeklyReviewsView = lazy(async () => ({ default: (await import('./components/WeeklyReviewsView.js')).WeeklyReviewsView }))
@@ -113,7 +137,8 @@ export function App(): JSX.Element {
   const [booksLoaded, setBooksLoaded] = useState(false)
   const [onboardingOpen, setOnboardingOpen] = useState(false)
   const [bookTrashOpen, setBookTrashOpen] = useState(false)
-  const [sidePanelCollapsed, setSidePanelCollapsed] = useState(false)
+  const [sidePanelCollapsed, setSidePanelCollapsed] = useState(loadSideCollapsed)
+  const [sideWidth, setSideWidth] = useState(loadSideWidth)
   const [pendingGenerate, setPendingGenerate] = useState<{ fresh: boolean } | null>(null)
   const [deepParse, setDeepParse] = useState<{
     title: string
@@ -125,6 +150,54 @@ export function App(): JSX.Element {
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null)
   const [locked, setLocked] = useState(false)
   const [toast, setToast] = useToast()
+  useEffect(() => {
+    try {
+      localStorage.setItem('reading-notes-side-collapsed', sidePanelCollapsed ? '1' : '0')
+    } catch {
+      // localStorage 不可用时只影响记忆。
+    }
+  }, [sidePanelCollapsed])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('reading-notes-side-width', String(sideWidth))
+    } catch {
+      // localStorage 不可用时只影响记忆。
+    }
+  }, [sideWidth])
+
+  const wideViewportRef = useRef(window.innerWidth > 1150)
+
+  useEffect(() => {
+    function onResize(): void {
+      const wide = window.innerWidth > 1150
+      if (wideViewportRef.current && !wide) setSidePanelCollapsed(true)
+      wideViewportRef.current = wide
+    }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+
+  function startSideResize(event: React.PointerEvent<HTMLDivElement>): void {
+    event.preventDefault()
+    const startX = event.clientX
+    const startWidth = sideWidth
+    function onMove(ev: PointerEvent): void {
+      const next = Math.min(720, Math.max(340, startWidth - (ev.clientX - startX)))
+      setSideWidth(next)
+    }
+    function onUp(): void {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
+
   const applyReaderStyle = useCallback(
     (style: Partial<ReaderStyle>) => setReaderStyle((current) => ({ ...current, ...style })),
     [setReaderStyle],
@@ -822,11 +895,11 @@ export function App(): JSX.Element {
       {mainView === 'manual' ? (
         <ManualView onBack={() => setMainView(manualReturn)} />
       ) : mainView === 'lab' ? null : mainView === 'weekly' ? (
-        <Suspense fallback={<div className="view-loading-shell"><p className="view-loading">{t('正在加载周复盘…')}</p></div>}>
+        <Suspense fallback={<ViewSkeleton />}>
           <WeeklyReviewsView onBack={() => setMainView('stats')} />
         </Suspense>
       ) : mainView === 'stats' ? (
-        <Suspense fallback={<div className="view-loading-shell"><p className="view-loading">{t('正在加载阅读统计…')}</p></div>}>
+        <Suspense fallback={<ViewSkeleton />}>
           <StatsView
             books={books}
             onBack={() => setMainView('reader')}
@@ -847,7 +920,7 @@ export function App(): JSX.Element {
           />
         </Suspense>
       ) : mainView === 'notes' ? (
-        <Suspense fallback={<div className="view-loading-shell"><p className="view-loading">{t('正在加载笔记库…')}</p></div>}>
+        <Suspense fallback={<ViewSkeleton />}>
           <NotesLibrary
             books={books}
             onBack={() => setMainView('reader')}
@@ -857,7 +930,7 @@ export function App(): JSX.Element {
           />
         </Suspense>
       ) : mainView === 'map' ? (
-        <Suspense fallback={<div className="view-loading-shell"><p className="view-loading">{t('正在加载知识地图…')}</p></div>}>
+        <Suspense fallback={<ViewSkeleton />}>
           <KnowledgeMap
             books={books}
             onBack={() => setMainView('reader')}
@@ -866,7 +939,7 @@ export function App(): JSX.Element {
           />
         </Suspense>
       ) : mainView === 'content' ? (
-        <Suspense fallback={<div className="view-loading-shell"><p className="view-loading">{t('正在加载内容库…')}</p></div>}>
+        <Suspense fallback={<ViewSkeleton />}>
           <ContentView
             books={books}
             initialItemId={contentFocusId}
@@ -893,7 +966,10 @@ export function App(): JSX.Element {
           />
         </Suspense>
       ) : mainView === 'compose' ? null : book ? (
-        <div className={`workspace${sidePanelCollapsed ? ' is-side-collapsed' : ''}`}>
+        <div
+          className={`workspace${sidePanelCollapsed ? ' is-side-collapsed' : ''}`}
+          style={{ '--side-width': `${sideWidth}px` } as React.CSSProperties}
+        >
           <ChapterList
             chapters={chapters}
             currentId={chapter?.id ?? null}
@@ -966,6 +1042,24 @@ export function App(): JSX.Element {
                 : undefined
             }
           />
+          {!sidePanelCollapsed ? (
+            <div
+              className="side-resizer"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label={t('调整笔记栏宽度')}
+              tabIndex={0}
+              onPointerDown={startSideResize}
+              onDoubleClick={() => setSideWidth(500)}
+              onKeyDown={(event) => {
+                if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+                  event.preventDefault()
+                  const delta = event.key === 'ArrowLeft' ? 20 : -20
+                  setSideWidth((current) => Math.min(720, Math.max(340, current + delta)))
+                }
+              }}
+            />
+          ) : null}
           {sidePanelCollapsed ? (
             <aside className="side-rail" aria-label={t('侧栏已收起')}>
               <button type="button" onClick={() => { setSideTab('notes'); setSidePanelCollapsed(false) }}>
@@ -1015,7 +1109,7 @@ export function App(): JSX.Element {
                 title={t('收起侧栏')}
                 aria-label={t('收起侧栏')}
               >
-                ›
+                <ChevronIcon direction="right" />
               </button>
             </div>
             {sideTab === 'notes' ? (
@@ -1027,6 +1121,7 @@ export function App(): JSX.Element {
                 allNotes={allNotes}
                 chapterTitles={chapterTitles}
                 generating={generating}
+                loading={loadingChapter}
                 partial={partial}
                 error={error}
                 report={chapter?.noteReport ?? null}
@@ -1097,6 +1192,7 @@ export function App(): JSX.Element {
       ) : (
         <Library
           books={books}
+          loading={!booksLoaded}
           importing={importing}
           onOpen={(bookId) => void openBook(bookId)}
           onImport={() => setImportOpen(true)}
@@ -1134,7 +1230,7 @@ export function App(): JSX.Element {
 
       {composeMountedBookId && book && composeMountedBookId === book.id ? (
         <div className={`compose-shell${mainView === 'compose' ? ' is-active' : ''}`}>
-          <Suspense fallback={<div className="view-loading-shell"><p className="view-loading">{t('正在加载成书页…')}</p></div>}>
+          <Suspense fallback={<ViewSkeleton />}>
             <BookCompose
               key={book.id}
               book={book}
@@ -1160,7 +1256,7 @@ export function App(): JSX.Element {
 
       {labMounted ? (
         <div className={`lab-shell${mainView === 'lab' ? ' is-active' : ''}`}>
-          <Suspense fallback={<div className="view-loading-shell"><p className="view-loading">{t('正在加载工作台…')}</p></div>}>
+          <Suspense fallback={<ViewSkeleton />}>
             <LabView
               key={labTool}
               initialToolId={labTool}

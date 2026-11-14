@@ -374,7 +374,12 @@ export function XhsCarouselDialog({
         <div className="xhs-layout">
           <div className="xhs-preview-pane">
             {loading ? (
-              <div className="xhs-empty">{t('正在整理知识点…')}</div>
+              <div className="xhs-skeleton" role="status" aria-busy="true">
+                <span className="sr-only">{t('正在整理知识点…')}</span>
+                <span className="sk-xhs-frame" aria-hidden="true" />
+                <span className="sk-xhs-line" aria-hidden="true" />
+                <span className="sk-xhs-line short" aria-hidden="true" />
+              </div>
             ) : error ? (
               <div className="xhs-empty error-text">{error}</div>
             ) : !plan || plan.totalCards === 0 || plan.pages.length === 0 ? (

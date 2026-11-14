@@ -1,0 +1,888 @@
+/* ─── relation graph ─────────────────────────────────────── */
+
+.relation-view {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.relation-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.relation-head h2 {
+  margin: 0 0 3px;
+  font-family: 'Songti SC', 'Noto Serif SC', Georgia, serif;
+  font-size: 18px;
+}
+.relation-head p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+.relation-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 9px;
+  color: var(--muted);
+  font-size: 10.5px;
+}
+.relation-meta strong {
+  color: var(--ink);
+  font-size: 12px;
+}
+.relation-meta .text-button {
+  margin-left: auto;
+}
+.relation-genre {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+  font-size: 9.5px;
+}
+.relation-summary {
+  margin: 8px 0 10px;
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.relation-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 250px;
+  gap: 12px;
+  min-height: 0;
+}
+.relation-canvas {
+  min-width: 0;
+  height: clamp(360px, 56vh, 620px);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at 50% 46%, color-mix(in srgb, var(--white) 72%, transparent), transparent 66%),
+    var(--paper-2);
+}
+.relation-node {
+  cursor: pointer;
+  outline: none;
+}
+.relation-node-dot {
+  fill: var(--paper-3);
+  stroke: var(--line-strong);
+  stroke-width: 1.5;
+  transition: filter 0.15s ease, stroke-width 0.15s ease, opacity 0.15s ease;
+}
+.relation-node-label {
+  fill: var(--ink);
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif;
+  font-size: 10.5px;
+  font-weight: 600;
+  pointer-events: none;
+}
+.relation-node.kind-person .relation-node-dot {
+  fill: var(--accent-soft);
+  stroke: var(--accent);
+}
+.relation-node.kind-organization .relation-node-dot {
+  fill: var(--ai-soft);
+  stroke: var(--ai);
+}
+.relation-node.kind-event .relation-node-dot {
+  fill: color-mix(in srgb, var(--warn) 12%, var(--white));
+  stroke: var(--warn);
+}
+.relation-node.kind-place .relation-node-dot {
+  fill: var(--paper-3);
+  stroke: var(--line-strong);
+}
+.relation-node.kind-concept .relation-node-dot {
+  fill: var(--white);
+  stroke: var(--line-strong);
+}
+.relation-node.is-dim {
+  opacity: 0.35;
+}
+.relation-node.is-selected .relation-node-dot {
+  stroke-width: 3;
+  filter: drop-shadow(0 0 8px color-mix(in srgb, var(--accent) 40%, transparent));
+}
+.relation-node.is-neighbour .relation-node-dot {
+  stroke-width: 2;
+  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--accent) 28%, transparent));
+}
+.relation-detail {
+  min-width: 0;
+  max-height: clamp(360px, 56vh, 620px);
+  overflow-y: auto;
+  padding: 14px 15px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--white);
+}
+.relation-kind {
+  color: var(--accent);
+  font-size: 9.5px;
+}
+.relation-detail h3 {
+  margin: 5px 0 6px;
+  font-family: 'Songti SC', 'Noto Serif SC', Georgia, serif;
+  font-size: 19px;
+}
+.relation-detail p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 11.5px;
+  line-height: 1.7;
+}
+.relation-relations {
+  display: grid;
+  gap: 5px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.relation-relations > span {
+  margin-bottom: 3px;
+  color: var(--muted);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+}
+.relation-relations button {
+  display: grid;
+  gap: 2px;
+  padding: 7px 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--paper-2);
+  color: var(--ink-soft);
+  text-align: left;
+  cursor: pointer;
+}
+.relation-relations button:hover {
+  border-color: var(--line-strong);
+}
+.relation-relations button strong {
+  color: var(--accent);
+  font-size: 10px;
+}
+.relation-relations button span {
+  font-size: 11.5px;
+}
+.relation-relations button em {
+  color: var(--muted);
+  font-size: 10px;
+  font-style: normal;
+  line-height: 1.5;
+}
+.relation-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 18px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line);
+  color: var(--muted);
+  font-size: 9.5px;
+}
+.relation-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.relation-legend i {
+  width: 8px;
+  height: 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  background: var(--paper-3);
+}
+.relation-legend i.kind-person {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.relation-legend i.kind-organization {
+  border-color: var(--ai);
+  background: var(--ai-soft);
+}
+.relation-legend i.kind-event {
+  border-color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 12%, var(--white));
+}
+.relation-empty {
+  padding: 32px 20px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 12px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.8;
+  text-align: center;
+}
+.relation-empty p {
+  max-width: 480px;
+  margin: 0 auto 16px;
+}
+@media (max-width: 980px) {
+  .relation-body {
+    grid-template-columns: 1fr;
+  }
+  .relation-canvas {
+    height: 46vh;
+  }
+  .relation-detail {
+    max-height: 30vh;
+  }
+}
+
+/* ─── import dialog ──────────────────────────────────────── */
+
+.import-backdrop {
+  z-index: 210;
+}
+.import-modal {
+  width: min(620px, 92vw);
+  max-height: 88vh;
+  overflow-y: auto;
+  padding: 22px 24px 20px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--paper-2);
+  box-shadow: 0 30px 80px rgba(30, 26, 20, 0.28);
+}
+.import-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+.import-head h2 {
+  margin: 0 0 4px;
+  font-family: 'Songti SC', 'Noto Serif SC', Georgia, serif;
+  font-size: 22px;
+}
+.import-head p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.import-tabs {
+  display: flex;
+  gap: 3px;
+  margin: 18px 0 16px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--paper-3);
+}
+.import-tabs button {
+  flex: 1;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.import-tabs button.active {
+  background: var(--white);
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(43, 39, 32, 0.08);
+}
+.import-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.import-hint,
+.import-foot {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.7;
+}
+.import-field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.import-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 10.5px;
+}
+.import-field input,
+.import-field textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--white);
+  color: var(--ink);
+  font-size: 12.5px;
+  line-height: 1.7;
+  resize: vertical;
+}
+.import-field input:focus,
+.import-field textarea:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+.import-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 2px;
+}
+.import-actions .muted {
+  font-size: 10.5px;
+}
+.import-pane > .primary-button {
+  align-self: flex-start;
+}
+@media (max-width: 560px) {
+  .import-field-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.book-spine.mobi {
+  background: linear-gradient(160deg, #5d5670, #3e394e);
+}
+.book-spine.url {
+  background: linear-gradient(160deg, #4d6f86, #334b5c);
+}
+.book-spine.text {
+  background: linear-gradient(160deg, #7e6a45, #57482c);
+}
+
+.relation-plot-details {
+  margin: -2px 0 10px;
+}
+.relation-plot-details summary {
+  width: max-content;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 10.5px;
+}
+.relation-plot {
+  margin: 7px 0 0;
+  padding: 10px 12px;
+  border-left: 2px solid var(--accent);
+  border-radius: 0 8px 8px 0;
+  background: var(--paper-2);
+  color: var(--ink-soft);
+  font-size: 11.5px;
+  line-height: 1.75;
+}
+.relation-key-roles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 12px;
+}
+.role-chip {
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--paper-3);
+  color: var(--ink-soft);
+  font-size: 10px;
+}
+.role-chip.role-killer {
+  background: color-mix(in srgb, var(--danger) 12%, var(--white));
+  color: var(--danger);
+}
+.role-chip.role-detective {
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+}
+.role-chip.role-victim {
+  background: color-mix(in srgb, var(--note-highlight) 12%, var(--white));
+  color: var(--note-highlight);
+}
+.role-chip.role-witness {
+  background: color-mix(in srgb, var(--warn) 12%, var(--white));
+  color: var(--warn);
+}
+.relation-role {
+  display: inline-block;
+  margin-left: 7px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--paper-3);
+  color: var(--muted);
+  font-size: 9.5px;
+}
+.relation-role.role-killer {
+  background: color-mix(in srgb, var(--danger) 12%, var(--white));
+  color: var(--danger);
+}
+.relation-role.role-detective {
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+}
+.relation-role.role-victim {
+  background: color-mix(in srgb, var(--note-highlight) 12%, var(--white));
+  color: var(--note-highlight);
+}
+.relation-role.role-witness {
+  background: color-mix(in srgb, var(--warn) 12%, var(--white));
+  color: var(--warn);
+}
+.relation-node.role-killer .relation-node-dot {
+  stroke: var(--danger);
+  stroke-width: 3;
+}
+.relation-node.role-detective .relation-node-dot {
+  stroke: var(--accent);
+  stroke-width: 3;
+}
+.relation-node.role-victim .relation-node-dot {
+  stroke: #5d5670;
+  stroke-width: 2.5;
+}
+.relation-node.role-witness .relation-node-dot {
+  stroke: var(--warn);
+  stroke-width: 2.5;
+}
+
+/* Relation graph: fullscreen, pan and zoom */
+.relation-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+}
+.relation-view.is-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 170;
+  display: flex;
+  flex-direction: column;
+  padding: 52px 24px 20px 92px;
+  background: var(--paper);
+  overflow: hidden;
+}
+.relation-view.is-fullscreen .relation-head {
+  flex: none;
+}
+.relation-view.is-fullscreen .relation-meta,
+.relation-view.is-fullscreen .relation-summary,
+.relation-view.is-fullscreen .relation-plot-details,
+.relation-view.is-fullscreen .relation-plot,
+.relation-view.is-fullscreen .relation-key-roles {
+  flex: none;
+}
+.relation-view.is-fullscreen .relation-body {
+  flex: 1;
+  min-height: 0;
+  grid-template-columns: minmax(0, 1fr) 290px;
+}
+.relation-view.is-fullscreen .relation-canvas {
+  height: 100%;
+}
+.relation-view.is-fullscreen .relation-detail {
+  max-height: 100%;
+}
+.relation-canvas {
+  position: relative;
+}
+.relation-canvas-tools {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--paper-2) 90%, transparent);
+  box-shadow: 0 4px 14px rgba(30, 26, 20, 0.08);
+}
+.relation-canvas-tools button {
+  min-width: 24px;
+  padding: 3px 6px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 10.5px;
+  cursor: pointer;
+}
+.relation-canvas-tools button:hover {
+  background: var(--paper-3);
+}
+.relation-canvas-tools span {
+  padding: 0 4px;
+  color: var(--muted);
+  font-size: 9.5px;
+}
+/* ─── relation graph: React Flow layer ───────────────────── */
+
+.relation-canvas .react-flow {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: transparent;
+}
+.relation-canvas .react-flow__pane {
+  cursor: grab;
+}
+.relation-canvas .react-flow__pane.dragging {
+  cursor: grabbing;
+}
+.relation-canvas .react-flow__background {
+  opacity: 0.55;
+}
+.relation-canvas .react-flow__node {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  box-shadow: none;
+}
+.relation-canvas .react-flow__node.selectable {
+  cursor: pointer;
+}
+.relation-canvas .react-flow__node.dragging .relation-node {
+  cursor: grabbing;
+}
+.relation-node-svg {
+  display: block;
+  overflow: visible;
+}
+.relation-node .react-flow__handle {
+  width: 6px;
+  height: 6px;
+  min-width: 6px;
+  min-height: 6px;
+  border: 0;
+  background: transparent;
+  opacity: 0;
+  pointer-events: none;
+}
+.relation-node .react-flow__handle-left {
+  top: 50%;
+  left: 50%;
+  right: auto;
+  transform: translate(-50%, -50%);
+}
+.relation-node .react-flow__handle-right {
+  top: 50%;
+  right: auto;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+.relation-canvas .react-flow__node:focus-visible .relation-node-dot {
+  stroke-width: 3;
+}
+.relation-canvas .react-flow__node:focus-visible {
+  outline: none;
+}
+.relation-node:hover .relation-node-dot {
+  stroke-width: 2.5;
+}
+.relation-node-cross-ring {
+  fill: none;
+  stroke: var(--line-strong);
+  stroke-dasharray: 2 3;
+  opacity: 0.7;
+}
+.relation-canvas .react-flow__edge.relation-edge {
+  pointer-events: visibleStroke;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+.relation-canvas .react-flow__edge.relation-edge .react-flow__edge-path {
+  fill: none;
+  stroke: var(--line-strong);
+  stroke-width: 1.4;
+  opacity: 0.58;
+  transition: stroke 0.15s ease, stroke-width 0.15s ease, opacity 0.15s ease;
+}
+.relation-canvas .react-flow__edge.relation-edge.is-active .react-flow__edge-path {
+  opacity: 0.95;
+}
+.relation-canvas .react-flow__edge.relation-edge.is-dim {
+  opacity: 0.18;
+}
+.relation-canvas .react-flow__edge.relation-edge.is-picked .react-flow__edge-path,
+.relation-canvas .react-flow__edge.relation-edge.selected .react-flow__edge-path {
+  stroke: var(--accent-dark);
+  stroke-width: 2.2;
+  opacity: 1;
+}
+.relation-canvas .react-flow__edge.relation-edge.kind-rival .react-flow__edge-path,
+.relation-canvas .react-flow__edge.relation-edge.kind-suspect .react-flow__edge-path {
+  stroke: var(--danger);
+  stroke-dasharray: 5 4;
+}
+.relation-canvas .react-flow__edge.relation-edge.kind-ally .react-flow__edge-path,
+.relation-canvas .react-flow__edge.relation-edge.kind-family .react-flow__edge-path {
+  stroke: var(--accent);
+}
+.relation-canvas .react-flow__edge.relation-edge.kind-motive .react-flow__edge-path {
+  stroke: var(--danger);
+  stroke-width: 2;
+}
+.relation-canvas .react-flow__edge.relation-edge.kind-clue .react-flow__edge-path {
+  stroke: var(--warn);
+  stroke-width: 2;
+  stroke-dasharray: 3 3;
+}
+.relation-canvas .react-flow__edge-text {
+  fill: var(--muted);
+  font-size: 10px;
+}
+.relation-canvas .react-flow__edge-textbg {
+  fill: var(--paper-2);
+}
+.relation-canvas .react-flow__minimap {
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  box-shadow: 0 6px 18px rgba(43, 39, 32, 0.08);
+  overflow: hidden;
+}
+.relation-canvas .react-flow__minimap-mask {
+  fill: rgba(251, 248, 241, 0.66);
+}
+.relation-canvas .react-flow__attribution {
+  background: transparent;
+  color: var(--muted);
+  font-size: 8.5px;
+}
+.relation-canvas .react-flow__attribution a {
+  color: var(--muted);
+}
+.relation-notice {
+  margin: 0 0 8px;
+  padding: 6px 10px;
+  border-radius: 7px;
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+  font-size: 10.5px;
+}
+.relation-edge-detail {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  z-index: 3;
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  width: min(520px, calc(100% - 32px));
+  padding: 9px 10px 9px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--white);
+  box-shadow: 0 10px 26px rgba(43, 39, 32, 0.12);
+  transform: translateX(-50%);
+}
+.relation-edge-detail-kind {
+  flex: none;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--paper-3);
+  color: var(--accent-dark);
+  font-size: 9.5px;
+}
+.relation-edge-detail-main {
+  display: grid;
+  flex: 1;
+  gap: 2px;
+  min-width: 0;
+}
+.relation-edge-detail-main strong {
+  color: var(--ink);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+.relation-edge-detail-main strong i {
+  color: var(--accent);
+  font-style: normal;
+}
+.relation-edge-detail-main p,
+.relation-edge-detail-main small {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 10.5px;
+  line-height: 1.6;
+}
+.relation-edge-detail-main small {
+  color: var(--muted);
+}
+.relation-edge-detail .icon-button {
+  flex: none;
+}
+.relation-legend i.kind-cross {
+  border-color: var(--line-strong);
+  border-style: dashed;
+  background: transparent;
+}
+
+/* In blue themes, a filled destructive button should follow the accent,
+   otherwise every dialog looks like a vermilion patch on a blue page. */
+html.theme-folio .primary-button.is-danger,
+html.theme-plain .primary-button.is-danger {
+  background: var(--accent);
+}
+html.theme-folio .primary-button.is-danger:hover,
+html.theme-plain .primary-button.is-danger:hover {
+  background: var(--accent-dark);
+}
+
+.relation-real {
+  display: inline-block;
+  margin-left: 7px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--ai-soft);
+  color: var(--ai);
+  font-size: 9.5px;
+}
+.relation-aliases {
+  margin: 0 0 6px !important;
+  color: var(--muted) !important;
+  font-size: 10.5px !important;
+}
+.relation-facts {
+  display: grid;
+  gap: 5px;
+  margin-top: 12px;
+}
+.relation-facts span {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 6px;
+  color: var(--ink-soft);
+  font-size: 11px;
+  line-height: 1.55;
+}
+.relation-facts b {
+  color: var(--muted);
+  font-size: 9.5px;
+  font-weight: 500;
+}
+.relation-encyclopedia {
+  margin-top: 14px;
+  padding: 10px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper-2);
+}
+.relation-encyclopedia strong {
+  color: var(--ai);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+}
+.relation-encyclopedia p {
+  margin: 5px 0 4px;
+  color: var(--ink-soft);
+  font-size: 11px;
+  line-height: 1.7;
+}
+.relation-encyclopedia em {
+  color: var(--muted);
+  font-size: 9px;
+  font-style: normal;
+}
+.role-chip.role-key {
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+}
+
+/* ─── merge / split books ──────────────────────────────────── */
+
+.merge-dialog,
+.split-dialog {
+  width: min(560px, 92vw);
+  max-height: 88vh;
+  overflow-y: auto;
+  padding: 22px 24px 20px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--paper-2);
+  box-shadow: 0 30px 80px rgba(30, 26, 20, 0.28);
+}
+.merge-list {
+  display: grid;
+  gap: 6px;
+  max-height: 42vh;
+  overflow-y: auto;
+  margin: 16px 0;
+  padding-right: 3px;
+}
+.merge-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--white);
+}
+.merge-row.is-selected {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--line));
+  background: var(--accent-soft);
+}
+.merge-row-main {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+.merge-row-main strong {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.merge-row-main span {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.merge-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.merge-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 13px;
+  border-top: 1px solid var(--line);
+}
+.merge-actions .muted {
+  font-size: 10.5px;
+}
+.split-dialog .import-field {
+  margin-top: 14px;
+}
+.split-dialog .import-field + .import-field {
+  margin-top: 12px;
+}
+@media (max-width: 560px) {
+  .merge-fields {
+    grid-template-columns: 1fr;
+  }
+}
+.library-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}

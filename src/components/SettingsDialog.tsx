@@ -43,6 +43,7 @@ const THEME_OPTIONS: Array<[ReaderStyle['theme'], string]> = [
   ['paper', t('纸色')],
   ['plain', t('纯白')],
   ['warm', t('暖色')],
+  ['night', t('夜间')],
 ]
 
 const MODE_OPTIONS: Array<[GenerationMode, string]> = [

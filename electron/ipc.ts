@@ -224,6 +224,7 @@ import {
   noteDraftArgs,
   noteIdArgs,
   chapterUnderstandImageArgs,
+  chapterApplyCodeFixArgs,
   chapterCodeAssistArgs,
   chapterSaveContentArgs,
   notePatchArgs,
@@ -891,6 +892,21 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     return { html: clean, chars }
   })
 
+  ipcMain.handle('chapters:apply-code-fix', async (_event, rawChapterId: unknown, rawCode: unknown, rawFixed: unknown) => {
+    const [chapterId, code, fixed] = parseIpc('chapters:apply-code-fix', chapterApplyCodeFixArgs, [
+      rawChapterId,
+      rawCode,
+      rawFixed,
+    ])
+    const chapter = getChapter(chapterId)
+    const source = chapter.formattedHtml ?? chapter.html ?? ''
+    if (!source.trim()) throw new Error('这一章没有可理解的代码。')
+    const replaced = replaceCodeBlock(source, code, fixed)
+    if (!replaced.changed || !replaced.html) return { changed: false }
+    const chars = saveChapterFormat(chapterId, replaced.html, chapter.removed)
+    return { changed: true, html: replaced.html, chars }
+  })
+
   ipcMain.handle('chapters:code-assist', async (_event, rawChapterId: unknown, rawCode: unknown, rawMode: unknown, rawLanguage: unknown) => {
     const [chapterId, code, mode, language] = parseIpc('chapters:code-assist', chapterCodeAssistArgs, [
       rawChapterId,
@@ -922,19 +938,10 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     if (!source.trim()) throw new Error('这一章没有可理解的代码。')
     if (mode === 'fix') {
       const fixed = await traceAsync(
-        { step: 'code-fix', scope: chapterId, model: settings.model, promptVersion: 'code-fix-v1' },
+        { step: 'code-fix', scope: chapterId, model: settings.model, promptVersion: 'code-fix-v2' },
         () => fixCode(common),
       )
-      const replaced = replaceCodeBlock(source, code, fixed)
-      const chars = replaced.html ? saveChapterFormat(chapterId, replaced.html, chapter.removed) : undefined
-      return {
-        mode,
-        text: fixed,
-        html: replaced.html,
-        chars,
-        changed: replaced.changed,
-        model: settings.model,
-      }
+      return { mode, text: fixed, model: settings.model }
     }
     const text = await traceAsync(
       { step: 'code-explain', scope: chapterId, model: settings.model, promptVersion: 'code-explain-v1' },

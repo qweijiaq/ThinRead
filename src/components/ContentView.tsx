@@ -12,6 +12,7 @@ import { notifyContentCurrent } from '../lib/content-events.js'
 import { countUnit, t, useLocale } from '../lib/i18n.js'
 import { confirmDialog } from './ConfirmDialog.js'
 import { Select } from './Select.js'
+import { SkeletonBlock } from './Skeleton.js'
 import { CONTENT_KIND_LABELS, contentSnippet, contentToMarkdown } from '../lib/content-view.js'
 import { Markdown } from './Markdown.js'
 import { VersionDiffDialog } from './VersionDiffDialog.js'
@@ -403,6 +404,18 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
 
       <div className={`content-layout${listCollapsed ? ' is-list-collapsed' : ''}`}>
         <div className="content-list">
+          {loading && items.length === 0 ? (
+            <div className="content-loading" role="status" aria-busy="true">
+              <span className="sr-only">{t('正在加载…')}</span>
+              {Array.from({ length: 6 }).map((_, index) => (
+                <div key={index} className="content-row sk-content-row" aria-hidden="true">
+                  <SkeletonBlock className="sk-w-25" />
+                  <SkeletonBlock className="sk-w-70" />
+                  <SkeletonBlock className="sk-w-90" />
+                </div>
+              ))}
+            </div>
+          ) : null}
           {!loading && items.length === 0 ? (
             <p className="content-empty">{t('还没有符合条件的生成内容。去阅读、出题或工作台生成一次吧。')}</p>
           ) : null}

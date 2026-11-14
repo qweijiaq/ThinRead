@@ -28,12 +28,12 @@ function codeKey(code: string): string {
   return createHash('sha256').update(normalizeCode(code)).digest('hex').slice(0, 16)
 }
 
-function cleanModelText(value: string): string {
+function cleanModelText(value: string, limit = 8_000): string {
   return value
     .replace(/^```(?:markdown|md)?\s*/i, '')
     .replace(/```\s*$/i, '')
     .trim()
-    .slice(0, 4_000)
+    .slice(0, limit)
 }
 
 function commentMarker(language: string, code: string): string {
@@ -80,6 +80,8 @@ export function parseFixedCode(value: string): string {
     .replace(/```\s*$/i, '')
     .trim()
 }
+
+const MARK_TRUNCATED = '（输出达到长度上限，结论可能不完整；建议缩短代码或分段检查。）'
 
 async function askCode(args: {
   config: ModelConfig
@@ -188,13 +190,14 @@ async function askCode(args: {
           '不要重写整段代码，不要输出与检查无关的客套话。',
         ].join('\n\n'),
         temperature: 0.1,
-        maxOutputTokens: 1_600,
+        maxOutputTokens: Math.min(4_000, Math.max(2_000, Math.ceil(args.code.length / 2))),
         ...(providerOptions ? { providerOptions } : {}),
         maxRetries: 1,
         abortSignal: args.signal,
       },
     )
-    return cleanModelText(response.text)
+    const review = cleanModelText(response.text)
+    return response.finishReason === 'length' ? `${review}\n\n${MARK_TRUNCATED}` : review
   }
 
   const response = await tracedGenerateText(
@@ -216,13 +219,14 @@ async function askCode(args: {
         '直接输出正文，不要标题、Markdown 列表或“这段代码”这类套话。',
       ].join('\n\n'),
       temperature: 0.2,
-      maxOutputTokens: 900,
+      maxOutputTokens: 1_600,
       ...(providerOptions ? { providerOptions } : {}),
       maxRetries: 1,
       abortSignal: args.signal,
     },
   )
-  return cleanModelText(response.text)
+  const explanation = cleanModelText(response.text)
+  return response.finishReason === 'length' ? `${explanation}\n\n${MARK_TRUNCATED}` : explanation
 }
 
 type CodeAssistArgs = Omit<Parameters<typeof askCode>[0], 'mode'>

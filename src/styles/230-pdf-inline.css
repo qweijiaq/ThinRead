@@ -1,0 +1,389 @@
+/* ─── collapsible side panel ─────────────────────────────── */
+.workspace.is-side-collapsed {
+  grid-template-columns: 228px minmax(0, 1fr) 34px;
+}
+.workspace.is-side-collapsed .side-panel {
+  display: none;
+}
+.side-tab-collapse {
+  margin-left: auto;
+  padding: 4px 8px 7px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+.side-tab-collapse:hover {
+  color: var(--accent);
+}
+.side-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 5px;
+  border-left: 1px solid var(--line);
+  background: var(--paper-2);
+}
+.side-rail button {
+  width: 24px;
+  padding: 8px 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 10px;
+  line-height: 1.25;
+  writing-mode: vertical-rl;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+.side-rail button:hover {
+  background: var(--paper-3);
+  color: var(--accent);
+}
+
+.welcome-trash-link {
+  margin-top: 12px;
+  font-size: 11px;
+}
+
+/* ─── deep PDF parsing progress ───────────────────────────── */
+.deep-parse-backdrop {
+  z-index: 230;
+}
+.deep-parse-modal {
+  width: min(480px, 92vw);
+}
+.deep-parse-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.deep-parse-head h2 {
+  margin: 0;
+}
+.deep-parse-time {
+  flex: none;
+  padding-top: 4px;
+  color: var(--muted);
+  font-family: -apple-system, 'PingFang SC', sans-serif;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.deep-parse-phase {
+  margin: 16px 0 10px;
+  color: var(--ink-soft);
+  font-size: 12.5px;
+}
+.deep-parse-bar {
+  position: relative;
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--paper-3);
+}
+.deep-parse-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 0.35s ease;
+}
+.deep-parse-bar.is-indeterminate span {
+  width: 36%;
+  animation: deep-parse-slide 1.4s ease-in-out infinite;
+}
+@keyframes deep-parse-slide {
+  0% { transform: translateX(-110%); }
+  100% { transform: translateX(310%); }
+}
+.deep-parse-hint {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+/* ─── inline image understanding ─────────────────────────── */
+.chapter-html .image-understanding {
+  margin: 1.2em 0 1.8em;
+  padding: 10px 14px 12px;
+  border-left: 2px solid var(--accent);
+  border-radius: 0 8px 8px 0;
+  background: color-mix(in srgb, var(--accent-soft) 42%, transparent);
+}
+.image-understanding-label {
+  margin-bottom: 4px;
+  color: var(--accent);
+  font-family: -apple-system, 'PingFang SC', sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+.chapter-html .image-understanding p {
+  margin: 0.35em 0;
+  color: var(--ink-soft);
+  font-size: 0.92em;
+  line-height: 1.8;
+  text-indent: 0;
+}
+
+.reader-image-status {
+  max-width: 220px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10.5px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.reader-image-status.is-error {
+  color: var(--warn);
+}
+
+/* ─── inline code understanding ──────────────────────────── */
+.chapter-html .code-understanding {
+  margin: 1.2em 0 1.8em;
+  padding: 10px 14px 12px;
+  border-left: 2px solid var(--accent);
+  border-radius: 0 8px 8px 0;
+  background: color-mix(in srgb, var(--accent-soft) 42%, transparent);
+}
+.code-understanding-label {
+  margin-bottom: 4px;
+  color: var(--accent);
+  font-family: -apple-system, 'PingFang SC', sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+.chapter-html .code-understanding p {
+  margin: 0.35em 0;
+  color: var(--ink-soft);
+  font-size: 0.92em;
+  line-height: 1.8;
+  text-indent: 0;
+}
+
+/* ─── code review dialog ─────────────────────────────────── */
+.code-review-modal {
+  width: min(680px, 94vw);
+}
+.code-review-source {
+  margin: 4px 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper-2);
+}
+.code-review-source summary {
+  padding: 8px 12px;
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+.code-review-source pre {
+  max-height: 220px;
+  margin: 0;
+  padding: 10px 12px;
+  overflow: auto;
+  border-top: 1px solid var(--line);
+  font-size: 11px;
+  line-height: 1.55;
+  white-space: pre;
+}
+.code-review-loading {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  padding: 28px 12px;
+  color: var(--muted);
+  font-size: 11.5px;
+  text-align: center;
+}
+.code-review-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--line-strong);
+  border-top-color: var(--accent);
+  border-radius: 999px;
+  animation: code-review-spin 0.8s linear infinite;
+}
+@keyframes code-review-spin {
+  to { transform: rotate(360deg); }
+}
+.code-review-body {
+  max-height: 46vh;
+  overflow: auto;
+  padding: 4px 2px 12px;
+}
+
+/* ─── manual body editing ────────────────────────────────── */
+.chapter-html.is-editing {
+  outline: 1px dashed var(--line-strong);
+  outline-offset: 12px;
+  border-radius: 4px;
+  cursor: text;
+}
+.chapter-html.is-editing:focus {
+  outline-color: var(--accent);
+  outline-style: solid;
+}
+.chapter-html.is-editing .page-marker {
+  user-select: none;
+}
+
+
+/* ─── 书架：阅读状态筛选 ───────────────────────────────────── */
+.library-shelf-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 14px;
+}
+
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.filter-chip:hover {
+  border-color: var(--accent);
+  color: var(--ink);
+}
+
+.filter-chip.is-active {
+  border-color: var(--accent);
+  background: var(--accent-soft, rgba(178, 58, 46, 0.08));
+  color: var(--accent);
+}
+
+.filter-chip-count {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+  font-size: 11px;
+}
+
+
+/* ─── PDF 原版标注 ─────────────────────────────────────────── */
+.pdf-page-stage {
+  position: relative;
+  display: inline-block;
+  line-height: 0;
+}
+
+.pdf-annotation-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.pdf-annotation-layer.is-annotating {
+  pointer-events: auto;
+  cursor: crosshair;
+}
+
+.pdf-annotation {
+  position: absolute;
+  padding: 0;
+  border: 1px solid rgba(180, 130, 20, 0.55);
+  border-radius: 2px;
+  background: rgba(255, 214, 64, 0.28);
+  pointer-events: auto;
+  cursor: pointer;
+  transition: box-shadow 0.12s ease;
+}
+
+.pdf-annotation.is-green {
+  border-color: rgba(40, 130, 80, 0.55);
+  background: rgba(96, 200, 140, 0.26);
+}
+
+.pdf-annotation.is-blue {
+  border-color: rgba(50, 100, 180, 0.55);
+  background: rgba(110, 160, 240, 0.24);
+}
+
+.pdf-annotation.is-draft {
+  pointer-events: none;
+  border-style: dashed;
+}
+
+.pdf-annotation.is-selected {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.pdf-annotation-editor {
+  display: grid;
+  gap: 10px;
+  padding: 12px 16px 14px;
+  border-top: 1px solid var(--line);
+  background: var(--sheet, #fffdf8);
+}
+
+.pdf-annotation-editor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.pdf-annotation-editor textarea {
+  width: 100%;
+  resize: vertical;
+  font: inherit;
+  line-height: 1.6;
+}
+
+.pdf-annotation-colors {
+  display: flex;
+  gap: 6px;
+}
+
+.pdf-annotation-color {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  background: #ffd640;
+  cursor: pointer;
+  padding: 0;
+}
+
+.pdf-annotation-color.is-green {
+  background: #60c88c;
+}
+
+.pdf-annotation-color.is-blue {
+  background: #6ea0f0;
+}
+
+.pdf-annotation-color.is-active {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.pdf-annotation-editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pdf-annotation-editor-actions span {
+  flex: 1;
+}
+

@@ -8,7 +8,9 @@ import { relatedNotes, snippet } from '../lib/links.js'
 import { contentToMarkdown } from '../lib/content-view.js'
 import { Checkbox } from './Checkbox.js'
 import { CompareModelDialog } from './CompareModelDialog.js'
+import { SparkleIcon } from './Icon.js'
 import { NoteCard } from './NoteCard.js'
+import { SkeletonBlock } from './Skeleton.js'
 import { TextDiffDialog } from './TextDiffDialog.js'
 
 interface NotesPanelProps {
@@ -19,6 +21,7 @@ interface NotesPanelProps {
   allNotes: Note[]
   chapterTitles: Record<string, string>
   generating: boolean
+  loading?: boolean
   partial: GeneratePartial | null
   error: string | null
   report: NoteReport | null
@@ -144,6 +147,7 @@ function NotesPanelImpl({
   allNotes,
   chapterTitles,
   generating,
+  loading = false,
   partial,
   error,
   report,
@@ -392,6 +396,21 @@ function NotesPanelImpl({
 
       {generating ? <StreamingCard partial={partial} onCancel={onCancel} /> : null}
 
+      {loading && !generating && notes.length === 0 ? (
+        <div className="notes-loading" role="status" aria-busy="true">
+          <span className="sr-only">{t('正在加载…')}</span>
+          {Array.from({ length: 5 }).map((_, index) => (
+            <div key={index} className="sk-note-card" aria-hidden="true">
+              <SkeletonBlock className="sk-w-30" />
+              <SkeletonBlock className="sk-w-80 sk-note-title" />
+              <SkeletonBlock className="sk-w-100" />
+              <SkeletonBlock className="sk-w-85" />
+              <SkeletonBlock className="sk-w-55" />
+            </div>
+          ))}
+        </div>
+      ) : null}
+
       {report && report.originalChars > 0 && report.degraded && report.degraded.length > 0 ? (
         <div className="degraded-banner" role="alert">
           <strong>{t('这次生成不完整')}</strong>
@@ -463,7 +482,7 @@ function NotesPanelImpl({
         </details>
       ) : null}
 
-      {!generating && notes.length === 0 ? (
+      {!generating && !loading && notes.length === 0 ? (
         <div className="notes-empty notes-tab-section" data-tab="draft">
           <p className="notes-empty-title">{t('这一章还没有读薄稿')}</p>
           <p>{t('AI 会先把这一章重写成可发博客的读薄稿（保留断言、写成连贯行文，压缩幅度由内容密度决定），再从稿子里按「不知道它是否影响全文理解」的标准提炼核心卡片，最后做最多 3 条延伸。')}</p>
@@ -472,7 +491,7 @@ function NotesPanelImpl({
           </p>
           <div className="notes-empty-actions">
             <button type="button" className="primary-button" onClick={() => onGenerate()}>
-              {t('✦ 改写成文章')}
+              <><SparkleIcon /> {t('改写成文章')}</>
             </button>
             <button type="button" className="ghost-button" onClick={() => void addNote()}>
               {t('自己写一条')}
@@ -483,10 +502,18 @@ function NotesPanelImpl({
 
       {condensedNote ? (
         <section className="condensed-section notes-tab-section" data-tab="draft">
-          <div className="note-group-head">
-            <span>{t('读薄稿')}</span>
+          <div className="note-group-head condensed-head">
+            <span className="condensed-title">{t('读薄稿')}</span>
+            {report && report.ratio > 0 ? (
+              <span className="condensed-ratio">
+                {t('约 1/')}
+                {report.ratio.toFixed(1)}
+              </span>
+            ) : null}
+            <button type="button" className="text-button condensed-export" onClick={() => void exportDraft()}>
+              {exportState === 'saved' ? t('已导出') : t('导出 .md')}
+            </button>
             <div className="condensed-tools">
-              {report && report.ratio > 0 ? <span className="muted">{t('约 1/')}{report.ratio.toFixed(1)}</span> : null}
               <Checkbox
                 className="export-check"
                 checked={includeCards}
@@ -523,9 +550,6 @@ function NotesPanelImpl({
               </button>
               <button type="button" className="text-button" onClick={() => void copyDraft()}>
                 {exportState === 'copied' ? t('已复制') : t('复制全文')}
-              </button>
-              <button type="button" className="text-button" onClick={() => void exportDraft()}>
-                {exportState === 'saved' ? t('已导出') : t('导出 .md')}
               </button>
             </div>
           </div>

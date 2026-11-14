@@ -1,0 +1,176 @@
+/* ─── library / welcome ───────────────────────────────────── */
+
+.library {
+  flex: 1;
+  overflow-y: auto;
+  padding: 40px 44px 80px;
+}
+
+.library-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  margin-bottom: 26px;
+}
+.library-head h1 {
+  font-family: 'Songti SC', 'Noto Serif SC', Georgia, serif;
+  font-size: 32px;
+  margin: 0 0 4px;
+  letter-spacing: 0.04em;
+}
+.library-head p {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.book-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(268px, 1fr));
+  gap: 18px;
+}
+
+.book-card {
+  display: flex;
+  min-height: 196px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: var(--white);
+  overflow: hidden;
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+.book-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--line-strong);
+  box-shadow: 0 10px 26px rgba(43, 39, 32, 0.08);
+}
+
+.book-spine {
+  flex: 0 0 68px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px 0;
+  background: linear-gradient(160deg, #a9502f, #7f351c);
+  color: #fdf3e9;
+  font-family: 'Songti SC', 'Noto Serif SC', Georgia, serif;
+  font-size: 14px;
+  letter-spacing: 0.14em;
+  writing-mode: vertical-rl;
+  text-orientation: upright;
+  overflow: hidden;
+}
+.book-spine.pdf,
+.book-spine.pdf-ocr {
+  background: linear-gradient(160deg, #3e6e63, #294c44);
+}
+
+.book-body {
+  flex: 1;
+  min-width: 0;
+  padding: 16px 16px 13px;
+  display: flex;
+  flex-direction: column;
+}
+.book-body h3 {
+  min-height: 2.9em;
+  margin: 0 0 4px;
+  font-size: 16px;
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.book-author {
+  min-height: 1.5em;
+  margin: 0 0 10px;
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.book-meta {
+  display: flex;
+  min-height: 2.7em;
+  max-height: 3.2em;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 5px 10px;
+  margin-bottom: 8px;
+  overflow: hidden;
+  font-size: 10.5px;
+  color: var(--muted);
+}
+.book-body > .progress-track {
+  margin-top: auto;
+}
+.book-actions {
+  display: flex;
+  min-height: 2.9em;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 10px;
+  margin-top: 7px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.book-actions > span:first-child {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.welcome {
+  flex: 1;
+  overflow-y: auto;
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 70px 32px 80px;
+  text-align: center;
+}
+.welcome-mark {
+  font-family: 'Songti SC', 'Noto Serif SC', Georgia, serif;
+  font-size: 46px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: var(--accent);
+  margin-bottom: 14px;
+}
+.welcome h1 {
+  font-family: 'Songti SC', 'Noto Serif SC', Georgia, serif;
+  font-size: 38px;
+  letter-spacing: 0.04em;
+  margin: 0 0 16px;
+}
+.welcome-lead {
+  max-width: 570px;
+  margin: 0 auto 30px;
+  font-size: 14px;
+  line-height: 1.9;
+  color: var(--muted);
+}
+.welcome-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 22px;
+  margin-top: 62px;
+  text-align: left;
+  border-top: 1px solid var(--line);
+  padding-top: 28px;
+}
+.welcome-grid h3 {
+  font-size: 14px;
+  margin: 0 0 7px;
+}
+.welcome-grid p {
+  font-size: 12.5px;
+  line-height: 1.75;
+  color: var(--muted);
+  margin: 0;
+}

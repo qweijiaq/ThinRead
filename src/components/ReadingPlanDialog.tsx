@@ -14,6 +14,7 @@ import { useDialogFocus } from '../lib/useDialogFocus.js'
 import { Checkbox } from './Checkbox.js'
 import { confirmDialog } from './ConfirmDialog.js'
 import { Select } from './Select.js'
+import { SkeletonBlock } from './Skeleton.js'
 
 interface ReadingPlanDialogProps {
   book: BookSummary
@@ -211,7 +212,17 @@ export function ReadingPlanDialog({ book, onOpenChapter, onClose }: ReadingPlanD
         </div>
 
         {loading ? (
-          <p className="muted">{t('正在生成计划…')}</p>
+          <div className="dialog-skeleton" role="status" aria-busy="true">
+            <span className="sr-only">{t('正在生成计划…')}</span>
+            <div className="dialog-skeleton-row" aria-hidden="true">
+              {Array.from({ length: 4 }).map((_, index) => (
+                <SkeletonBlock key={index} className="sk-plan-stat" />
+              ))}
+            </div>
+            {Array.from({ length: 3 }).map((_, index) => (
+              <SkeletonBlock key={index} className="sk-plan-day" />
+            ))}
+          </div>
         ) : error ? (
           <div className="inline-error" role="alert">{error}</div>
         ) : !plan || plan.days.length === 0 ? (

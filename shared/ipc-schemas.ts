@@ -124,6 +124,12 @@ export const noteIdArgs = z.tuple([idSchema])
 
 export const chapterUnderstandImageArgs = z.tuple([idSchema, z.string().min(1).max(8_000_000)])
 
+export const chapterApplyCodeFixArgs = z.tuple([
+  idSchema,
+  z.string().min(1).max(30_000),
+  z.string().min(1).max(60_000),
+])
+
 export const chapterCodeAssistArgs = z.tuple([
   idSchema,
   z.string().min(1).max(30_000),
