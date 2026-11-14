@@ -71,7 +71,11 @@ Note titles, tags, and bodies are embedded locally with BGE-small-zh and cached.
 | --- | --- | --- |
 | ![Stats](docs/features/07-stats.png) | ![Character graph](docs/features/11-relation.png) | ![Listening](docs/features/12-listen.png) |
 
-More screens, import, notes library, map, themes, and night mode: [feature gallery](docs/features/README.md). The [manual](docs/user-manual.md) covers every workflow in detail.
+| Notes library | Concept map | Themes & night mode |
+| --- | --- | --- |
+| ![Notes library](docs/features/09-notes-library.png) | ![Concept map](docs/features/10-knowledge-map.png) | ![Night reading](docs/features/14-night.png) |
+
+More screens, import, search, and layout: [feature gallery](docs/features/README.md). The [manual](docs/user-manual.md) covers every workflow in detail.
 
 ---
 
@@ -117,7 +121,7 @@ Model output is untrusted, so every generated artifact passes a verification gat
 
 ### Verification
 
-- 266 regression tests covering highlight parsing, OCR chaptering, publishing bundles, classification, relation graphs, full-text index, backup/restore, schema validation, and migrations
+- 289 regression tests covering highlight parsing, OCR chaptering, publishing bundles, classification, relation graphs, full-text index, backup/restore, schema validation, and migrations
 - Headless Electron smoke tests for library, search, selection actions, TTS, note editing, maps, import, and pagination
 - Storybook pixel baselines with CI diffing — layout drift fails the build
 - axe-core injected into UI smoke tests, scanning WCAG 2A/2AA critical/serious issues
@@ -148,8 +152,8 @@ ThinRead is a shipped independent product with a full feature surface and real e
 
 - A complete loop: import → read → condense → cards → compose → share / export
 - A clear local/cloud boundary: which capabilities must stay on-device and which can be hosted is already separated in the architecture
-- A replaceable model layer: OpenAI-compatible endpoints plus native Anthropic and Qwen TTS, with 10 built-in provider presets
-- An engineering baseline: typecheck, 266 regression tests, renderer and PDF smoke tests, pixel baselines, accessibility scans, and key-free AI record/replay
+- A replaceable model layer: OpenAI-compatible endpoints plus native Anthropic and Qwen TTS, with 13 built-in presets (12 providers plus demo)
+- An engineering baseline: typecheck, 289 regression tests, renderer and PDF smoke tests, pixel baselines, accessibility scans, and key-free AI record/replay
 - Genuine long-tail inputs: a 392-page PDF, scanned-page OCR, code-block reconstruction, multilingual typesetting — not a toy dataset
 
 **Honest porting assessment**
@@ -228,7 +232,7 @@ Artifacts land in `release/`. Pushing a `v*` tag triggers `.github/workflows/rel
 
 Settings → pick a provider → fill in Base URL, model, and API key → **Test connection**. The model field suggests candidates per provider; once a key is set you can **Refresh models** and pick from a searchable list, or paste any model ID.
 
-Presets include DeepSeek, Zhipu GLM, Anthropic, OpenAI, Moonshot, Alibaba Cloud Bailian, OpenRouter, OpenCode Zen / Console, OpenCode Go, and local Ollama. Any OpenAI-compatible endpoint also works. Keys are encrypted in the system keychain, falling back to a `0600` file.
+Presets include DeepSeek, Zhipu GLM, Anthropic, OpenAI, Moonshot, Alibaba Cloud Bailian, OpenRouter, OpenCode Zen / Console, OpenCode Go, OpenDesign Cloud, local Ollama, and local LM Studio. Any OpenAI-compatible endpoint also works. Keys are encrypted in the system keychain, falling back to a `0600` file.
 
 You can assign separate models to condensing, composition, and the workbench, and choose a fast / standard / deep quality tier. A monthly AI budget can also be set: estimated from your model prices, new generation requests are rejected once the cap is reached, while existing content and local features keep working.
 
@@ -256,7 +260,7 @@ You can assign separate models to condensing, composition, and the workbench, an
 - **Code block tools**: review conventions and error characters, one-click fix for definite errors, comment out prose that leaked into a code block using the language's own comment marker, and have the model explain code inline.
 - **Image understanding**: a vision model inserts 2–6 sentences into the body. It tries the current model first and, only on an explicit image-capability error, auto-selects another configured vision model — cheapest first.
 - **Layout preferences**: font, size, leading, paragraph spacing, first-line indent, and measure are stored per book as structured config applied through CSS variables. The model never emits arbitrary CSS.
-- **PDF annotations**: in the original-layout PDF viewer, drag a region to highlight it, with yellow / green / blue colors and a note. Annotations are stored per book and page and survive reopening. The toolbar's annotation list shows every annotation in the book and jumps to its page.
+- **PDF annotations**: in the original-layout PDF viewer, drag a region to highlight it, with yellow / green / blue colors and a note. Annotations are stored per book and page and survive reopening. The toolbar's annotation list shows every annotation in the book, jumps to its page, and can save an annotation as a note.
 - **Annotate while reading**: selecting text surfaces highlight, underline, strikethrough, clear, ask AI, AI margin note, share, read aloud, and copy.
 
 ### Condensing, cards, and Q&A
@@ -474,9 +478,9 @@ Signing is optional: set `MAC_CERT_P12`, `MAC_CERT_PASSWORD`, `APPLE_ID`, `APPLE
 - Security reports: [SECURITY.md](SECURITY.md)
 - Code of conduct: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 
-Currently a `0.2.x` public beta: reading, notes, composition, sharing, and the local data path are usable. Sync, database encryption, cross-platform OCR, and full English coverage remain ahead.
+Currently a `0.2.x` public beta: reading, notes, composition, sharing, folder snapshot sync, and the local data path are usable. Database encryption, real-time end-to-end sync, cross-platform OCR, and full English coverage remain ahead.
 
-Last updated: 2026-11-11
+Last updated: 2026-11-14
 
 ## License
 

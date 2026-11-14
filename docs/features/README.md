@@ -36,4 +36,4 @@ env -u ELECTRON_RUN_AS_NODE ELECTRON_DISABLE_SANDBOX=1 ./node_modules/.bin/elect
 
 `--exec-file` 里的脚本负责点击进入对应界面；`--capture-size` 只用于开发和截图，不进入正式功能。
 
-其余界面（导入、笔记库、知识地图、人物关系、听读、设置、夜间、搜索、排版）使用同一套隔离数据目录 `/tmp/thinread-site`，通过 `--exec-file` 打开对应视图；截图宽度统一到 1440 后放入本目录。用户手册引用其中 12 张，官网引用 18 张。
+其余界面（导入、笔记库、知识地图、人物关系、听读、设置、夜间、搜索、排版）使用同一套隔离数据目录 `/tmp/thinread-site`，通过 `--exec-file` 打开对应视图；截图宽度统一到 1440 后放入本目录。用户手册和中英 README 各引用其中 12 张，官网引用 18 张。

@@ -40,6 +40,12 @@
 | 在线模型 | 需要对应服务商 Key | 正式读薄、成稿、问答、工作台 |
 | 本地 Ollama | 不需要云端 Key | 不希望书稿离开设备，且本机有足够显存/内存 |
 
+### 1.4 界面语言与外文读薄语言
+
+设置 →「界面语言（Beta）」可以在中文和 English 之间切换。主要界面已经支持英文，部分导出模板、书里的正文和已有笔记仍保持原语言；切换语言不会翻译或改写这些内容。
+
+设置 →「外文书籍读薄语言」决定外文书生成的读薄稿和卡片使用什么语言：默认翻成中文；选「跟随原文」则保持原语言。引用依据始终保留原文，不会随界面语言变化。
+
 ## 2. 安装与启动
 
 ### 2.1 安装 macOS 版本
@@ -140,7 +146,7 @@ Key 使用 macOS 系统钥匙串加密后保存在 `settings.json`，不会以�
 
 ### 4.3 供应商对照表
 
-| 供应商 | Key 申请页 | Base URL（预设） | 说明 |
+| 供应商 | Key / 下载页 | Base URL（预设） | 说明 |
 | --- | --- | --- | --- |
 | DeepSeek | https://platform.deepseek.com/api_keys | `https://api.deepseek.com` | 中文长文本性价比高；`/v1` 兼容地址也可用，模型以控制台为准 |
 | 智谱 GLM | https://bigmodel.cn/usercenter/proj-mgmt/apikeys | `https://open.bigmodel.cn/api/paas/v4` | OpenAI 兼容；中文书稳定 |
@@ -149,7 +155,11 @@ Key 使用 macOS 系统钥匙串加密后保存在 `settings.json`，不会以�
 | Moonshot Kimi | https://platform.kimi.com/console/api-keys | `https://api.moonshot.cn/v1` | 国际版改成 `https://api.moonshot.ai/v1` |
 | 阿里云百炼 | https://bailian.console.aliyun.com/cn-beijing/model/settings/api-key | `https://dashscope.aliyuncs.com/compatible-mode/v1` | 北京地域兼容地址；新账号建议用业务空间专属域名 |
 | OpenRouter | https://openrouter.ai/keys | `https://openrouter.ai/api/v1` | 一个 Key 访问多家模型；模型 ID 需要带厂商前缀 |
+| OpenCode Zen / Console | https://opencode.ai/auth | `https://opencode.ai/inference/openai/v1` | 按量计费；模型较多，保存前可以刷新完整列表 |
+| OpenCode Go | https://opencode.ai/console/go | `https://opencode.ai/inference/go/openai/v1` | 订阅制；统计页只记录 token，不按每 token 估算费用 |
+| OpenDesign | https://open-design.ai/cloud/dashboard | `https://amr-link.open-design.ai/v1` | 与 OpenDesign 客户端共用套餐额度；模型以账户里的列表为准 |
 | 本地 Ollama | https://ollama.com/download | `http://localhost:11434/v1` | 不需要 Key；先在本机安装并启动 Ollama |
+| 本地 LM Studio | https://lmstudio.ai | `http://localhost:1234/v1` | 不需要 Key；先在 LM Studio 里启动 Local Server |
 
 > 表中的 Base URL 是应用预设值。不同账号、区域或网关可能不同，**以服务商控制台文档为准**。如果预设和文档不一致，以文档为准手动修改。
 
@@ -219,6 +229,30 @@ Key 使用 macOS 系统钥匙串加密后保存在 `settings.json`，不会以�
 
 适合：一个 Key 对比多家模型。注意 OpenRouter 自身也会计费。
 
+#### OpenCode Zen / Console
+
+1. 打开 https://opencode.ai/auth 创建 Key。
+2. 页边选择「OpenCode Zen / Console」，Base URL 保持 `https://opencode.ai/inference/openai/v1`。
+3. 模型可以先用预设，再点「从服务刷新模型列表」选择账户可用的完整列表。
+
+适合：已经在用 OpenCode，希望一个 Key 访问多家模型。
+
+#### OpenCode Go
+
+1. 打开 https://opencode.ai/console/go 开通订阅并创建 Key。
+2. 页边选择「OpenCode Go」，Base URL 保持 `https://opencode.ai/inference/go/openai/v1`。
+3. 它是订阅制，统计页只记录 token，不按每 token 估算费用。
+
+适合：已经订阅 OpenCode Go，想把它作为日常读薄和工作台模型。
+
+#### OpenDesign
+
+1. 打开 https://open-design.ai/cloud/dashboard 创建 Cloud API Key。
+2. 页边选择「OpenDesign」，Base URL 保持 `https://amr-link.open-design.ai/v1`。
+3. 模型以账户里的可用列表为准；它和 OpenDesign 客户端共用套餐额度。
+
+适合：已经在使用 OpenDesign Cloud，希望复用同一份额度。
+
 #### 本地 Ollama
 
 1. 从 https://ollama.com/download 安装 Ollama。
@@ -228,6 +262,14 @@ Key 使用 macOS 系统钥匙串加密后保存在 `settings.json`，不会以�
 5. 不需要 API Key。
 
 适合：书稿不能离开设备、已有足够显存/内存。速度取决于本机硬件。
+
+#### 本地 LM Studio
+
+1. 从 https://lmstudio.ai 安装 LM Studio，下载一个模型并启动 Local Server。
+2. 页边选择「本地 LM Studio」，Base URL 使用 `http://localhost:1234/v1`。
+3. 模型填 LM Studio 里加载的模型 ID；不需要 API Key。
+
+适合：已经用 LM Studio 管理本地模型，想要一个 OpenAI 兼容端点。书和笔记都不出设备。
 
 ### 4.5 任务模型覆盖
 
@@ -261,7 +303,7 @@ Base URL 和 Key 仍使用上面的全局服务商，覆盖只改模型 ID。
 - 需要重新生成时，用「强制重新生成」跳过缓存。
 - 整本生成会按章节串行执行，长书可能消耗大量 token；建议先用一章估算。
 - 读薄、成稿、工作台可以分别指定模型，把便宜模型用在读薄上。
-- 在服务商控制台设置余额提醒或月度上限；页边本身不代管额度。
+- 设置 →「月度 AI 预算」可以按模型价格估算费用，到上限后新的生成会被拒绝；已经生成的内容和本地功能不受影响。预算只是应用内估算，真实扣费仍以服务商账单为准。
 - 点击「生成未完成章节」「整本重新生成」或「一键成稿」前，应用会弹出确认，列出本次会处理的章节数和请求数，并提示长书的耗时与 token 消耗。
 - 任务中心会显示今天的 AI 用量（tokens 和估算费用），可以直接跳到统计页查看更多明细。
 
@@ -299,7 +341,7 @@ Base URL 和 Key 仍使用上面的全局服务商，覆盖只改模型 ID。
 
 OCR 只支持 macOS。页数越多耗时越长。
 
-打开阅读器里的「原版 PDF」后，可以点工具栏「标注」进入标注模式：在页面上拖出一块区域即可高亮，支持黄/绿/蓝三色和备注；标注按书和页码保存在本机，关掉重开仍在。工具栏「标注列表」会列出全书标注，点一条可以直接跳到那一页。
+打开阅读器里的「原版 PDF」后，可以点工具栏「标注」进入标注模式：在页面上拖出一块区域即可高亮，支持黄/绿/蓝三色和备注；标注按书和页码保存在本机，关掉重开仍在。工具栏「标注列表」会列出全书标注，点一条可以直接跳到那一页；在列表里还可以把一条标注存为笔记，进入当前的笔记库和复习流程。
 
 ### 5.3 文本、网页与 HTML
 
@@ -367,7 +409,7 @@ Readwise 也可以直接同步：
 
 ### 6.3 五套主题与夜间
 
-设置 →「外观」里可以切换五套主题，选择会立即应用到书架、阅读器、笔记和弹窗：
+设置 →「主题」里可以切换五套主题，选择会立即应用到书架、阅读器、笔记和弹窗：
 
 - **墨蓝**（默认）：冷墨蓝强调色配米白纸面，适合白天长时间阅读；
 - **纸色**：偏暖的纸张底色，对比度比墨蓝低一些；
@@ -537,7 +579,7 @@ Readwise 也可以直接同步：
 
 入口：笔记卡片「分享」、读薄稿工具栏「分享」、成书页「分享这本书」。
 
-- 模板：金句卡、知识卡、读薄卡、整本书、里程碑；
+- 模板：金句卡、知识卡、读薄卡、整本书、长图、里程碑；
 - 主题：纸、墨、苔绿；
 - 比例：3:4、1:1；
 - 支持复制图片、保存 PNG、复制文字；
@@ -569,7 +611,7 @@ Readwise 也可以直接同步：
 - 生成 A/B 对谈稿，不是文章摘要；
 - 生成后点「播放播客」，用听读面板按 A/B 角色朗读；
 - 只朗读带 A/B 标记的对白；标题、简介、角色说明、shownotes、表格、章节出处会被跳过；
-- 对白会按 A/B 角色分配音色；音色由千问 TTS 提供。
+- 对白会按 A/B 角色分配音色；配置千问 TTS 时使用千问音色，未配置时使用系统语音。
 
 ## 10. 知识地图与人物关系
 
@@ -624,11 +666,11 @@ Readwise 也可以直接同步：
 
 入口：阅读器顶部「听读」，或笔记工具栏「朗读」。
 
-没有配置千问 TTS Key 时，听读会自动使用 macOS 内置语音，完全在本机合成、不产生费用；配置 Key 后仍然使用千问，音色、费用估算和整章导出保持不变。
+没有配置千问 TTS Key 时，听读会自动使用系统语音（macOS 用 `say`，Windows 用 SAPI，Linux 用 `espeak-ng` / `espeak`），完全在本机合成、不产生费用；配置 Key 后优先使用千问，音色、费用估算和整章导出保持不变。
 
 ### 12.1 基本播放
 
-- 逐句高亮，点击任意一句从那里开始；演示模式或未配置千问 TTS Key 时，播放按钮会禁用并提示；
+- 演示模式不包含语音合成；非演示模式下即使没有配置千问 TTS Key，也会自动使用系统语音。播放时逐句高亮，点击任意一句可以从那里开始；
 - 上一句/下一句、暂停、0.8–1.5 倍速；
 - 睡眠定时：15 / 30 / 60 分钟后自动暂停；
 - 点「最小化」变成左下角迷你播放器，切换书架/笔记/工作台时继续播放；
@@ -638,9 +680,9 @@ Readwise 也可以直接同步：
 
 ![听读：逐句朗读、双人播客与睡眠定时](features/12-listen.png)
 
-### 12.2 千问 TTS
+### 12.2 千问 TTS（可选）
 
-听读固定使用阿里云百炼的千问语音合成，与 english-penpal 同款：
+配置了千问 TTS 时，听读使用阿里云百炼的千问语音合成，与 english-penpal 同款；未配置时自动回退到系统语音。千问模式的特点：
 
 - 模型：`qwen-audio-3.1-tts-flash`；
 - 接口：百炼原生 `SpeechSynthesizer`（不是 OpenAI 兼容的 `/audio/speech`）；
@@ -659,7 +701,7 @@ Readwise 也可以直接同步：
 - 音色库：保存常用音色 ID，可一键设为 A/B/英文；只保存 ID，不会自动验证。
 - Key：留空时复用「阿里云百炼」主模型的 Key，也可以单独填写。
 
-听读面板顶部可以直接修改 A/B 音色，更改会保存为默认音色，并同步到设置页。对白会分别请求音色再顺序播放，不做音频混音。整章音频会逐段合成后合并成一个原速 WAV；导出前会确认段数和字符数。
+听读面板顶部可以直接修改 A/B 音色，更改会保存为默认音色，并同步到设置页。使用系统语音时，音色来自系统列表，不产生费用。对白会分别请求音色再顺序播放，不做音频混音。整章音频会逐段合成后合并成一个原速 WAV；导出前会确认段数和字符数。
 
 ## 13. 搜索与内容库
 
@@ -722,7 +764,8 @@ Readwise 也可以直接同步：
 
 - 书、笔记、向量索引和备份保存在本机；
 - 生成时，相关章节正文会发送给你选择的模型服务商；
-- 使用千问 TTS 时，朗读文本会发送给阿里云百炼；
+- 使用千问 TTS 时，朗读文本会发送给阿里云百炼；未配置时使用系统语音，在本机合成；
+- 文件夹同步的快照保存在你选择的 iCloud Drive / Dropbox / NAS 目录里；填了口令才会加密，未填口令时是普通 zip；
 - 演示模式不联网；
 - 诊断包包含版本、系统信息、日志和脱敏后的模型设置，不包含书籍正文、笔记内容、提示词或 API Key。
 
@@ -796,8 +839,10 @@ xattr -dr com.apple.quarantine /Applications/ThinRead.app
 
 ### 15.10 播客/听读没有声音
 
-- 千问 TTS：检查设置里的 Base URL、模型、A/B 音色和 Key；
-- Key 留空时确认「阿里云百炼」主模型已经配置 Key；
+- 先确认系统音量和应用没有被静音；
+- 没有配置千问 TTS 时，听读使用系统语音；如果系统没有可用语音，macOS 可在「系统设置 → 辅助功能 → 朗读内容」里安装语音；
+- 配置了千问 TTS：检查设置里的 Base URL、模型、A/B 音色和 Key；
+- 千问 Key 留空时，确认「阿里云百炼」主模型已经配置 Key；
 - 专属业务空间的 Base URL 需要包含自己的域名；
 - 检查网络能否访问阿里云百炼，以及账户余额。
 
