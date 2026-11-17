@@ -20,8 +20,10 @@ import { parseEpub } from './parsers/epub.js'
 import { parseMobi } from './parsers/mobi.js'
 import { parsePdf, readPdfOutlineFile } from './parsers/pdf.js'
 import { parsePdfWithDocling, type DoclingProgress } from './parsers/docling.js'
+import { parsePdfWithVision } from './parsers/pdf-vision.js'
 import { extractPdfCover } from './parsers/pdf-cover.js'
 import { parseScannedPdf } from './parsers/pdf-ocr.js'
+import { getActiveSettings } from './settings.js'
 import { groupHighlights, parseHighlightsFile } from './parsers/highlights.js'
 import type { HighlightEntry } from './parsers/highlights.js'
 import { chaptersFromHtml, isReferenceHeading, splitTextIntoChapters } from './parsers/text-book.js'
@@ -91,7 +93,14 @@ export async function importBookFile(
     parsed = parseEpub(buffer, sourcePath)
     format = 'epub'
   } else if (extension === '.pdf') {
-    if (options.deepPdf) {
+    if (options.visionPdf) {
+      parsed = await parsePdfWithVision({
+        buffer,
+        sourcePath,
+        config: getActiveSettings('notes'),
+        onProgress: (done, total) => onDoclingProgress?.({ phase: 'pages', done, total }),
+      })
+    } else if (options.deepPdf) {
       const info = await readPdfOutlineFile(sourcePath)
       parsed = await parsePdfWithDocling({
         sourcePath,
@@ -208,6 +217,16 @@ export async function reparseBookFile(
   const buffer = await fs.readFile(record.filePath)
   if (record.format === 'epub') return finish(parseEpub(buffer, record.filePath))
   if (record.format === 'pdf') {
+    if (options.visionPdf) {
+      return finish(
+        await parsePdfWithVision({
+          buffer,
+          sourcePath: record.filePath,
+          config: getActiveSettings('notes'),
+          onProgress: (done, total) => onDoclingProgress?.({ phase: 'pages', done, total }),
+        }),
+      )
+    }
     if (options.deepPdf) {
       const info = await readPdfOutlineFile(record.filePath)
       return finish(

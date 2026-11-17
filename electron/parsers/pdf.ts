@@ -217,7 +217,7 @@ function findRenderScript(): string | null {
   return candidates.find((candidate) => fs.existsSync(candidate)) ?? null
 }
 
-async function renderPdfPages(sourcePath: string, imageDir: string, pages: number[]): Promise<number[]> {
+export async function renderPdfPages(sourcePath: string, imageDir: string, pages: number[]): Promise<number[]> {
   if (process.platform !== 'darwin' || pages.length === 0 || !fs.existsSync(sourcePath)) return []
   const script = findRenderScript()
   if (!script) return []
@@ -251,7 +251,7 @@ async function renderPdfPages(sourcePath: string, imageDir: string, pages: numbe
   return pages.filter((page) => fs.existsSync(path.join(imageDir, `page-${page}.jpg`)))
 }
 
-async function readRenderedImages(imageDir: string, pages: number[]): Promise<Map<number, string>> {
+export async function readRenderedImages(imageDir: string, pages: number[]): Promise<Map<number, string>> {
   const result = new Map<number, string>()
   for (const page of pages) {
     try {

@@ -1096,6 +1096,8 @@ export interface ImportBookOptions {
   skipReferences?: boolean
   /** PDF 使用 Docling 深度解析；需要本机安装 Python + Docling。 */
   deepPdf?: boolean
+  /** PDF 整页视觉解析（Zerox 式）；使用当前笔记模型把页面转成 Markdown。 */
+  visionPdf?: boolean
 }
 
 export interface DoclingStatus {

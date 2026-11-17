@@ -9,7 +9,7 @@ import { Checkbox } from './Checkbox.js'
 interface ImportDialogProps {
   open: boolean
   onClose(): void
-  onFileImport(options?: { skipReferences?: boolean; deepPdf?: boolean }): Promise<BookSummary | null>
+  onFileImport(options?: { skipReferences?: boolean; deepPdf?: boolean; visionPdf?: boolean }): Promise<BookSummary | null>
   onImported(book: BookSummary): void
   onHighlightsImported(result: HighlightImportResult): void
   onOcrStarted(fileName: string): void
@@ -37,6 +37,7 @@ export function ImportDialog({
   const [mergeHighlights, setMergeHighlights] = useState(false)
   const [skipReferences, setSkipReferences] = useState(false)
   const [deepPdf, setDeepPdf] = useState(false)
+  const [visionPdf, setVisionPdf] = useState(false)
   const [doclingStatus, setDoclingStatus] = useState<DoclingStatus | null>(null)
   const [doclingProgress, setDoclingProgress] = useState<DoclingProgressEvent | null>(null)
   const [ocrJobs, setOcrJobs] = useState<OcrJob[]>([])
@@ -97,7 +98,11 @@ export function ImportDialog({
     setError(null)
     setDoclingProgress(null)
     try {
-      const book = await onFileImport({ skipReferences, deepPdf: deepPdf && doclingStatus?.available === true })
+      const book = await onFileImport({
+        skipReferences,
+        deepPdf: deepPdf && doclingStatus?.available === true,
+        visionPdf,
+      })
       if (book) onImported(book)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -280,7 +285,10 @@ export function ImportDialog({
           <div className="import-option">
             <Checkbox
               checked={deepPdf && doclingStatus?.available === true}
-              onChange={setDeepPdf}
+              onChange={(value) => {
+                setDeepPdf(value)
+                if (value) setVisionPdf(false)
+              }}
               disabled={doclingStatus !== null && !doclingStatus.available}
               label={t('PDF 深度解析（Docling，较慢）')}
             />
@@ -291,10 +299,21 @@ export function ImportDialog({
                   ? `${t('仅对 PDF 生效。版面和图片更完整，但一本几百页的书可能需要几分钟。')}${doclingStatus.version ? ` · v${doclingStatus.version}` : ''}`
                   : t('未检测到 Docling。需要 Python 3.10+，并在终端运行 pip install docling。')}
             </p>
-            {busy && deepPdf && doclingStatus?.available ? (
+            <Checkbox
+              checked={visionPdf}
+              onChange={(value) => {
+                setVisionPdf(value)
+                if (value) setDeepPdf(false)
+              }}
+              label={t('PDF 视觉解析（Zerox 式，较慢）')}
+            />
+            <p className="field-hint">
+              {t('用当前笔记模型把每一页渲染成图片再转成 Markdown，适合扫描版、教材和图表/表格多的 PDF。一次最多 120 页，会消耗较多 token。')}
+            </p>
+            {busy && (deepPdf || visionPdf) && (deepPdf ? doclingStatus?.available === true : true) ? (
               <p className="field-hint">
                 {doclingProgress?.phase === 'pages' && doclingProgress.total
-                  ? `${t('正在分析版面')} ${doclingProgress.done ?? 0} / ${doclingProgress.total} ${t('页')}`
+                  ? `${visionPdf ? t('正在视觉解析') : t('正在分析版面')} ${doclingProgress.done ?? 0} / ${doclingProgress.total} ${t('页')}`
                   : doclingProgress?.phase === 'build'
                     ? t('正在识别段落、表格和图表…')
                     : doclingProgress?.phase === 'assemble'

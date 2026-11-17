@@ -675,6 +675,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
       {
         skipReferences: importOptions?.skipReferences === true,
         deepPdf: importOptions?.deepPdf === true,
+        visionPdf: importOptions?.visionPdf === true,
       },
       (progress) => {
         if (!event.sender.isDestroyed()) event.sender.send('docling:progress', progress)
