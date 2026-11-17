@@ -109,6 +109,8 @@ test('validates format, notes and feynman artifact payloads', () => {
         fontSize: 17,
         lineHeight: 1.98,
         paragraphSpacing: 1.15,
+        letterSpacing: 0,
+        fontWeight: 400,
         indent: false,
         theme: 'folio',
         maxWidth: 760,

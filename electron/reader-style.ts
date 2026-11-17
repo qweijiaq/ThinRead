@@ -18,6 +18,8 @@ export function normalizeReaderStyle(input: unknown): ReaderStyle {
       2,
       DEFAULT_READER_STYLE.paragraphSpacing,
     ),
+    letterSpacing: clamp(Number(raw.letterSpacing), 0, 2, DEFAULT_READER_STYLE.letterSpacing),
+    fontWeight: clamp(Number(raw.fontWeight), 300, 600, DEFAULT_READER_STYLE.fontWeight),
     indent: raw.indent !== false,
     maxWidth: clamp(Number(raw.maxWidth), 520, 980, DEFAULT_READER_STYLE.maxWidth),
     theme:

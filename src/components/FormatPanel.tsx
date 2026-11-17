@@ -268,6 +268,38 @@ export function FormatPanel({
         </div>
 
         <div className="style-row">
+          <span className="style-label">{t('字距')}</span>
+          <input
+            type="range"
+            min={0}
+            max={2}
+            step={0.1}
+            value={draft.letterSpacing}
+            onChange={(event) => previewStyle({ letterSpacing: Number(event.target.value) })}
+            onPointerUp={flushStyle}
+            onKeyUp={flushStyle}
+            onBlur={flushStyle}
+          />
+          <span className="style-value">{draft.letterSpacing.toFixed(1)}px</span>
+        </div>
+
+        <div className="style-row">
+          <span className="style-label">{t('字重')}</span>
+          <input
+            type="range"
+            min={300}
+            max={600}
+            step={100}
+            value={draft.fontWeight}
+            onChange={(event) => previewStyle({ fontWeight: Number(event.target.value) })}
+            onPointerUp={flushStyle}
+            onKeyUp={flushStyle}
+            onBlur={flushStyle}
+          />
+          <span className="style-value">{draft.fontWeight}</span>
+        </div>
+
+        <div className="style-row">
           <span className="style-label">{t('段距')}</span>
           <input
             type="range"

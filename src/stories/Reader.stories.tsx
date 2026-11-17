@@ -93,6 +93,8 @@ export const PlainSans: Story = {
       fontSize: 18,
       lineHeight: 1.85,
       paragraphSpacing: 1.2,
+      letterSpacing: 0,
+      fontWeight: 400,
       indent: false,
       theme: 'plain',
       maxWidth: 760,

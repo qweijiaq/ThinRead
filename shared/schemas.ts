@@ -151,6 +151,8 @@ export const readerStyleSchema = z.object({
   fontSize: z.number(),
   lineHeight: z.number(),
   paragraphSpacing: z.number(),
+  letterSpacing: z.number().min(0).max(2),
+  fontWeight: z.number().min(300).max(600),
   indent: z.boolean(),
   theme: z.enum(['paper', 'plain', 'warm', 'folio']),
   maxWidth: z.number().min(520).max(980),

@@ -106,6 +106,8 @@ export const readerStyle: ReaderStyle = {
   fontSize: 17,
   lineHeight: 1.86,
   paragraphSpacing: 0.7,
+  letterSpacing: 0,
+  fontWeight: 400,
   indent: false,
   theme: 'folio',
   maxWidth: 720,

@@ -100,6 +100,8 @@ export interface ReaderStyle {
   fontSize: number
   lineHeight: number
   paragraphSpacing: number
+  letterSpacing: number
+  fontWeight: number
   indent: boolean
   theme: 'paper' | 'plain' | 'warm' | 'folio' | 'night'
   /** 正文版心最大宽度（px）。 */
@@ -111,6 +113,8 @@ export const DEFAULT_READER_STYLE: ReaderStyle = {
   fontSize: 17,
   lineHeight: 1.86,
   paragraphSpacing: 0.7,
+  letterSpacing: 0,
+  fontWeight: 400,
   indent: false,
   theme: 'folio',
   maxWidth: 720,

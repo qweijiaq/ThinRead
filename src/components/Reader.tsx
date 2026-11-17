@@ -541,6 +541,8 @@ export function Reader({
         : '"Songti SC", "STSong", "Noto Serif CJK SC", "SimSun", Georgia, serif',
     fontSize: `${style.fontSize}px`,
     lineHeight: style.lineHeight,
+    letterSpacing: `${style.letterSpacing}px`,
+    fontWeight: style.fontWeight,
     '--reader-indent': style.indent ? '2em' : '0',
     '--reader-paragraph-gap': `${style.paragraphSpacing}em`,
   } as CSSProperties
