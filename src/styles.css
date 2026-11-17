@@ -33,3 +33,19 @@
 @import './styles/250-visual-upgrade.css';
 @import './styles/260-late-polish.css';
 @import './styles/270-deep-components.css';
+
+.webdav-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(120px, 0.6fr);
+  gap: 10px;
+}
+
+.webdav-fields input {
+  min-width: 0;
+}
+
+@media (max-width: 720px) {
+  .webdav-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

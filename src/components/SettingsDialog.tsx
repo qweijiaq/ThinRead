@@ -21,6 +21,7 @@ import { useDialogFocus } from '../lib/useDialogFocus.js'
 import { Checkbox } from './Checkbox.js'
 import { confirmDialog } from './ConfirmDialog.js'
 import { Select } from './Select.js'
+import { WebDavPanel } from './WebDavPanel.js'
 
 interface SettingsDialogProps {
   open: boolean
@@ -1327,6 +1328,8 @@ export function SettingsDialog({
             </div>
           ) : null}
         </div>
+
+        <WebDavPanel />
 
         {result ? <div className={`test-result ${result.ok ? 'ok' : 'fail'}`}>{result.message}</div> : null}
 

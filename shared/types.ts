@@ -1059,6 +1059,22 @@ export interface SyncSnapshot {
   encrypted: boolean
 }
 
+export interface WebDavConfigView {
+  url: string
+  username: string
+  remotePath: string
+  hasPassword: boolean
+  lastPushAt: string
+  lastPullAt: string
+}
+
+export interface WebDavConfigInput {
+  url: string
+  username: string
+  password?: string
+  remotePath?: string
+}
+
 export interface SyncStatus {
   folder: string
   lastPushAt: string
@@ -1807,6 +1823,13 @@ export interface ReadingApi {
   deletePdfAnnotation(id: string): Promise<void>
   getNoteQuality(): Promise<NoteQualitySummary>
   getSyncStatus(): Promise<SyncStatus>
+  getWebDavConfig(): Promise<WebDavConfigView>
+  saveWebDavConfig(input: WebDavConfigInput): Promise<WebDavConfigView>
+  testWebDav(): Promise<{ ok: boolean; message: string }>
+  pushWebDavSnapshot(passphrase?: string): Promise<SyncSnapshot>
+  listWebDavSnapshots(): Promise<SyncSnapshot[]>
+  pullWebDavSnapshot(name: string, passphrase?: string): Promise<{ ok: boolean }>
+  deleteWebDavSnapshot(name: string): Promise<void>
   chooseSyncFolder(): Promise<SyncStatus>
   pushSyncSnapshot(passphrase?: string): Promise<SyncSnapshot>
   pullSyncSnapshot(name: string, passphrase?: string): Promise<{ ok: boolean }>

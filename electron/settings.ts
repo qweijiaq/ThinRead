@@ -4,7 +4,7 @@ import path from 'node:path'
 import { safeStorage } from 'electron'
 
 import { PROVIDER_PRESETS, REFERENCE_AI_PRICING } from '../shared/types.js'
-import type { AiModelPricing, GenerationMode, NotesLanguage, ProviderId, SettingsPatch, SettingsView, VisionMode } from '../shared/types.js'
+import type { AiModelPricing, GenerationMode, NotesLanguage, ProviderId, SettingsPatch, SettingsView, VisionMode, WebDavConfigInput, WebDavConfigView } from '../shared/types.js'
 import { createAppLock, isUsablePasscode, verifyAppLock, type AppLockRecord } from './app-lock.js'
 
 interface StoredKey {
@@ -28,6 +28,13 @@ interface StoredSettings {
   aiBudget?: { monthlyCny: number; enabled: boolean }
   syncFolder?: string
   syncMeta?: { lastPushAt?: string; lastPullAt?: string; lastMergeAt?: string }
+  webdav?: {
+    url: string
+    username: string
+    remotePath: string
+    password?: StoredKey
+  }
+  webdavMeta?: { lastPushAt?: string; lastPullAt?: string }
   readwise?: StoredKey
   ui?: {
     autoNext?: boolean
@@ -250,6 +257,52 @@ export function setSyncMeta(patch: Partial<{ lastPushAt: string; lastPullAt: str
 export function setSyncFolder(folder: string): void {
   const current = settings()
   current.syncFolder = folder.trim()
+  persist()
+}
+
+export function getWebDavConfigView(): WebDavConfigView {
+  const current = settings()
+  const webdav = current.webdav
+  return {
+    url: webdav?.url ?? '',
+    username: webdav?.username ?? '',
+    remotePath: webdav?.remotePath || 'ThinRead',
+    hasPassword: readStoredKey(webdav?.password) !== null,
+    lastPushAt: current.webdavMeta?.lastPushAt ?? '',
+    lastPullAt: current.webdavMeta?.lastPullAt ?? '',
+  }
+}
+
+export function getWebDavConfig(): { url: string; username: string; remotePath: string; password: string } {
+  const current = settings()
+  return {
+    url: current.webdav?.url ?? '',
+    username: current.webdav?.username ?? '',
+    remotePath: current.webdav?.remotePath || 'ThinRead',
+    password: readStoredKey(current.webdav?.password) ?? '',
+  }
+}
+
+export function saveWebDavConfig(input: WebDavConfigInput): WebDavConfigView {
+  const current = settings()
+  const url = input.url.trim()
+  const username = input.username.trim()
+  const remotePath = (input.remotePath ?? 'ThinRead').trim().replace(/^\/+|\/+$/g, '') || 'ThinRead'
+  current.webdav = {
+    url,
+    username,
+    remotePath,
+    password: input.password?.trim()
+      ? encodeKey(input.password.trim())
+      : current.webdav?.password,
+  }
+  persist()
+  return getWebDavConfigView()
+}
+
+export function setWebDavMeta(patch: Partial<{ lastPushAt: string; lastPullAt: string }>): void {
+  const current = settings()
+  current.webdavMeta = { ...current.webdavMeta, ...patch }
   persist()
 }
 

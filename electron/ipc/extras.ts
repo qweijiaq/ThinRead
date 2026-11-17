@@ -18,8 +18,9 @@ import {
   updatePdfAnnotation,
 } from '../db-pdf.js'
 import { readAiUsage } from '../ai/usage.js'
-import { getAiPricing } from '../settings.js'
+import { getAiPricing, getWebDavConfigView, saveWebDavConfig } from '../settings.js'
 import { chooseSyncFolder, deleteSyncSnapshot, getSyncStatus, mergeSyncSnapshot, pullSyncSnapshot, pushSyncSnapshot } from '../sync.js'
+import { deleteWebDavSnapshot, listWebDavSnapshots, pullWebDavSnapshot, pushWebDavSnapshot, testWebDavConnection } from '../webdav-sync.js'
 import { parseIpc } from './parse.js'
 
 export interface ExtrasContext {
@@ -40,6 +41,23 @@ export function registerExtrasIpc({ getWindow, dataDir, cancelAllAiJobs }: Extra
   ipcMain.handle('stats:note-quality', () => getNoteQuality())
 
   ipcMain.handle('sync:status', () => getSyncStatus())
+
+  ipcMain.handle('sync:webdav-config', () => getWebDavConfigView())
+  ipcMain.handle('sync:webdav-save', (_event, input) => saveWebDavConfig(input as Parameters<typeof saveWebDavConfig>[0]))
+  ipcMain.handle('sync:webdav-test', () => testWebDavConnection())
+  ipcMain.handle('sync:webdav-push', (_event, passphrase?: unknown) =>
+    pushWebDavSnapshot(dataDir, typeof passphrase === 'string' ? passphrase.slice(0, 200) : ''),
+  )
+  ipcMain.handle('sync:webdav-list', () => listWebDavSnapshots())
+  ipcMain.handle('sync:webdav-pull', async (_event, name: unknown, passphrase?: unknown) => {
+    if (typeof name !== 'string' || !name.trim()) throw new Error('同步快照名称无效。')
+    await pullWebDavSnapshot(dataDir, name, typeof passphrase === 'string' ? passphrase.slice(0, 200) : '')
+    return { ok: true }
+  })
+  ipcMain.handle('sync:webdav-delete', (_event, name: unknown) => {
+    if (typeof name !== 'string' || !name.trim()) throw new Error('同步快照名称无效。')
+    return deleteWebDavSnapshot(name)
+  })
 
   ipcMain.handle('sync:open-folder', async () => {
     const folder = getSyncStatus().folder

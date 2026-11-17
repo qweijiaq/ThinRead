@@ -11,6 +11,8 @@ import type {
   SyncSnapshot,
   MergeSnapshotResult,
   SyncStatus,
+  WebDavConfigInput,
+  WebDavConfigView,
   PdfAnnotation,
   PdfAnnotationColor,
   AppNotice,
@@ -315,6 +317,16 @@ const api: ReadingApi = {
     ipcRenderer.invoke('pdf:annotation-update', id, patch) as Promise<PdfAnnotation>,
   deletePdfAnnotation: (id: string) => ipcRenderer.invoke('pdf:annotation-delete', id) as Promise<void>,
   getSyncStatus: () => ipcRenderer.invoke('sync:status') as Promise<SyncStatus>,
+  getWebDavConfig: () => ipcRenderer.invoke('sync:webdav-config') as Promise<WebDavConfigView>,
+  saveWebDavConfig: (input: WebDavConfigInput) =>
+    ipcRenderer.invoke('sync:webdav-save', input) as Promise<WebDavConfigView>,
+  testWebDav: () => ipcRenderer.invoke('sync:webdav-test') as Promise<{ ok: boolean; message: string }>,
+  pushWebDavSnapshot: (passphrase?: string) =>
+    ipcRenderer.invoke('sync:webdav-push', passphrase) as Promise<SyncSnapshot>,
+  listWebDavSnapshots: () => ipcRenderer.invoke('sync:webdav-list') as Promise<SyncSnapshot[]>,
+  pullWebDavSnapshot: (name: string, passphrase?: string) =>
+    ipcRenderer.invoke('sync:webdav-pull', name, passphrase) as Promise<{ ok: boolean }>,
+  deleteWebDavSnapshot: (name: string) => ipcRenderer.invoke('sync:webdav-delete', name) as Promise<void>,
   chooseSyncFolder: () => ipcRenderer.invoke('sync:choose-folder') as Promise<SyncStatus>,
   pushSyncSnapshot: (passphrase?: string) => ipcRenderer.invoke('sync:push', passphrase) as Promise<SyncSnapshot>,
   pullSyncSnapshot: (name: string, passphrase?: string) =>
