@@ -58,6 +58,22 @@ export interface PdfParseOptions {
   imageDir?: string
 }
 
+/** 只读取页数，用于视觉解析前的费用预估。 */
+export async function getPdfPageCount(buffer: Buffer): Promise<number> {
+  const pdfjs = (await import('pdfjs-dist/legacy/build/pdf.mjs')) as unknown as PdfJs
+  const doc = await pdfjs.getDocument({
+    data: new Uint8Array(buffer),
+    isEvalSupported: false,
+    useSystemFonts: true,
+    verbosity: 0,
+  }).promise
+  try {
+    return doc.numPages
+  } finally {
+    await doc.destroy().catch(() => undefined)
+  }
+}
+
 export async function parsePdf(
   buffer: Buffer,
   sourceName: string,

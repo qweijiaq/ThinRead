@@ -43,7 +43,7 @@ export interface VisionPdfResult {
 const MAX_VISION_PAGES = 120
 const CONCURRENCY = 2
 
-function parsePageSelection(spec: string | undefined, total: number): number[] {
+export function parsePageSelection(spec: string | undefined, total: number): number[] {
   const raw = (spec ?? '').trim()
   if (!raw || /^全部$|^all$/i.test(raw)) {
     return Array.from({ length: Math.min(total, MAX_VISION_PAGES) }, (_, index) => index + 1)

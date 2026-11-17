@@ -142,11 +142,13 @@ import type { ModelConfig } from './ai/provider.js'
 import { askChapter, evaluateExplanation } from './ai/tutor.js'
 import { generateSessionSummary } from './ai/session-summary.js'
 import { traceAsync, tracedGenerateText } from './ai/trace.js'
+import { getPdfPageCount } from './parsers/pdf.js'
+import { parsePageSelection } from './parsers/pdf-vision.js'
 import { classifyImportedChapters, importBookFile, importHighlightEntries, importHighlightsFile, importScannedPdf, importTextBook, importUrlBook, reparseBookFile } from './import.js'
 import { renderHtmlToPdf } from './pdf.js'
 import { buildKnowledgeMap } from './knowledge-map.js'
 import { configureSemantic, semanticRelatedNotes, semanticSearchNotes, warmSemanticIndex } from './semantic.js'
-import { getActiveSettings, getProviderApiKey, getReadwiseToken, getSettingsView, getUiPreferences, getAppLockEnabled, isDemoMode, saveSettings, saveUiPreferences, setAppLockPasscode, verifyAppLockPasscode } from './settings.js'
+import { getActiveSettings, getAiPricing, getProviderApiKey, getReadwiseToken, getSettingsView, getUiPreferences, getAppLockEnabled, isDemoMode, saveSettings, saveUiPreferences, setAppLockPasscode, verifyAppLockPasscode } from './settings.js'
 import { fetchReadwiseEntries } from './readwise.js'
 import { parseWechatReadingNotes } from './parsers/wechat-reading.js'
 import { getDoclingStatus } from './parsers/docling.js'
@@ -607,6 +609,42 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     existing?: ReturnType<typeof getOcrJob>,
   ): OcrImportStarted {
     activeOcr?.controller.abort()
+    // 视觉解析前先告诉用户页数和大致费用，避免一上来跑掉大量 token。
+    if (importOptions?.visionPdf === true) {
+      try {
+        const buffer = await fs.readFile(result.filePaths[0]!)
+        const total = await getPdfPageCount(buffer)
+        const pages = parsePageSelection(importOptions.visionPdfPages, total)
+        const settings = getActiveSettings('notes')
+        const pricing = getAiPricing()
+        const price =
+          pricing[settings.model] ??
+          pricing[Object.keys(pricing).find((key) => key.toLowerCase() === settings.model.toLowerCase()) ?? '']
+        const cost = price
+          ? (pages.length * (2_000 * price.inputPerMTokens + 1_200 * price.outputPerMTokens)) / 1_000_000
+          : null
+        const detail = [
+          `将视觉解析 ${pages.length} 页（这本 PDF 共 ${total} 页）。`,
+          cost === null ? '当前模型没有配置价格，实际费用取决于服务商。' : `按当前模型价格粗估约 ¥${cost.toFixed(2)}，实际以服务商账单为准。`,
+          '页面结果会缓存，重复解析同一页不会再次消耗 token。',
+        ].join('\n')
+        const options = {
+          type: 'question' as const,
+          title: '开始视觉解析',
+          message: '这会使用视觉模型逐页识别 PDF。',
+          detail,
+          buttons: ['开始解析', '取消'],
+          defaultId: 0,
+          cancelId: 1,
+          noLink: true,
+        }
+        const confirm = win ? await dialog.showMessageBox(win, options) : await dialog.showMessageBox(options)
+        if (confirm.response !== 0) return null
+      } catch (error) {
+        if (error instanceof Error && /页码范围|最多/.test(error.message)) throw error
+      }
+    }
+
     const controller = new AbortController()
     const fileName = existing?.fileName ?? path.basename(filePath)
     const job =
