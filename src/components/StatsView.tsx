@@ -8,6 +8,7 @@ import {
   getReadingMonth,
   getReadingSummary,
   getReadingYear,
+  getReadingHeatmap,
   nextStreakMilestone,
   readingCsv,
   STREAK_MILESTONES,
@@ -236,6 +237,7 @@ export function StatsView({ books, onBack, onOpenWeeklyReview, onOpenWeeklyRevie
   const [aiUsage, setAiUsage] = useState<AiUsageSummary | null>(null)
   const [noteQuality, setNoteQuality] = useState<NoteQualitySummary | null>(null)
   const summary = useMemo(() => getReadingSummary(), [])
+  const heatmap = useMemo(() => getReadingHeatmap(365), [])
   const month = useMemo(() => getReadingMonth(offset), [offset])
   const year = useMemo(() => getReadingYear(yearOffset), [yearOffset])
   const previousYear = useMemo(() => getReadingYear(yearOffset - 1), [yearOffset])
@@ -382,6 +384,25 @@ export function StatsView({ books, onBack, onOpenWeeklyReview, onOpenWeeklyRevie
           </div>
         ))}
       </div>
+
+      <section className="stats-section reading-heatmap">
+        <div className="stats-section-head">
+          <h2>{t('阅读热力图')}</h2>
+          <span>{t('最近 365 天')}</span>
+        </div>
+        <div className="heatmap-grid" role="img" aria-label={t('最近 365 天阅读热力图')}>
+          {heatmap.map((day) => {
+            const level =
+              day.seconds <= 0 ? 0 : day.seconds < 300 ? 1 : day.seconds < 900 ? 2 : day.seconds < 1800 ? 3 : 4
+            return <span key={day.date} className={`heatmap-cell level-${level}`} title={`${day.date} · ${duration(day.seconds)}`} />
+          })}
+        </div>
+        <div className="heatmap-legend">
+          <span>{t('少')}</span>
+          {[0, 1, 2, 3, 4].map((level) => <span key={level} className={`heatmap-cell level-${level}`} />)}
+          <span>{t('多')}</span>
+        </div>
+      </section>
 
       <section className="stats-section">
         <div className="stats-month-head">

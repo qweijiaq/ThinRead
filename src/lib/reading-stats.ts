@@ -192,6 +192,20 @@ export function getReadingSummary(): ReadingSummary {
   }
 }
 
+/** 最近 N 天的每日阅读量，补齐没有阅读的日子，用于热力图。 */
+export function getReadingHeatmap(days = 365): ReadingDay[] {
+  const stats = load()
+  const today = new Date()
+  const result: ReadingDay[] = []
+  for (let offset = days - 1; offset >= 0; offset--) {
+    const date = new Date(today)
+    date.setDate(date.getDate() - offset)
+    const key = dateKey(date)
+    result.push({ date: key, seconds: stats.days[key] ?? 0 })
+  }
+  return result
+}
+
 export interface ReadingMonth {
   label: string
   seconds: number

@@ -2003,5 +2003,10 @@
   "一次最多 120 页。先用小范围试一页，确认效果再扩大。": "Up to 120 pages per run. Try one page first, then widen the range.",
   "只传笔记库（不含书文件）": "Notes DB only (no book files)",
   "笔记库 · 只可合并": "Notes DB · merge only",
-  "整库": "Full library"
+  "整库": "Full library",
+  "阅读热力图": "Reading heatmap",
+  "最近 365 天": "Last 365 days",
+  "最近 365 天阅读热力图": "Reading heatmap for the last 365 days",
+  "少": "Less",
+  "多": "More"
 }
