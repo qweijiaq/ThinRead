@@ -100,6 +100,7 @@ export async function importBookFile(
         config: getActiveSettings('notes'),
         maintainFormat: options.visionPdfMaintainFormat === true,
         pages: options.visionPdfPages,
+        dataDir,
         onProgress: (done, total) => onDoclingProgress?.({ phase: 'pages', done, total }),
       })
     } else if (options.deepPdf) {
@@ -227,6 +228,7 @@ export async function reparseBookFile(
           config: getActiveSettings('notes'),
           maintainFormat: options.visionPdfMaintainFormat === true,
           pages: options.visionPdfPages,
+          dataDir,
           onProgress: (done, total) => onDoclingProgress?.({ phase: 'pages', done, total }),
         }),
       )

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import os from 'node:os'
@@ -27,6 +28,7 @@ export interface VisionPdfOptions {
   onProgress?: (done: number, total: number) => void
   maintainFormat?: boolean
   pages?: string
+  dataDir?: string
 }
 
 export interface VisionPdfResult {
@@ -144,6 +146,8 @@ export async function parsePdfWithVision(options: VisionPdfOptions): Promise<Vis
       }
       const images = await readRenderedImages(imageDir, rendered)
       const model = createLanguageModel(options.config)
+      const cacheDir = options.dataDir ? path.join(options.dataDir, 'vision-pdf-cache') : ''
+      if (cacheDir) fs.mkdirSync(cacheDir, { recursive: true })
       let done = 0
       let failed = 0
       const ocrPage = async (index: number, previous: string): Promise<PdfPageText> => {
@@ -151,7 +155,20 @@ export async function parsePdfWithVision(options: VisionPdfOptions): Promise<Vis
         const image = images.get(page)
         let text = ''
         if (image) {
-          try {
+          const cacheKey = createHash('sha256')
+            .update(`${options.config.model}\n${options.maintainFormat ? previous.slice(-1_500) : ''}\n${image}`)
+            .digest('hex')
+          const cachePath = cacheDir ? path.join(cacheDir, `${cacheKey}.md`) : ''
+          if (cachePath) {
+            try {
+              const cached = fs.readFileSync(cachePath, 'utf8').trim()
+              if (cached) text = cached
+            } catch {
+              // 没有缓存就走模型。
+            }
+          }
+          if (!text) {
+            try {
             const response = await tracedGenerateText(
               {
                 step: 'pdf-vision',
@@ -193,8 +210,10 @@ export async function parsePdfWithVision(options: VisionPdfOptions): Promise<Vis
               },
             )
             text = cleanMarkdown(response.text)
-          } catch {
-            text = ''
+            if (cachePath && text) fs.writeFileSync(cachePath, text)
+            } catch {
+              text = ''
+            }
           }
         }
         if (!text) {
@@ -236,6 +255,13 @@ export async function parsePdfWithVision(options: VisionPdfOptions): Promise<Vis
         chapters.push({
           title: '未解析的页面',
           text: `这本 PDF 共 ${doc.numPages} 页，本次视觉解析了 ${pageNumbers.length} 页（${pageNumbers[0]}–${pageNumbers[pageNumbers.length - 1]}）。可以在「重新解析」里补上其他页码范围。`,
+          html: null,
+        })
+      }
+      if (failed > 0) {
+        chapters.push({
+          title: '视觉解析提示',
+          text: `本次有 ${failed} 页视觉解析失败，已回退到 PDF 文字层；这些页面可能缺少图表或表格。`,
           html: null,
         })
       }
