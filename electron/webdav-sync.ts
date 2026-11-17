@@ -2,8 +2,9 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import type { SyncSnapshot } from '../shared/types.js'
+import type { MergeSnapshotResult, SyncSnapshot } from '../shared/types.js'
 import { createBackup, exportSelfContainedBackup, importBackupArchive, restoreBackup } from './backup.js'
+import { mergeSnapshotArchive } from './sync.js'
 import { getWebDavConfig, getWebDavConfigView, setWebDavMeta } from './settings.js'
 import { decryptSnapshot, encryptSnapshot } from './sync-crypto.js'
 import { deleteWebDav, getWebDav, listWebDav, putWebDav, testWebDav, type WebDavConfig } from './webdav.js'
@@ -93,6 +94,31 @@ export async function pullWebDavSnapshot(dataDir: string, name: string, passphra
   } finally {
     fs.rmSync(temp, { force: true })
     fs.rmSync(downloaded, { force: true })
+  }
+}
+
+export async function mergeWebDavSnapshot(
+  dataDir: string,
+  name: string,
+  passphrase = '',
+): Promise<MergeSnapshotResult> {
+  const cfg = config()
+  const safeName = path.basename(name)
+  if (!safeName.startsWith(PREFIX) || (!safeName.endsWith('.zip') && !safeName.endsWith('.thinsync'))) {
+    throw new Error('同步快照名称无效。')
+  }
+  const archive = path.join(os.tmpdir(), `${PREFIX}merge-${Date.now()}.zip`)
+  const decrypted = path.join(os.tmpdir(), `${PREFIX}merge-${Date.now()}-plain.zip`)
+  try {
+    fs.writeFileSync(archive, await getWebDav(cfg, safeName))
+    const source = safeName.endsWith('.thinsync') ? decrypted : archive
+    if (safeName.endsWith('.thinsync')) decryptSnapshot(archive, decrypted, passphrase)
+    const result = mergeSnapshotArchive(dataDir, source)
+    setWebDavMeta({ lastPullAt: new Date().toISOString() })
+    return result
+  } finally {
+    fs.rmSync(archive, { force: true })
+    fs.rmSync(decrypted, { force: true })
   }
 }
 

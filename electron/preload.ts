@@ -326,6 +326,8 @@ const api: ReadingApi = {
   listWebDavSnapshots: () => ipcRenderer.invoke('sync:webdav-list') as Promise<SyncSnapshot[]>,
   pullWebDavSnapshot: (name: string, passphrase?: string) =>
     ipcRenderer.invoke('sync:webdav-pull', name, passphrase) as Promise<{ ok: boolean }>,
+  mergeWebDavSnapshot: (name: string, passphrase?: string) =>
+    ipcRenderer.invoke('sync:webdav-merge', name, passphrase) as Promise<MergeSnapshotResult>,
   deleteWebDavSnapshot: (name: string) => ipcRenderer.invoke('sync:webdav-delete', name) as Promise<void>,
   chooseSyncFolder: () => ipcRenderer.invoke('sync:choose-folder') as Promise<SyncStatus>,
   pushSyncSnapshot: (passphrase?: string) => ipcRenderer.invoke('sync:push', passphrase) as Promise<SyncSnapshot>,

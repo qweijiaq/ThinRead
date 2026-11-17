@@ -1829,6 +1829,7 @@ export interface ReadingApi {
   pushWebDavSnapshot(passphrase?: string): Promise<SyncSnapshot>
   listWebDavSnapshots(): Promise<SyncSnapshot[]>
   pullWebDavSnapshot(name: string, passphrase?: string): Promise<{ ok: boolean }>
+  mergeWebDavSnapshot(name: string, passphrase?: string): Promise<MergeSnapshotResult>
   deleteWebDavSnapshot(name: string): Promise<void>
   chooseSyncFolder(): Promise<SyncStatus>
   pushSyncSnapshot(passphrase?: string): Promise<SyncSnapshot>

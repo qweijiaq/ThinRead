@@ -65,6 +65,21 @@ export function WebDavPanel(): JSX.Element {
     }
   }
 
+  async function merge(name: string): Promise<void> {
+    setBusy(name)
+    setNotice(null)
+    try {
+      const result = await bridge.mergeWebDavSnapshot(name, passphrase)
+      setNotice(
+        `${t('已合并')} · ${t('书')} ${result.books} · ${t('章节')} ${result.chapters} · ${t('笔记')} ${result.notes} · ${t('标注')} ${result.annotations} · ${t('书签')} ${result.bookmarks}`,
+      )
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error))
+    } finally {
+      setBusy(null)
+    }
+  }
+
   async function pull(name: string): Promise<void> {
     setBusy(name)
     setNotice(null)
@@ -155,6 +170,9 @@ export function WebDavPanel(): JSX.Element {
                 <span>{item.encrypted ? t('已加密') : t('未加密')}</span>
               </div>
               <div className="backup-row-actions">
+                <button type="button" className="text-button" onClick={() => void merge(item.name)} disabled={busy !== null}>
+                  {t('合并笔记')}
+                </button>
                 <button type="button" className="text-button" onClick={() => void pull(item.name)} disabled={busy !== null}>
                   {busy === item.name ? t('恢复中…') : t('恢复')}
                 </button>

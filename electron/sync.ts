@@ -148,13 +148,24 @@ export function mergeSyncSnapshot(dataDir: string, name: string, passphrase = ''
 
   let archive = source
   let tempArchive: string | null = null
-  let tempDb: string | null = null
   try {
     if (safeName.endsWith('.thinsync')) {
       tempArchive = path.join(os.tmpdir(), `${PREFIX}merge-${Date.now()}.zip`)
       decryptSnapshot(source, tempArchive, passphrase)
       archive = tempArchive
     }
+    const result = mergeSnapshotArchive(dataDir, archive)
+    setSyncMeta({ lastMergeAt: new Date().toISOString() })
+    return result
+  } finally {
+    if (tempArchive) fs.rmSync(tempArchive, { force: true })
+  }
+}
+
+/** 合并一个已经解密/解压好的快照归档；本地文件夹和 WebDAV 共用。 */
+export function mergeSnapshotArchive(dataDir: string, archive: string): MergeSnapshotResult {
+  let tempDb: string | null = null
+  try {
     const files = unzipSync(new Uint8Array(fs.readFileSync(archive)))
     const db = files['db/reading-notes.db']
     if (!db) throw new Error('这个快照里没有数据库。')
@@ -165,10 +176,8 @@ export function mergeSyncSnapshot(dataDir: string, name: string, passphrase = ''
     if (result.newBooks.length > 0) {
       copySnapshotBookFiles(files, result.newBooks, booksRoot)
     }
-    setSyncMeta({ lastMergeAt: new Date().toISOString() })
     return result
   } finally {
-    if (tempArchive) fs.rmSync(tempArchive, { force: true })
     if (tempDb) fs.rmSync(tempDb, { force: true })
   }
 }
