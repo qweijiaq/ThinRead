@@ -676,8 +676,11 @@
   assert(labButton, '找不到工作台按钮')
   labButton.click()
   await waitFor(() => document.querySelector('.lab-view'), '打开工作台')
-  const podcastNav = [...document.querySelectorAll('.lab-rail button')].find((button) => button.textContent.trim() === '双人播客')
-  assert(podcastNav, '工作台没有双人播客入口')
+  const podcastNav = await waitFor(
+    () => [...document.querySelectorAll('.lab-rail button')].find((button) => button.textContent.trim() === '双人播客'),
+    '工作台双人播客入口',
+    10000,
+  )
   podcastNav.click()
   await waitFor(() => document.querySelector('.lab-tool-head h2')?.textContent.trim() === '双人播客', '切换到双人播客')
   const podcastPane = await waitFor(() => document.querySelector('.lab-tool-pane.is-active'), '双人播客面板')
