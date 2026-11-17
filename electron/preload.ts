@@ -323,6 +323,8 @@ const api: ReadingApi = {
   testWebDav: () => ipcRenderer.invoke('sync:webdav-test') as Promise<{ ok: boolean; message: string }>,
   pushWebDavSnapshot: (passphrase?: string) =>
     ipcRenderer.invoke('sync:webdav-push', passphrase) as Promise<SyncSnapshot>,
+  pushWebDavNotesSnapshot: (passphrase?: string) =>
+    ipcRenderer.invoke('sync:webdav-push-notes', passphrase) as Promise<SyncSnapshot>,
   listWebDavSnapshots: () => ipcRenderer.invoke('sync:webdav-list') as Promise<SyncSnapshot[]>,
   pullWebDavSnapshot: (name: string, passphrase?: string) =>
     ipcRenderer.invoke('sync:webdav-pull', name, passphrase) as Promise<{ ok: boolean }>,

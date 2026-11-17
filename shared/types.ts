@@ -1057,6 +1057,8 @@ export interface SyncSnapshot {
   createdAt: string
   size: number
   encrypted: boolean
+  /** 只含数据库、不含书文件的轻量快照；只能合并，不能整库恢复。 */
+  notesOnly?: boolean
 }
 
 export interface WebDavConfigView {
@@ -1831,6 +1833,7 @@ export interface ReadingApi {
   saveWebDavConfig(input: WebDavConfigInput): Promise<WebDavConfigView>
   testWebDav(): Promise<{ ok: boolean; message: string }>
   pushWebDavSnapshot(passphrase?: string): Promise<SyncSnapshot>
+  pushWebDavNotesSnapshot(passphrase?: string): Promise<SyncSnapshot>
   listWebDavSnapshots(): Promise<SyncSnapshot[]>
   pullWebDavSnapshot(name: string, passphrase?: string): Promise<{ ok: boolean }>
   mergeWebDavSnapshot(name: string, passphrase?: string): Promise<MergeSnapshotResult>

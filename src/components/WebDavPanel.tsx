@@ -18,6 +18,7 @@ export function WebDavPanel(): JSX.Element {
   const [password, setPassword] = useState('')
   const [remotePath, setRemotePath] = useState('ThinRead')
   const [passphrase, setPassphrase] = useState('')
+  const [notesOnly, setNotesOnly] = useState(false)
   const [snapshots, setSnapshots] = useState<SyncSnapshot[]>([])
   const [busy, setBusy] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -55,7 +56,9 @@ export function WebDavPanel(): JSX.Element {
     setBusy('push')
     setNotice(null)
     try {
-      const snapshot = await bridge.pushWebDavSnapshot(passphrase)
+      const snapshot = notesOnly
+        ? await bridge.pushWebDavNotesSnapshot(passphrase)
+        : await bridge.pushWebDavSnapshot(passphrase)
       setSnapshots(await bridge.listWebDavSnapshots())
       setNotice(`${t('已推送到 WebDAV')}：${snapshot.name}`)
     } catch (error) {
@@ -154,6 +157,12 @@ export function WebDavPanel(): JSX.Element {
           autoComplete="new-password"
         />
       </div>
+      <div className="backup-actions">
+        <label className="checkbox-label">
+          <input type="checkbox" checked={notesOnly} onChange={(event) => setNotesOnly(event.target.checked)} />
+          {t('只传笔记库（不含书文件）')}
+        </label>
+      </div>
       <p className="field-hint">
         {t('WebDAV 适合 Nextcloud、坚果云、群晖等；推送会把整库打包成一份快照，不会实时同步。恢复前会自动做本地安全备份。')}
       </p>
@@ -167,15 +176,21 @@ export function WebDavPanel(): JSX.Element {
             <div key={item.name} className="backup-row">
               <div className="backup-row-main">
                 <strong>{formatTime(item.createdAt)}</strong>
-                <span>{item.encrypted ? t('已加密') : t('未加密')}</span>
+                <span>
+                  {item.notesOnly ? t('笔记库 · 只可合并') : t('整库')}
+                  {' · '}
+                  {item.encrypted ? t('已加密') : t('未加密')}
+                </span>
               </div>
               <div className="backup-row-actions">
                 <button type="button" className="text-button" onClick={() => void merge(item.name)} disabled={busy !== null}>
                   {t('合并笔记')}
                 </button>
-                <button type="button" className="text-button" onClick={() => void pull(item.name)} disabled={busy !== null}>
-                  {busy === item.name ? t('恢复中…') : t('恢复')}
-                </button>
+                {item.notesOnly ? null : (
+                  <button type="button" className="text-button" onClick={() => void pull(item.name)} disabled={busy !== null}>
+                    {busy === item.name ? t('恢复中…') : t('恢复')}
+                  </button>
+                )}
                 <button type="button" className="text-button danger" onClick={() => void remove(item.name)} disabled={busy !== null}>
                   {t('删除')}
                 </button>

@@ -20,7 +20,7 @@ import {
 import { readAiUsage } from '../ai/usage.js'
 import { getAiPricing, getWebDavConfigView, saveWebDavConfig } from '../settings.js'
 import { chooseSyncFolder, deleteSyncSnapshot, getSyncStatus, mergeSyncSnapshot, pullSyncSnapshot, pushSyncSnapshot } from '../sync.js'
-import { deleteWebDavSnapshot, listWebDavSnapshots, mergeWebDavSnapshot, pullWebDavSnapshot, pushWebDavSnapshot, testWebDavConnection } from '../webdav-sync.js'
+import { deleteWebDavSnapshot, listWebDavSnapshots, mergeWebDavSnapshot, pullWebDavSnapshot, pushWebDavNotesSnapshot, pushWebDavSnapshot, testWebDavConnection } from '../webdav-sync.js'
 import { parseIpc } from './parse.js'
 
 export interface ExtrasContext {
@@ -47,6 +47,9 @@ export function registerExtrasIpc({ getWindow, dataDir, cancelAllAiJobs }: Extra
   ipcMain.handle('sync:webdav-test', () => testWebDavConnection())
   ipcMain.handle('sync:webdav-push', (_event, passphrase?: unknown) =>
     pushWebDavSnapshot(dataDir, typeof passphrase === 'string' ? passphrase.slice(0, 200) : ''),
+  )
+  ipcMain.handle('sync:webdav-push-notes', (_event, passphrase?: unknown) =>
+    pushWebDavNotesSnapshot(dataDir, typeof passphrase === 'string' ? passphrase.slice(0, 200) : ''),
   )
   ipcMain.handle('sync:webdav-list', () => listWebDavSnapshots())
   ipcMain.handle('sync:webdav-pull', async (_event, name: unknown, passphrase?: unknown) => {

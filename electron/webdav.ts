@@ -109,6 +109,10 @@ export async function listWebDav(config: WebDavConfig): Promise<string[]> {
         return ''
       }
     })
-    .filter((name) => name.startsWith('thinread-sync-') && (name.endsWith('.zip') || name.endsWith('.thinsync')))
+    .filter(
+      (name) =>
+        (name.startsWith('thinread-sync-') || name.startsWith('thinread-notes-')) &&
+        (name.endsWith('.zip') || name.endsWith('.thinsync')),
+    )
   return [...new Set(names)].sort().reverse()
 }
