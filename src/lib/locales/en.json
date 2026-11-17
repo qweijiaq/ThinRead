@@ -1995,5 +1995,7 @@
   "WebDAV 快照": "WebDAV snapshot",
   "已推送到 WebDAV": "Pushed to WebDAV",
   "已从 WebDAV 恢复；应用会重新加载。": "Restored from WebDAV; the app will reload.",
-  "未加密": "Not encrypted"
+  "未加密": "Not encrypted",
+  "保持跨页表格 / 代码块连续（串行，较慢）": "Keep tables / code blocks continuous across pages (sequential, slower)",
+  "开启后逐页解析，并把上一页末尾传给下一页，适合跨页表格和长代码；速度会明显变慢。": "Parse pages one by one and pass the end of the previous page as context. Better for cross-page tables and long code, but noticeably slower."
 }

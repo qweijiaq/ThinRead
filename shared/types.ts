@@ -1114,6 +1114,8 @@ export interface ImportBookOptions {
   deepPdf?: boolean
   /** PDF 整页视觉解析（Zerox 式）；使用当前笔记模型把页面转成 Markdown。 */
   visionPdf?: boolean
+  /** 视觉解析时把上一页末尾作为上下文，改善跨页表格/代码块连续性（串行，较慢）。 */
+  visionPdfMaintainFormat?: boolean
 }
 
 export interface DoclingStatus {

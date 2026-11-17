@@ -26,6 +26,7 @@ export interface VisionPdfOptions {
   config: ModelConfig
   onProgress?: (done: number, total: number) => void
   maxPages?: number
+  maintainFormat?: boolean
 }
 
 export interface VisionPdfResult {
@@ -117,7 +118,7 @@ export async function parsePdfWithVision(options: VisionPdfOptions): Promise<Vis
       const model = createLanguageModel(options.config)
       let done = 0
       let failed = 0
-      const pages = await runPool(pageNumbers.length, CONCURRENCY, async (index) => {
+      const ocrPage = async (index: number, previous: string): Promise<PdfPageText> => {
         const page = pageNumbers[index]!
         const image = images.get(page)
         let text = ''
@@ -128,7 +129,7 @@ export async function parsePdfWithVision(options: VisionPdfOptions): Promise<Vis
                 step: 'pdf-vision',
                 provider: options.config.provider,
                 model: options.config.model,
-                promptVersion: 'pdf-vision-v1',
+                promptVersion: options.maintainFormat ? 'pdf-vision-format-v1' : 'pdf-vision-v1',
                 timeoutMs: 180_000,
               },
               {
@@ -145,8 +146,14 @@ export async function parsePdfWithVision(options: VisionPdfOptions): Promise<Vis
                           `这是 PDF 的第 ${page} 页。请完整转成 Markdown。`,
                           '保留标题层级、列表、表格、代码块和图表说明；页眉页脚可以省略。',
                           '表格用 Markdown 表格；代码用代码块；无法辨认的内容写 [无法辨认]。',
+                          options.maintainFormat && previous
+                            ? '上一页末尾内容如下，仅用于延续跨页表格、列表或代码块，不要重复输出：\n' +
+                              previous.slice(-1_500)
+                            : '',
                           '只输出 Markdown 正文，不要解释。',
-                        ].join('\n'),
+                        ]
+                          .filter(Boolean)
+                          .join('\n'),
                       },
                       { type: 'image', image: image.replace(/^data:[^;]+;base64,/, ''), mediaType: 'image/jpeg' },
                     ],
@@ -168,8 +175,20 @@ export async function parsePdfWithVision(options: VisionPdfOptions): Promise<Vis
         }
         done += 1
         options.onProgress?.(done, pageNumbers.length)
-        return { page, text } satisfies PdfPageText
-      })
+        return { page, text }
+      }
+      let pages: PdfPageText[]
+      if (options.maintainFormat) {
+        pages = []
+        let previous = ''
+        for (let index = 0; index < pageNumbers.length; index += 1) {
+          const page = await ocrPage(index, previous)
+          pages.push(page)
+          previous = page.text
+        }
+      } else {
+        pages = await runPool(pageNumbers.length, CONCURRENCY, (index) => ocrPage(index, ''))
+      }
 
       if (failed === pages.length) {
         throw new Error('视觉解析没有返回可用内容。请换一个支持图片的模型，或改用普通 PDF 解析。')

@@ -9,7 +9,7 @@ import { Checkbox } from './Checkbox.js'
 interface ImportDialogProps {
   open: boolean
   onClose(): void
-  onFileImport(options?: { skipReferences?: boolean; deepPdf?: boolean; visionPdf?: boolean }): Promise<BookSummary | null>
+  onFileImport(options?: { skipReferences?: boolean; deepPdf?: boolean; visionPdf?: boolean; visionPdfMaintainFormat?: boolean }): Promise<BookSummary | null>
   onImported(book: BookSummary): void
   onHighlightsImported(result: HighlightImportResult): void
   onOcrStarted(fileName: string): void
@@ -38,6 +38,7 @@ export function ImportDialog({
   const [skipReferences, setSkipReferences] = useState(false)
   const [deepPdf, setDeepPdf] = useState(false)
   const [visionPdf, setVisionPdf] = useState(false)
+  const [visionMaintain, setVisionMaintain] = useState(false)
   const [doclingStatus, setDoclingStatus] = useState<DoclingStatus | null>(null)
   const [doclingProgress, setDoclingProgress] = useState<DoclingProgressEvent | null>(null)
   const [ocrJobs, setOcrJobs] = useState<OcrJob[]>([])
@@ -102,6 +103,7 @@ export function ImportDialog({
         skipReferences,
         deepPdf: deepPdf && doclingStatus?.available === true,
         visionPdf,
+        visionPdfMaintainFormat: visionMaintain && visionPdf,
       })
       if (book) onImported(book)
     } catch (err) {
@@ -310,6 +312,18 @@ export function ImportDialog({
             <p className="field-hint">
               {t('用当前笔记模型把每一页渲染成图片再转成 Markdown，适合扫描版、教材和图表/表格多的 PDF。一次最多 120 页，会消耗较多 token。')}
             </p>
+            {visionPdf ? (
+              <div className="import-option">
+                <Checkbox
+                  checked={visionMaintain}
+                  onChange={setVisionMaintain}
+                  label={t('保持跨页表格 / 代码块连续（串行，较慢）')}
+                />
+                <p className="field-hint">
+                  {t('开启后逐页解析，并把上一页末尾传给下一页，适合跨页表格和长代码；速度会明显变慢。')}
+                </p>
+              </div>
+            ) : null}
             {busy && (deepPdf || visionPdf) && (deepPdf ? doclingStatus?.available === true : true) ? (
               <p className="field-hint">
                 {doclingProgress?.phase === 'pages' && doclingProgress.total
