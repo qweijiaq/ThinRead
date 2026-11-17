@@ -21,6 +21,7 @@ import { readAiUsage } from '../ai/usage.js'
 import { getAiPricing, getWebDavConfigView, saveWebDavConfig } from '../settings.js'
 import { chooseSyncFolder, deleteSyncSnapshot, getSyncStatus, mergeSyncSnapshot, pullSyncSnapshot, pushSyncSnapshot } from '../sync.js'
 import { deleteWebDavSnapshot, listWebDavSnapshots, mergeWebDavSnapshot, pullWebDavSnapshot, pushWebDavNotesSnapshot, pushWebDavSnapshot, testWebDavConnection } from '../webdav-sync.js'
+import { importOpdsBook, listOpds } from '../opds.js'
 import { parseIpc } from './parse.js'
 
 export interface ExtrasContext {
@@ -39,6 +40,13 @@ export function registerExtrasIpc({ getWindow, dataDir, cancelAllAiJobs }: Extra
   ipcMain.handle('ai:usage', (_event, days?: number) => readAiUsage(dataDir, days, getAiPricing()))
 
   ipcMain.handle('stats:note-quality', () => getNoteQuality())
+
+  ipcMain.handle('opds:list', (_event, url: unknown) => {
+    if (typeof url !== 'string' || !url.trim()) throw new Error('请填写 OPDS 地址。')
+    return listOpds(url.trim())
+  })
+
+  ipcMain.handle('opds:import', (_event, entry) => importOpdsBook(entry, dataDir))
 
   ipcMain.handle('sync:status', () => getSyncStatus())
 

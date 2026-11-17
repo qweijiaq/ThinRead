@@ -1065,6 +1065,13 @@ export interface SyncSnapshot {
   notesOnly?: boolean
 }
 
+export interface OpdsEntry {
+  title: string
+  author: string
+  format: 'EPUB' | 'PDF'
+  url: string
+}
+
 export interface WebDavConfigView {
   url: string
   username: string
@@ -1638,6 +1645,8 @@ export interface GenerateNotesOptions {
 export interface ReadingApi {
   listBooks(): Promise<BookSummary[]>
   importBook(options?: ImportBookOptions): Promise<BookSummary | null>
+  listOpds(url: string): Promise<OpdsEntry[]>
+  importOpdsBook(entry: OpdsEntry): Promise<BookSummary>
   cancelBookImport(): Promise<void>
   getDoclingStatus(): Promise<DoclingStatus>
   understandChapterImage(chapterId: string, imageSrc: string): Promise<ImageUnderstandingResult>

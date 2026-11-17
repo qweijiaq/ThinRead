@@ -2011,5 +2011,10 @@
   "多": "More",
   "字距": "Letter spacing",
   "字重": "Weight",
-  "取消视觉解析": "Cancel vision parsing"
+  "取消视觉解析": "Cancel vision parsing",
+  "OPDS 书库": "OPDS catalog",
+  "填一个公开的 OPDS 目录地址，列出 EPUB / PDF 后可以直接导入。": "Enter a public OPDS catalog URL to list and import EPUB / PDF files.",
+  "OPDS 地址": "OPDS URL",
+  "正在读取…": "Loading…",
+  "浏览书库": "Browse catalog"
 }

@@ -1,3 +1,4 @@
+import type { OpdsEntry as InputOpdsEntry } from '../../shared/types.js'
 import { bridge } from '../lib/bridge.js'
 import { useEffect, useState, type JSX } from 'react'
 import { t, useLocale } from '../lib/i18n.js'
@@ -15,7 +16,7 @@ interface ImportDialogProps {
   onOcrStarted(fileName: string): void
 }
 
-type ImportMode = 'file' | 'text' | 'url' | 'highlights'
+type ImportMode = 'file' | 'text' | 'url' | 'highlights' | 'opds'
 
 export function ImportDialog({
   open,
@@ -40,6 +41,9 @@ export function ImportDialog({
   const [visionPdf, setVisionPdf] = useState(false)
   const [visionMaintain, setVisionMaintain] = useState(false)
   const [visionPages, setVisionPages] = useState('')
+  const [opdsUrl, setOpdsUrl] = useState('')
+  const [opdsEntries, setOpdsEntries] = useState<InputOpdsEntry[]>([])
+  const [opdsBusy, setOpdsBusy] = useState<string | null>(null)
   const [doclingStatus, setDoclingStatus] = useState<DoclingStatus | null>(null)
   const [doclingProgress, setDoclingProgress] = useState<DoclingProgressEvent | null>(null)
   const [ocrJobs, setOcrJobs] = useState<OcrJob[]>([])
@@ -204,6 +208,33 @@ export function ImportDialog({
     }
   }
 
+  async function browseOpds(): Promise<void> {
+    if (!opdsUrl.trim() || opdsBusy) return
+    setOpdsBusy('list')
+    setError(null)
+    try {
+      setOpdsEntries(await bridge.listOpds(opdsUrl.trim()))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setOpdsBusy(null)
+    }
+  }
+
+  async function importOpds(entry: InputOpdsEntry): Promise<void> {
+    if (opdsBusy) return
+    setOpdsBusy(entry.url)
+    setError(null)
+    try {
+      const book = await bridge.importOpdsBook(entry)
+      onImported(book)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setOpdsBusy(null)
+    }
+  }
+
   async function importText(): Promise<void> {
     if (!text.trim() || busy) return
     setBusy(true)
@@ -269,6 +300,9 @@ export function ImportDialog({
           </button>
           <button type="button" role="tab" aria-selected={mode === 'highlights'} className={mode === 'highlights' ? 'active' : ''} onClick={() => setMode('highlights')} disabled={busy}>
             {t('划线 / 标注')}
+          </button>
+          <button type="button" role="tab" aria-selected={mode === 'opds'} className={mode === 'opds' ? 'active' : ''} onClick={() => setMode('opds')} disabled={busy}>
+            {t('OPDS 书库')}
           </button>
         </div>
 
@@ -462,6 +496,34 @@ export function ImportDialog({
             <p className="import-foot">
               {t('微信读书：在 App 的笔记页复制笔记，或导出为 .txt / .md / .html 后选择文件；支持书名、作者、章节标题和「想法 / 笔记」。Readwise 请选择 readwise.csv 或先在设置里配置 Token 后直接同步；Kindle 请选择 My Clippings.txt。重复划线会自动去重；不勾选合并时会为每本书建立新书。')}
             </p>
+          </section>
+        ) : mode === 'opds' ? (
+          <section className="import-pane">
+            <p className="import-hint">{t('填一个公开的 OPDS 目录地址，列出 EPUB / PDF 后可以直接导入。')}</p>
+            <label className="import-field">
+              {t('OPDS 地址')}
+              <input value={opdsUrl} onChange={(event) => setOpdsUrl(event.target.value)} placeholder="https://example.com/opds" />
+            </label>
+            <div className="import-actions">
+              <button type="button" className="primary-button" onClick={() => void browseOpds()} disabled={opdsBusy !== null || !opdsUrl.trim()}>
+                {opdsBusy === 'list' ? t('正在读取…') : t('浏览书库')}
+              </button>
+            </div>
+            {opdsEntries.length > 0 ? (
+              <div className="opds-list">
+                {opdsEntries.map((entry) => (
+                  <div key={entry.url} className="opds-row">
+                    <div>
+                      <strong>{entry.title}</strong>
+                      <span>{entry.author || t('未知作者')} · {entry.format}</span>
+                    </div>
+                    <button type="button" className="text-button" onClick={() => void importOpds(entry)} disabled={opdsBusy !== null}>
+                      {opdsBusy === entry.url ? t('导入中…') : t('导入')}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </section>
         ) : (
           <section className="import-pane">

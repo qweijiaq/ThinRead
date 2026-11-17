@@ -76,6 +76,7 @@ import type {
   HighlightImportOptions,
   HighlightImportResult,
   ImportBookOptions,
+  OpdsEntry,
   KnowledgeMapData,
   LabAnswerCheck,
   LabArtifact,
@@ -157,6 +158,8 @@ const api: ReadingApi = {
   importBook: (options?: ImportBookOptions) =>
     ipcRenderer.invoke('books:import', options) as Promise<BookSummary | null>,
   cancelBookImport: () => ipcRenderer.invoke('books:import-cancel') as Promise<void>,
+  listOpds: (url: string) => ipcRenderer.invoke('opds:list', url) as Promise<OpdsEntry[]>,
+  importOpdsBook: (entry: OpdsEntry) => ipcRenderer.invoke('opds:import', entry) as Promise<BookSummary>,
   getDoclingStatus: () => ipcRenderer.invoke('docling:status') as Promise<DoclingStatus>,
   understandChapterImage: (chapterId: string, imageSrc: string) =>
     ipcRenderer.invoke('chapters:understand-image', chapterId, imageSrc) as Promise<ImageUnderstandingResult>,
