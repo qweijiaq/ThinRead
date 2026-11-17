@@ -1116,6 +1116,8 @@ export interface ImportBookOptions {
   visionPdf?: boolean
   /** 视觉解析时把上一页末尾作为上下文，改善跨页表格/代码块连续性（串行，较慢）。 */
   visionPdfMaintainFormat?: boolean
+  /** 视觉解析的页码范围，例如 "1-20,25"；留空表示全部（最多 120 页）。 */
+  visionPdfPages?: string
 }
 
 export interface DoclingStatus {

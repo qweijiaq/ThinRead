@@ -25,8 +25,8 @@ export interface VisionPdfOptions {
   sourcePath: string
   config: ModelConfig
   onProgress?: (done: number, total: number) => void
-  maxPages?: number
   maintainFormat?: boolean
+  pages?: string
 }
 
 export interface VisionPdfResult {
@@ -39,6 +39,35 @@ export interface VisionPdfResult {
 
 const MAX_VISION_PAGES = 120
 const CONCURRENCY = 2
+
+function parsePageSelection(spec: string | undefined, total: number): number[] {
+  const raw = (spec ?? '').trim()
+  if (!raw || /^全部$|^all$/i.test(raw)) {
+    return Array.from({ length: Math.min(total, MAX_VISION_PAGES) }, (_, index) => index + 1)
+  }
+  const pages = new Set<number>()
+  for (const part of raw.split(/[,，\s]+/).filter(Boolean)) {
+    const range = /^(\d+)\s*[-–~]\s*(\d+)$/.exec(part)
+    if (range) {
+      const start = Math.max(1, Number(range[1]))
+      const end = Math.min(total, Number(range[2]))
+      if (start > end) throw new Error(`页码范围无效：${part}`)
+      for (let page = start; page <= end; page += 1) pages.add(page)
+      continue
+    }
+    const page = Number(part)
+    if (!Number.isInteger(page) || page < 1 || page > total) {
+      throw new Error(`页码无效：${part}（这本 PDF 共 ${total} 页）`)
+    }
+    pages.add(page)
+  }
+  const selected = [...pages].sort((a, b) => a - b)
+  if (selected.length === 0) throw new Error('没有选择要解析的页码。')
+  if (selected.length > MAX_VISION_PAGES) {
+    throw new Error(`一次最多视觉解析 ${MAX_VISION_PAGES} 页，当前选择了 ${selected.length} 页。`)
+  }
+  return selected
+}
 
 function cleanMarkdown(text: string): string {
   return text
@@ -106,10 +135,9 @@ export async function parsePdfWithVision(options: VisionPdfOptions): Promise<Vis
   }).promise
 
   try {
-    const limit = Math.min(doc.numPages, options.maxPages ?? MAX_VISION_PAGES)
+    const pageNumbers = parsePageSelection(options.pages, doc.numPages)
     const imageDir = await fs.mkdtempSync(path.join(os.tmpdir(), 'thinread-vision-pdf-'))
     try {
-      const pageNumbers = Array.from({ length: limit }, (_, index) => index + 1)
       const rendered = await renderPdfPages(options.sourcePath, imageDir, pageNumbers)
       if (rendered.length === 0) {
         throw new Error('PDF 页面渲染失败，请确认文件可正常打开，或改用普通 PDF 解析。')
@@ -197,15 +225,17 @@ export async function parsePdfWithVision(options: VisionPdfOptions): Promise<Vis
       const metadata = await doc.getMetadata().catch(() => null)
       const title = metadata?.info?.Title?.trim() || path.basename(options.sourcePath, path.extname(options.sourcePath))
       const author = metadata?.info?.Author?.trim() ?? ''
-      const outline = await readOutlineStarts(doc, limit)
-      let chapters = buildOutlineChapters(joinPages(pages), outline, limit)
-      if (chapters.length < 2) chapters = buildOutlineChapters(joinPages(pages), detectPdfChapterStarts(pages), limit)
+      const outline = await readOutlineStarts(doc, doc.numPages)
+      let chapters = buildOutlineChapters(joinPages(pages), outline, doc.numPages)
+      if (chapters.length < 2) {
+        chapters = buildOutlineChapters(joinPages(pages), detectPdfChapterStarts(pages), doc.numPages)
+      }
       if (chapters.length < 2) chapters = buildPagedChapters(joinPages(pages), 10)
       if (chapters.length === 0) throw new Error('视觉解析没有生成可用的章节。')
-      if (doc.numPages > limit) {
+      if (pageNumbers.length < doc.numPages) {
         chapters.push({
-          title: `未解析的页面（第 ${limit + 1}–${doc.numPages} 页）`,
-          text: `这本 PDF 共 ${doc.numPages} 页，本次视觉解析了前 ${limit} 页。可以在导入后重新解析，或先拆分 PDF。`,
+          title: '未解析的页面',
+          text: `这本 PDF 共 ${doc.numPages} 页，本次视觉解析了 ${pageNumbers.length} 页（${pageNumbers[0]}–${pageNumbers[pageNumbers.length - 1]}）。可以在「重新解析」里补上其他页码范围。`,
           html: null,
         })
       }

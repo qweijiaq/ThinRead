@@ -9,7 +9,7 @@ import { Checkbox } from './Checkbox.js'
 interface ImportDialogProps {
   open: boolean
   onClose(): void
-  onFileImport(options?: { skipReferences?: boolean; deepPdf?: boolean; visionPdf?: boolean; visionPdfMaintainFormat?: boolean }): Promise<BookSummary | null>
+  onFileImport(options?: { skipReferences?: boolean; deepPdf?: boolean; visionPdf?: boolean; visionPdfMaintainFormat?: boolean; visionPdfPages?: string }): Promise<BookSummary | null>
   onImported(book: BookSummary): void
   onHighlightsImported(result: HighlightImportResult): void
   onOcrStarted(fileName: string): void
@@ -39,6 +39,7 @@ export function ImportDialog({
   const [deepPdf, setDeepPdf] = useState(false)
   const [visionPdf, setVisionPdf] = useState(false)
   const [visionMaintain, setVisionMaintain] = useState(false)
+  const [visionPages, setVisionPages] = useState('')
   const [doclingStatus, setDoclingStatus] = useState<DoclingStatus | null>(null)
   const [doclingProgress, setDoclingProgress] = useState<DoclingProgressEvent | null>(null)
   const [ocrJobs, setOcrJobs] = useState<OcrJob[]>([])
@@ -104,6 +105,7 @@ export function ImportDialog({
         deepPdf: deepPdf && doclingStatus?.available === true,
         visionPdf,
         visionPdfMaintainFormat: visionMaintain && visionPdf,
+        visionPdfPages: visionPages.trim() || undefined,
       })
       if (book) onImported(book)
     } catch (err) {
@@ -314,6 +316,15 @@ export function ImportDialog({
             </p>
             {visionPdf ? (
               <div className="import-option">
+                <label className="import-field">
+                  {t('视觉解析页码范围')}
+                  <input
+                    value={visionPages}
+                    onChange={(event) => setVisionPages(event.target.value)}
+                    placeholder={t('例如 1-20,25；留空解析全部')}
+                  />
+                </label>
+                <p className="field-hint">{t('一次最多 120 页。先用小范围试一页，确认效果再扩大。')}</p>
                 <Checkbox
                   checked={visionMaintain}
                   onChange={setVisionMaintain}
