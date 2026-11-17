@@ -27,6 +27,8 @@ export type VisionMode = 'auto' | 'always' | 'off'
 
 export type NoteKind = 'condensed' | 'summary' | 'claim' | 'point' | 'question' | 'thought' | 'highlight'
 
+export type NoteColor = 'red' | 'yellow' | 'green' | 'blue'
+
 export type NoteAuthor = 'ai' | 'user'
 
 export type DivergenceType = 'boundary' | 'crossbook' | 'transfer'
@@ -153,6 +155,7 @@ export interface Note {
   author: NoteAuthor
   edited: boolean
   tags: string[]
+  color?: NoteColor | null
   section: string | null
   importance: number | null
   /** 这张卡片在全文中的作用：支撑什么结论。 */
@@ -819,6 +822,7 @@ export interface NotePatch {
   content?: string
   quote?: string | null
   tags?: string[]
+  color?: NoteColor | null
   kind?: NoteKind
 }
 

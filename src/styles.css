@@ -138,3 +138,41 @@
   color: var(--muted);
   font-size: 11px;
 }
+
+.note-color-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.note-color-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+}
+
+.note-color-picker button {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.note-color-picker button.active {
+  border-color: var(--ink);
+}
+
+.note-color-picker .note-color-clear {
+  width: auto;
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent !important;
+  color: var(--muted);
+  font-size: 11px;
+}

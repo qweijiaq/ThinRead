@@ -274,6 +274,16 @@ function NoteCardImpl({
       <article className={`note-card kind-${note.kind}`} ref={rootRef}>
       <div className="note-head">
         <span className={`kind-badge kind-${note.kind}`}>{t(KIND_LABEL[note.kind])}</span>
+        {note.color ? (
+          <span
+            className="note-color-dot"
+            title={t('笔记颜色')}
+            style={{
+              background:
+                note.color === 'red' ? '#d65345' : note.color === 'yellow' ? '#d8a53a' : note.color === 'green' ? '#4f8a63' : '#4f7fa8',
+            }}
+          />
+        ) : null}
         <span className={`author-badge ${note.author}`}>
           {note.author === 'ai' ? (note.edited ? `AI · ${t('已改')}` : 'AI') : t('我')}
         </span>
@@ -350,6 +360,27 @@ function NoteCardImpl({
             placeholder={t('标签，用逗号分隔（最多 8 个）')}
             aria-label={t('标签')}
           />
+          <div className="note-color-picker" aria-label={t('笔记颜色')}>
+            {([
+              ['red', '#d65345'],
+              ['yellow', '#d8a53a'],
+              ['green', '#4f8a63'],
+              ['blue', '#4f7fa8'],
+            ] as const).map(([color, hex]) => (
+              <button
+                key={color}
+                type="button"
+                className={note.color === color ? 'active' : ''}
+                aria-label={color}
+                title={color}
+                style={{ background: hex }}
+                onClick={() => void onUpdate(note.id, { color })}
+              />
+            ))}
+            <button type="button" className="note-color-clear" onClick={() => void onUpdate(note.id, { color: null })}>
+              {t('清除颜色')}
+            </button>
+          </div>
           <textarea
             className="note-textarea"
             value={draftContent}

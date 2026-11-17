@@ -138,7 +138,7 @@ export function mergeSnapshotDatabase(
       const localCols = tableColumns(conn, 'notes')
       const cols = [
         'id', 'book_id', 'chapter_id', 'kind', 'title', 'content', 'quote', 'quote_verified',
-        'author', 'edited', 'tags', 'created_at', 'updated_at', 'section', 'importance', 'expansion', 'role',
+        'author', 'edited', 'tags', 'color', 'created_at', 'updated_at', 'section', 'importance', 'expansion', 'role',
       ].filter((col) => sourceCols.has(col) && localCols.has(col))
       const rows = source.prepare('SELECT * FROM notes').all() as unknown as Array<Record<string, unknown>>
       const find = conn.prepare('SELECT updated_at FROM notes WHERE id = ?')

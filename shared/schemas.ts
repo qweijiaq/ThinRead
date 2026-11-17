@@ -67,6 +67,7 @@ export const noteSchema = z.object({
   author: z.enum(['ai', 'user']),
   edited: z.boolean(),
   tags: z.array(z.string()),
+  color: z.enum(['red', 'yellow', 'green', 'blue']).nullable().optional(),
   section: z.string().nullable(),
   importance: z.number().int().min(1).max(5).nullable(),
   role: z.string().nullable(),

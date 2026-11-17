@@ -198,6 +198,7 @@ interface NoteRow {
   section: string | null
   importance: number | null
   role: string | null
+  color: string | null
   expansion: string | null
   created_at: string
   updated_at: string
@@ -440,7 +441,7 @@ export function initDatabase(dataDir: string): void {
   optimizeDatabase()
 }
 
-export const SCHEMA_VERSION = 9
+export const SCHEMA_VERSION = 10
 
 interface SchemaMigration {
   version: number
@@ -578,6 +579,17 @@ const MIGRATIONS: SchemaMigration[] = [
       `)
     },
   },
+  {
+    version: 10,
+    // 笔记颜色标签。
+    run(conn) {
+      try {
+        conn.exec('ALTER TABLE notes ADD COLUMN color TEXT')
+      } catch {
+        // 新库建表时已经包含 color。
+      }
+    },
+  },
 ]
 
 function readSchemaVersion(conn: DatabaseSync): number {
@@ -614,6 +626,7 @@ function migrateNotes(conn: DatabaseSync): void {
     ['section', 'TEXT'],
     ['importance', 'INTEGER'],
     ['role', 'TEXT'],
+    ['color', 'TEXT'],
     ['expansion', 'TEXT'],
   ]
   for (const [name, ddl] of additions) {
@@ -3861,6 +3874,7 @@ function mapNote(row: NoteRow): Note {
     section: row.section,
     importance: row.importance == null ? null : Number(row.importance),
     role: row.role,
+    color: row.color === 'red' || row.color === 'yellow' || row.color === 'green' || row.color === 'blue' ? row.color : null,
     divergences: parseDivergences(row.expansion),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -4035,12 +4049,13 @@ export function updateNote(noteId: string, patch: NotePatch): Note {
   conn.exec('BEGIN IMMEDIATE')
   try {
     conn
-      .prepare('UPDATE notes SET title = ?, content = ?, quote = ?, tags = ?, kind = ?, edited = ?, updated_at = ? WHERE id = ?')
+      .prepare('UPDATE notes SET title = ?, content = ?, quote = ?, tags = ?, color = ?, kind = ?, edited = ?, updated_at = ? WHERE id = ?')
       .run(
         patch.title ?? current.title,
         patch.content ?? current.content,
         patch.quote === undefined ? current.quote : patch.quote,
         JSON.stringify(patch.tags ?? current.tags),
+        (patch.color === undefined ? current.color : patch.color) ?? null,
         patch.kind ?? current.kind,
         edited,
         now,
