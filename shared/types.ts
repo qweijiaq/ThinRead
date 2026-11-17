@@ -1638,6 +1638,7 @@ export interface GenerateNotesOptions {
 export interface ReadingApi {
   listBooks(): Promise<BookSummary[]>
   importBook(options?: ImportBookOptions): Promise<BookSummary | null>
+  cancelBookImport(): Promise<void>
   getDoclingStatus(): Promise<DoclingStatus>
   understandChapterImage(chapterId: string, imageSrc: string): Promise<ImageUnderstandingResult>
   codeAssist(chapterId: string, code: string, mode: 'review' | 'explain' | 'fix', language?: string): Promise<CodeAssistResult>

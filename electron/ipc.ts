@@ -652,7 +652,13 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     return { started: true, fileName, jobId: job.id }
   }
 
+  let activeImport: AbortController | null = null
+
   ipcMain.handle('books:list', () => listBooks())
+
+  ipcMain.handle('books:import-cancel', () => {
+    activeImport?.abort()
+  })
 
   ipcMain.handle('books:import', async (event, importOptions?: ImportBookOptions) => {
     const win = getWindow()
@@ -669,20 +675,27 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
         })
     if (result.canceled || result.filePaths.length === 0) return null
 
-    return importBookFile(
-      result.filePaths[0]!,
-      dataDir,
-      {
-        skipReferences: importOptions?.skipReferences === true,
-        deepPdf: importOptions?.deepPdf === true,
-        visionPdf: importOptions?.visionPdf === true,
-        visionPdfMaintainFormat: importOptions?.visionPdfMaintainFormat === true,
-        visionPdfPages: importOptions?.visionPdfPages,
-      },
-      (progress) => {
-        if (!event.sender.isDestroyed()) event.sender.send('docling:progress', progress)
-      },
-    )
+    const controller = new AbortController()
+    activeImport = controller
+    try {
+      return await importBookFile(
+        result.filePaths[0]!,
+        dataDir,
+        {
+          skipReferences: importOptions?.skipReferences === true,
+          deepPdf: importOptions?.deepPdf === true,
+          visionPdf: importOptions?.visionPdf === true,
+          visionPdfMaintainFormat: importOptions?.visionPdfMaintainFormat === true,
+          visionPdfPages: importOptions?.visionPdfPages,
+        },
+        (progress) => {
+          if (!event.sender.isDestroyed()) event.sender.send('docling:progress', progress)
+        },
+        controller.signal,
+      )
+    } finally {
+      if (activeImport === controller) activeImport = null
+    }
   })
 
   ipcMain.handle('docling:status', () => getDoclingStatus(dataDir))

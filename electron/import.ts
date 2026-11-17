@@ -77,6 +77,7 @@ export async function importBookFile(
   dataDir: string,
   options: ImportBookOptions = {},
   onDoclingProgress?: (progress: DoclingProgress) => void,
+  signal?: AbortSignal,
 ): Promise<BookSummary> {
   const extension = path.extname(sourcePath).toLowerCase()
   if (!SUPPORTED_EXTENSIONS.has(extension)) {
@@ -101,6 +102,7 @@ export async function importBookFile(
         maintainFormat: options.visionPdfMaintainFormat === true,
         pages: options.visionPdfPages,
         dataDir,
+        signal,
         onProgress: (done, total) => onDoclingProgress?.({ phase: 'pages', done, total }),
       })
     } else if (options.deepPdf) {

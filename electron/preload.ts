@@ -156,6 +156,7 @@ const api: ReadingApi = {
   listBooks: () => ipcRenderer.invoke('books:list') as Promise<BookSummary[]>,
   importBook: (options?: ImportBookOptions) =>
     ipcRenderer.invoke('books:import', options) as Promise<BookSummary | null>,
+  cancelBookImport: () => ipcRenderer.invoke('books:import-cancel') as Promise<void>,
   getDoclingStatus: () => ipcRenderer.invoke('docling:status') as Promise<DoclingStatus>,
   understandChapterImage: (chapterId: string, imageSrc: string) =>
     ipcRenderer.invoke('chapters:understand-image', chapterId, imageSrc) as Promise<ImageUnderstandingResult>,

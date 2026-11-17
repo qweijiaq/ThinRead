@@ -29,6 +29,7 @@ export interface VisionPdfOptions {
   maintainFormat?: boolean
   pages?: string
   dataDir?: string
+  signal?: AbortSignal
 }
 
 export interface VisionPdfResult {
@@ -151,6 +152,7 @@ export async function parsePdfWithVision(options: VisionPdfOptions): Promise<Vis
       let done = 0
       let failed = 0
       const ocrPage = async (index: number, previous: string): Promise<PdfPageText> => {
+        options.signal?.throwIfAborted()
         const page = pageNumbers[index]!
         const image = images.get(page)
         let text = ''
@@ -207,6 +209,7 @@ export async function parsePdfWithVision(options: VisionPdfOptions): Promise<Vis
                 temperature: 0.1,
                 maxOutputTokens: 4_000,
                 maxRetries: 1,
+                abortSignal: options.signal,
               },
             )
             text = cleanMarkdown(response.text)

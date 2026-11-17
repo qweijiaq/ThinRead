@@ -333,6 +333,11 @@ export function ImportDialog({
                 <p className="field-hint">
                   {t('开启后逐页解析，并把上一页末尾传给下一页，适合跨页表格和长代码；速度会明显变慢。')}
                 </p>
+                {busy ? (
+                  <button type="button" className="text-button danger" onClick={() => void bridge.cancelBookImport()}>
+                    {t('取消视觉解析')}
+                  </button>
+                ) : null}
               </div>
             ) : null}
             {busy && (deepPdf || visionPdf) && (deepPdf ? doclingStatus?.available === true : true) ? (
