@@ -46,17 +46,13 @@ async function request(
 }
 
 async function ensureCollection(config: WebDavConfig, url: string): Promise<void> {
-  const parts = url.replace(/\/+$/, '').split('/')
-  let cursor = ''
-  for (const part of parts) {
-    cursor = cursor ? `${cursor}/${part}` : part
-    if (!/^https?:$/.test(cursor)) continue
-    const response = await request(config, 'MKCOL', `${cursor}/`, undefined, {
+  const target = new URL(url)
+  let cursor = target.origin
+  for (const segment of target.pathname.split('/').filter(Boolean)) {
+    cursor += `/${segment}`
+    await request(config, 'MKCOL', `${cursor}/`, undefined, {
       'Content-Type': 'application/xml',
     }).catch(() => null)
-    if (response && response.status >= 400 && response.status !== 405) {
-      // 目录已存在时很多服务器返回 405 或 409；其余错误继续尝试下一级。
-    }
   }
 }
 
