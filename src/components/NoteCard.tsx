@@ -46,6 +46,10 @@ interface NoteCardProps {
   demo?: boolean
 }
 
+function colorHex(color: NonNullable<Note['color']>): string {
+  return color === 'red' ? '#d65345' : color === 'yellow' ? '#d8a53a' : color === 'green' ? '#4f8a63' : '#4f7fa8'
+}
+
 function titleFromContent(content: string): string {
   const first = content
     .replace(/^[#>\-\s]+/, '')
@@ -97,6 +101,7 @@ function NoteCardImpl({
   const closeAfterRef = useRef(false)
   const initialRef = useRef({ title: note.title, content: note.content, tags: note.tags })
   const [previewOpen, setPreviewOpen] = useState(false)
+  const [colorOpen, setColorOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [selection, setSelection] = useState({ start: 0, end: 0, text: '' })
@@ -271,7 +276,11 @@ function NoteCardImpl({
 
   return (
     <>
-      <article className={`note-card kind-${note.kind}`} ref={rootRef}>
+      <article
+        className={`note-card kind-${note.kind}`}
+        ref={rootRef}
+        style={note.color ? { borderLeftColor: colorHex(note.color) } : undefined}
+      >
       <div className="note-head">
         <span className={`kind-badge kind-${note.kind}`}>{t(KIND_LABEL[note.kind])}</span>
         {note.color ? (
@@ -314,6 +323,14 @@ function NoteCardImpl({
                   {t('分享')}
                 </button>
               ) : null}
+              <button
+                type="button"
+                className="text-button"
+                aria-expanded={colorOpen}
+                onClick={() => setColorOpen((value) => !value)}
+              >
+                {t('颜色')}
+              </button>
               <button type="button" className="text-button" onClick={beginEdit}>
                 {t('编辑')}
               </button>
@@ -339,6 +356,40 @@ function NoteCardImpl({
       </div>
 
       {note.section ? <div className="note-section">{note.section}</div> : null}
+
+      {colorOpen && !editing ? (
+        <div className="note-color-picker" aria-label={t('笔记颜色')}>
+          {([
+            ['red', '#d65345'],
+            ['yellow', '#d8a53a'],
+            ['green', '#4f8a63'],
+            ['blue', '#4f7fa8'],
+          ] as const).map(([color, hex]) => (
+            <button
+              key={color}
+              type="button"
+              className={note.color === color ? 'active' : ''}
+              aria-label={color}
+              title={color}
+              style={{ background: hex }}
+              onClick={() => {
+                void onUpdate(note.id, { color })
+                setColorOpen(false)
+              }}
+            />
+          ))}
+          <button
+            type="button"
+            className="note-color-clear"
+            onClick={() => {
+              void onUpdate(note.id, { color: null })
+              setColorOpen(false)
+            }}
+          >
+            {t('清除颜色')}
+          </button>
+        </div>
+      ) : null}
 
       {editing ? (
         <div className="note-editor">

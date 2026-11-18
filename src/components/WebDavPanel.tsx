@@ -24,6 +24,7 @@ export function WebDavPanel(): JSX.Element {
   const [snapshots, setSnapshots] = useState<SyncSnapshot[]>([])
   const [busy, setBusy] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [remoteNew, setRemoteNew] = useState(false)
 
   useEffect(() => {
     void bridge
@@ -35,6 +36,13 @@ export function WebDavPanel(): JSX.Element {
         setRemotePath(next.remotePath)
         setAutoPushDaily(next.autoPushDaily)
         setCheckOnStartup(next.checkOnStartup)
+        if (next.url) {
+          void bridge.listWebDavSnapshots().then((items) => {
+            setSnapshots(items)
+            const latest = items[0]?.createdAt ?? ''
+            setRemoteNew(Boolean(latest && latest > (next.lastPullAt || next.lastPushAt || '')))
+          }).catch(() => undefined)
+        }
       })
       .catch(() => undefined)
   }, [])
@@ -48,7 +56,11 @@ export function WebDavPanel(): JSX.Element {
       setPassword('')
       const result = await bridge.testWebDav()
       setNotice(result.message)
-      if (result.ok) setSnapshots(await bridge.listWebDavSnapshots())
+      if (result.ok) {
+        const items = await bridge.listWebDavSnapshots()
+        setSnapshots(items)
+        setRemoteNew(Boolean(items[0]?.createdAt && items[0].createdAt > (next.lastPullAt || next.lastPushAt || '')))
+      }
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error))
     } finally {
@@ -64,6 +76,7 @@ export function WebDavPanel(): JSX.Element {
         ? await bridge.pushWebDavNotesSnapshot(passphrase)
         : await bridge.pushWebDavSnapshot(passphrase)
       setSnapshots(await bridge.listWebDavSnapshots())
+      setRemoteNew(false)
       setNotice(`${t('已推送到 WebDAV')}：${snapshot.name}`)
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error))
@@ -180,6 +193,11 @@ export function WebDavPanel(): JSX.Element {
       </p>
       {config?.lastPushAt ? (
         <p className="field-hint">{`${t('上次推送')}：${formatTime(config.lastPushAt)}${config.lastPullAt ? ` · ${t('上次恢复')}：${formatTime(config.lastPullAt)}` : ''}`}</p>
+      ) : null}
+      {remoteNew ? (
+        <div className="inline-notice" role="status" aria-live="polite">
+          {t('远端有新的同步快照。建议先点「合并笔记」，确认没问题再整库恢复。')}
+        </div>
       ) : null}
       {notice ? <div className="inline-notice" role="status" aria-live="polite">{notice}</div> : null}
       {snapshots.length > 0 ? (
