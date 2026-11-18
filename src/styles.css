@@ -176,3 +176,54 @@
   color: var(--muted);
   font-size: 11px;
 }
+
+.notes-color-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0 4px;
+}
+
+.notes-color-filter button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--white);
+  color: var(--muted);
+  font-size: 10.5px;
+  cursor: pointer;
+}
+
+.notes-color-filter button.active {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+.notes-color-filter button span {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+.heatmap-range {
+  display: flex;
+  gap: 4px;
+}
+
+.heatmap-range button {
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--white);
+  color: var(--muted);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.heatmap-range button.active {
+  border-color: var(--ink);
+  color: var(--ink);
+}

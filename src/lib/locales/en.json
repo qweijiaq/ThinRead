@@ -2025,5 +2025,9 @@
   "蓝": "Blue",
   "每天自动推送一次笔记库": "Auto-push notes DB once a day",
   "启动时检查远端更新": "Check for remote updates at startup",
-  "生成表格与公式索引": "Build a table and formula index"
+  "生成表格与公式索引": "Build a table and formula index",
+  "按颜色筛选笔记": "Filter notes by color",
+  "90 天": "90 days",
+  "半年": "6 months",
+  "一年": "1 year"
 }

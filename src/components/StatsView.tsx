@@ -222,6 +222,7 @@ interface StatsViewProps {
 export function StatsView({ books, onBack, onOpenWeeklyReview, onOpenWeeklyReviews, onSaveWeeklyReview }: StatsViewProps): JSX.Element {
   useLocale()
   const [offset, setOffset] = useState(0)
+  const [heatmapDays, setHeatmapDays] = useState(365)
   const [yearOffset, setYearOffset] = useState(0)
   const [copied, setCopied] = useState(false)
   const [imageBusy, setImageBusy] = useState<'month' | 'year' | 'compare' | null>(null)
@@ -237,7 +238,7 @@ export function StatsView({ books, onBack, onOpenWeeklyReview, onOpenWeeklyRevie
   const [aiUsage, setAiUsage] = useState<AiUsageSummary | null>(null)
   const [noteQuality, setNoteQuality] = useState<NoteQualitySummary | null>(null)
   const summary = useMemo(() => getReadingSummary(), [])
-  const heatmap = useMemo(() => getReadingHeatmap(365), [])
+  const heatmap = useMemo(() => getReadingHeatmap(heatmapDays), [heatmapDays])
   const month = useMemo(() => getReadingMonth(offset), [offset])
   const year = useMemo(() => getReadingYear(yearOffset), [yearOffset])
   const previousYear = useMemo(() => getReadingYear(yearOffset - 1), [yearOffset])
@@ -388,7 +389,22 @@ export function StatsView({ books, onBack, onOpenWeeklyReview, onOpenWeeklyRevie
       <section className="stats-section reading-heatmap">
         <div className="stats-section-head">
           <h2>{t('阅读热力图')}</h2>
-          <span>{t('最近 365 天')}</span>
+          <div className="heatmap-range">
+            {[
+              [90, t('90 天')],
+              [180, t('半年')],
+              [365, t('一年')],
+            ].map(([days, label]) => (
+              <button
+                key={days}
+                type="button"
+                className={heatmapDays === days ? 'active' : ''}
+                onClick={() => setHeatmapDays(days as number)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
         <div className="heatmap-grid" role="img" aria-label={t('最近 365 天阅读热力图')}>
           {heatmap.map((day) => {

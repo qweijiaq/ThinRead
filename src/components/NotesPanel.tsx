@@ -1,6 +1,6 @@
 import { bridge } from '../lib/bridge.js'
 import { memo, useCallback, useEffect, useMemo, useState, type JSX } from 'react'
-import type { ChapterContent, GeneratePartial, GenerationMode, Note, NoteDraft, NotePatch, NoteReport, ReaderMark, RelatedNote } from '../../shared/types.js'
+import type { ChapterContent, GeneratePartial, GenerationMode, Note, NoteColor, NoteDraft, NotePatch, NoteReport, ReaderMark, RelatedNote } from '../../shared/types.js'
 import { t, useLocale } from '../lib/i18n.js'
 import { buildChapterMarkdown, markdownFilename, todayStamp } from '../lib/export.js'
 import { backlinksFor, buildNoteIndex } from '../lib/note-index.js'
@@ -193,6 +193,9 @@ function NotesPanelImpl({
   const [sentenceCheck, setSentenceCheck] = useState(false)
   const [compareOriginal, setCompareOriginal] = useState(false)
   const [panelTab, setPanelTab] = useState<'draft' | 'cards' | 'audit'>('draft')
+  const [colorFilter, setColorFilter] = useState<NoteColor | 'all'>('all')
+  const byColor = (list: Note[]): Note[] =>
+    colorFilter === 'all' ? list : list.filter((note) => note.color === colorFilter)
   const evidenceNotes = pointNotes.filter((note) => note.author === 'ai')
   const evidenceWithQuote = evidenceNotes.filter((note) => note.quote?.trim())
   const evidenceVerified = evidenceWithQuote.filter((note) => note.quoteVerified)
@@ -594,7 +597,28 @@ function NotesPanelImpl({
         </section>
       ) : null}
 
-      <div className="notes-tab-section" data-tab="cards">{renderGroup(t('摘要'), summaryNotes)}</div>
+      <div className="notes-color-filter notes-tab-section" data-tab="cards" aria-label={t('按颜色筛选笔记')}>
+        <button type="button" className={colorFilter === 'all' ? 'active' : ''} onClick={() => setColorFilter('all')}>
+          {t('全部')}
+        </button>
+        {([
+          ['red', '#d65345'],
+          ['yellow', '#d8a53a'],
+          ['green', '#4f8a63'],
+          ['blue', '#4f7fa8'],
+        ] as const).map(([color, hex]) => (
+          <button
+            key={color}
+            type="button"
+            className={colorFilter === color ? 'active' : ''}
+            aria-label={color}
+            onClick={() => setColorFilter(colorFilter === color ? 'all' : color)}
+          >
+            <span style={{ background: hex }} />
+          </button>
+        ))}
+      </div>
+      <div className="notes-tab-section" data-tab="cards">{renderGroup(t('摘要'), byColor(summaryNotes))}</div>
       {evidenceNotes.length > 0 ? (
         <section className="evidence-summary" id="notes-audit" aria-label={t('原文依据核查')}>
           <div>
@@ -608,10 +632,10 @@ function NotesPanelImpl({
           </button>
         </section>
       ) : null}
-      <div className="notes-tab-section" data-tab="cards audit">{renderGroup(t('核心观点'), pointNotesForDisplay)}</div>
+      <div className="notes-tab-section" data-tab="cards audit">{renderGroup(t('核心观点'), byColor(pointNotesForDisplay))}</div>
       {verifyOnly && pointNotesForDisplay.length === 0 ? <p className="note-empty">{t('这张章节没有待核对的知识点。')}</p> : null}
-      <div className="notes-tab-section" data-tab="cards">{renderGroup(t('问题'), questionNotes)}</div>
-      <div className="notes-tab-section" data-tab="cards">{renderGroup(t('我的笔记'), mineNotes)}</div>
+      <div className="notes-tab-section" data-tab="cards">{renderGroup(t('问题'), byColor(questionNotes))}</div>
+      <div className="notes-tab-section" data-tab="cards">{renderGroup(t('我的笔记'), byColor(mineNotes))}</div>
 
       {!generating && notes.length > 0 ? (
         <button type="button" className="add-note-button notes-tab-section" data-tab="cards" onClick={() => void addNote()}>
