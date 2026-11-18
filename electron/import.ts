@@ -86,7 +86,7 @@ export async function importBookFile(
 
   const buffer = await fs.readFile(sourcePath)
   const textDocument = TEXT_DOCUMENT_EXTENSIONS.has(extension)
-  let parsed: { title: string; author: string; chapters: NewChapter[] }
+  let parsed: { title: string; author: string; chapters: NewChapter[]; structured?: Array<{ page: number; kind: 'table' | 'formula'; text: string }> }
   let format: BookFormat = 'text'
   let storedBytes: Buffer | string = buffer
 

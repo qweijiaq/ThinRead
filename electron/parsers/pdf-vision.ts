@@ -39,6 +39,7 @@ export interface VisionPdfResult {
   chapters: NewChapter[]
   pageCount: number
   failedPages: number
+  structured: StructuredBlock[]
 }
 
 const MAX_VISION_PAGES = 120
@@ -119,7 +120,7 @@ async function pageFallbackText(doc: PdfDocument, pageNumber: number): Promise<s
  * Zerox 式 PDF 解析：整页渲染成图片，让视觉模型输出 Markdown。
  * 适合扫描版、教材、图表/表格多的 PDF；不依赖文字层。
  */
-interface StructuredBlock {
+export interface StructuredBlock {
   page: number
   kind: 'table' | 'formula'
   text: string
@@ -310,8 +311,9 @@ export async function parsePdfWithVision(options: VisionPdfOptions): Promise<Vis
           html: null,
         })
       }
-      if (options.extractStructure !== false) {
-        const structured = structuredChapter(extractStructuredBlocks(pages))
+      const structuredBlocks = options.extractStructure !== false ? extractStructuredBlocks(pages) : []
+      if (structuredBlocks.length > 0) {
+        const structured = structuredChapter(structuredBlocks)
         if (structured) chapters.push(structured)
       }
       if (failed > 0) {
@@ -321,7 +323,7 @@ export async function parsePdfWithVision(options: VisionPdfOptions): Promise<Vis
           html: null,
         })
       }
-      return { title, author, chapters, pageCount: doc.numPages, failedPages: failed }
+      return { title, author, chapters, pageCount: doc.numPages, failedPages: failed, structured: structuredBlocks }
     } finally {
       await fsp.rm(imageDir, { recursive: true, force: true }).catch(() => undefined)
     }
