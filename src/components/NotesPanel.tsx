@@ -196,6 +196,20 @@ function NotesPanelImpl({
   const [colorFilter, setColorFilter] = useState<NoteColor | 'all'>('all')
   const byColor = (list: Note[]): Note[] =>
     colorFilter === 'all' ? list : list.filter((note) => note.color === colorFilter)
+  const colorForKind: Record<Note['kind'], NoteColor> = {
+    summary: 'red',
+    point: 'blue',
+    claim: 'blue',
+    question: 'yellow',
+    highlight: 'green',
+    thought: 'green',
+    condensed: 'red',
+  }
+  async function colorByKind(): Promise<void> {
+    for (const note of notes) {
+      if (!note.color) await onUpdate(note.id, { color: colorForKind[note.kind] })
+    }
+  }
   const evidenceNotes = pointNotes.filter((note) => note.author === 'ai')
   const evidenceWithQuote = evidenceNotes.filter((note) => note.quote?.trim())
   const evidenceVerified = evidenceWithQuote.filter((note) => note.quoteVerified)
@@ -617,6 +631,14 @@ function NotesPanelImpl({
             <span style={{ background: hex }} />
           </button>
         ))}
+        <button
+          type="button"
+          className="notes-color-auto"
+          title={t('只给未标色的卡片按类型自动配色')}
+          onClick={() => void colorByKind()}
+        >
+          {t('按类型配色')}
+        </button>
       </div>
       <div className="notes-tab-section" data-tab="cards">{renderGroup(t('摘要'), byColor(summaryNotes))}</div>
       {evidenceNotes.length > 0 ? (
