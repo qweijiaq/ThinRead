@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import { Notification } from 'electron'
 import { zipSync } from 'fflate'
 import os from 'node:os'
 import path from 'node:path'
@@ -173,4 +174,32 @@ export async function deleteWebDavSnapshot(name: string): Promise<void> {
 export function webDavSummary(): { configured: boolean; url: string } {
   const view = getWebDavConfigView()
   return { configured: Boolean(view.url && view.hasPassword), url: view.url }
+}
+
+
+/** 启动检查：提示远端有更新；按设置每天自动推送一次笔记库。 */
+export async function runWebDavStartupTasks(dataDir: string): Promise<void> {
+  const view = getWebDavConfigView()
+  if (!view.url || !view.hasPassword) return
+  try {
+    if (view.checkOnStartup) {
+      const snapshots = await listWebDavSnapshots()
+      const latest = snapshots[0]
+      const last = view.lastPullAt || view.lastPushAt || ''
+      if (latest && latest.createdAt > last && Notification.isSupported()) {
+        new Notification({
+          title: 'WebDAV 有新的同步快照',
+          body: '打开设置 → WebDAV 同步，可以合并或恢复。',
+        }).show()
+      }
+    }
+    if (view.autoPushDaily) {
+      const last = view.lastPushAt ? new Date(view.lastPushAt).getTime() : 0
+      if (Date.now() - last > 24 * 60 * 60 * 1000) {
+        await pushWebDavNotesSnapshot(dataDir)
+      }
+    }
+  } catch {
+    // 启动检查失败不阻塞应用。
+  }
 }

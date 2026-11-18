@@ -19,6 +19,8 @@ export function WebDavPanel(): JSX.Element {
   const [remotePath, setRemotePath] = useState('ThinRead')
   const [passphrase, setPassphrase] = useState('')
   const [notesOnly, setNotesOnly] = useState(false)
+  const [autoPushDaily, setAutoPushDaily] = useState(false)
+  const [checkOnStartup, setCheckOnStartup] = useState(true)
   const [snapshots, setSnapshots] = useState<SyncSnapshot[]>([])
   const [busy, setBusy] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -31,6 +33,8 @@ export function WebDavPanel(): JSX.Element {
         setUrl(next.url)
         setUsername(next.username)
         setRemotePath(next.remotePath)
+        setAutoPushDaily(next.autoPushDaily)
+        setCheckOnStartup(next.checkOnStartup)
       })
       .catch(() => undefined)
   }, [])
@@ -39,7 +43,7 @@ export function WebDavPanel(): JSX.Element {
     setBusy('test')
     setNotice(null)
     try {
-      const next = await bridge.saveWebDavConfig({ url, username, password, remotePath })
+      const next = await bridge.saveWebDavConfig({ url, username, password, remotePath, autoPushDaily, checkOnStartup })
       setConfig(next)
       setPassword('')
       const result = await bridge.testWebDav()
@@ -161,6 +165,14 @@ export function WebDavPanel(): JSX.Element {
         <label className="checkbox-label">
           <input type="checkbox" checked={notesOnly} onChange={(event) => setNotesOnly(event.target.checked)} />
           {t('只传笔记库（不含书文件）')}
+        </label>
+        <label className="checkbox-label">
+          <input type="checkbox" checked={autoPushDaily} onChange={(event) => setAutoPushDaily(event.target.checked)} />
+          {t('每天自动推送一次笔记库')}
+        </label>
+        <label className="checkbox-label">
+          <input type="checkbox" checked={checkOnStartup} onChange={(event) => setCheckOnStartup(event.target.checked)} />
+          {t('启动时检查远端更新')}
         </label>
       </div>
       <p className="field-hint">

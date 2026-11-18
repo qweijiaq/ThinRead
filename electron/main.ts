@@ -17,6 +17,7 @@ import { importBookFile, importUrlBook } from './import.js'
 import { parseEpub } from './parsers/epub.js'
 import { parseMobi } from './parsers/mobi.js'
 import { initSettings } from './settings.js'
+import { runWebDavStartupTasks } from './webdav-sync.js'
 import { initTtsCache } from './tts.js'
 import { runRealE2e, runRealNotesE2e } from './e2e-real.js'
 import { runRealBookEval, runRealEval } from './eval-real.js'
@@ -603,6 +604,7 @@ app.whenReady().then(async () => {
     }, 6 * 60 * 60 * 1000).unref()
     // 启动后空闲时预热全文索引，避免第一次搜索等待整库构建。
     setTimeout(() => void warmSearchIndex(), 2_500).unref()
+    setTimeout(() => void runWebDavStartupTasks(dataDir), 6_000).unref()
   }
 
   if (importArg) {

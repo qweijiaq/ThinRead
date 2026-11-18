@@ -2022,5 +2022,7 @@
   "红": "Red",
   "黄": "Yellow",
   "绿": "Green",
-  "蓝": "Blue"
+  "蓝": "Blue",
+  "每天自动推送一次笔记库": "Auto-push notes DB once a day",
+  "启动时检查远端更新": "Check for remote updates at startup"
 }

@@ -33,6 +33,8 @@ interface StoredSettings {
     username: string
     remotePath: string
     password?: StoredKey
+    autoPushDaily?: boolean
+    checkOnStartup?: boolean
   }
   webdavMeta?: { lastPushAt?: string; lastPullAt?: string }
   readwise?: StoredKey
@@ -270,6 +272,8 @@ export function getWebDavConfigView(): WebDavConfigView {
     hasPassword: readStoredKey(webdav?.password) !== null,
     lastPushAt: current.webdavMeta?.lastPushAt ?? '',
     lastPullAt: current.webdavMeta?.lastPullAt ?? '',
+    autoPushDaily: webdav?.autoPushDaily === true,
+    checkOnStartup: webdav?.checkOnStartup !== false,
   }
 }
 
@@ -295,6 +299,8 @@ export function saveWebDavConfig(input: WebDavConfigInput): WebDavConfigView {
     password: input.password?.trim()
       ? encodeKey(input.password.trim())
       : current.webdav?.password,
+    autoPushDaily: input.autoPushDaily ?? current.webdav?.autoPushDaily === true,
+    checkOnStartup: input.checkOnStartup ?? current.webdav?.checkOnStartup !== false,
   }
   persist()
   return getWebDavConfigView()

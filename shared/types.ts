@@ -1083,6 +1083,8 @@ export interface WebDavConfigView {
   hasPassword: boolean
   lastPushAt: string
   lastPullAt: string
+  autoPushDaily: boolean
+  checkOnStartup: boolean
 }
 
 export interface WebDavConfigInput {
@@ -1090,6 +1092,8 @@ export interface WebDavConfigInput {
   username: string
   password?: string
   remotePath?: string
+  autoPushDaily?: boolean
+  checkOnStartup?: boolean
 }
 
 export interface SyncStatus {
