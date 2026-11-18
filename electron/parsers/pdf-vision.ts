@@ -30,6 +30,7 @@ export interface VisionPdfOptions {
   pages?: string
   dataDir?: string
   signal?: AbortSignal
+  extractStructure?: boolean
 }
 
 export interface VisionPdfResult {
@@ -118,6 +119,54 @@ async function pageFallbackText(doc: PdfDocument, pageNumber: number): Promise<s
  * Zerox 式 PDF 解析：整页渲染成图片，让视觉模型输出 Markdown。
  * 适合扫描版、教材、图表/表格多的 PDF；不依赖文字层。
  */
+interface StructuredBlock {
+  page: number
+  kind: 'table' | 'formula'
+  text: string
+}
+
+function extractStructuredBlocks(pages: PdfPageText[]): StructuredBlock[] {
+  const blocks: StructuredBlock[] = []
+  for (const page of pages) {
+    const lines = page.text.split('\n')
+    let table: string[] = []
+    const flushTable = (): void => {
+      if (table.length >= 2 && table.some((line) => /^\s*\|?\s*:?-{3,}/.test(line))) {
+        blocks.push({ page: page.page, kind: 'table', text: table.join('\n') })
+      }
+      table = []
+    }
+    for (const line of lines) {
+      if (/^\s*\|.*\|\s*$/.test(line)) table.push(line.trim())
+      else flushTable()
+    }
+    flushTable()
+    for (const match of page.text.matchAll(/\$\$([\s\S]+?)\$\$/g)) {
+      const formula = match[1]?.trim()
+      if (formula) blocks.push({ page: page.page, kind: 'formula', text: `$$${formula}$$` })
+    }
+    for (const match of page.text.matchAll(/```(?:latex|math)\s*\n([\s\S]+?)```/gi)) {
+      const formula = match[1]?.trim()
+      if (formula) blocks.push({ page: page.page, kind: 'formula', text: `$$${formula}$$` })
+    }
+  }
+  return blocks.slice(0, 120)
+}
+
+function structuredChapter(blocks: StructuredBlock[]): NewChapter | null {
+  if (blocks.length === 0) return null
+  const tables = blocks.filter((block) => block.kind === 'table')
+  const formulas = blocks.filter((block) => block.kind === 'formula')
+  const parts: string[] = []
+  if (tables.length > 0) {
+    parts.push('## 表格', ...tables.map((block) => `第 ${block.page} 页\n\n${block.text}`))
+  }
+  if (formulas.length > 0) {
+    parts.push('## 公式', ...formulas.map((block) => `第 ${block.page} 页\n\n${block.text}`))
+  }
+  return { title: '表格与公式索引', text: parts.join('\n\n'), html: null }
+}
+
 export async function parsePdfWithVision(options: VisionPdfOptions): Promise<VisionPdfResult> {
   if (!supportsVision(options.config)) {
     throw new Error('当前模型不支持视觉。请先在设置里选择一个支持图片的模型，再使用 PDF 视觉解析。')
@@ -260,6 +309,10 @@ export async function parsePdfWithVision(options: VisionPdfOptions): Promise<Vis
           text: `这本 PDF 共 ${doc.numPages} 页，本次视觉解析了 ${pageNumbers.length} 页（${pageNumbers[0]}–${pageNumbers[pageNumbers.length - 1]}）。可以在「重新解析」里补上其他页码范围。`,
           html: null,
         })
+      }
+      if (options.extractStructure !== false) {
+        const structured = structuredChapter(extractStructuredBlocks(pages))
+        if (structured) chapters.push(structured)
       }
       if (failed > 0) {
         chapters.push({

@@ -10,7 +10,7 @@ import { Checkbox } from './Checkbox.js'
 interface ImportDialogProps {
   open: boolean
   onClose(): void
-  onFileImport(options?: { skipReferences?: boolean; deepPdf?: boolean; visionPdf?: boolean; visionPdfMaintainFormat?: boolean; visionPdfPages?: string }): Promise<BookSummary | null>
+  onFileImport(options?: { skipReferences?: boolean; deepPdf?: boolean; visionPdf?: boolean; visionPdfMaintainFormat?: boolean; visionPdfPages?: string; visionPdfStructure?: boolean }): Promise<BookSummary | null>
   onImported(book: BookSummary): void
   onHighlightsImported(result: HighlightImportResult): void
   onOcrStarted(fileName: string): void
@@ -41,6 +41,7 @@ export function ImportDialog({
   const [visionPdf, setVisionPdf] = useState(false)
   const [visionMaintain, setVisionMaintain] = useState(false)
   const [visionPages, setVisionPages] = useState('')
+  const [visionStructure, setVisionStructure] = useState(true)
   const [opdsUrl, setOpdsUrl] = useState('')
   const [opdsEntries, setOpdsEntries] = useState<InputOpdsEntry[]>([])
   const [opdsBusy, setOpdsBusy] = useState<string | null>(null)
@@ -110,6 +111,7 @@ export function ImportDialog({
         visionPdf,
         visionPdfMaintainFormat: visionMaintain && visionPdf,
         visionPdfPages: visionPages.trim() || undefined,
+        visionPdfStructure: visionStructure,
       })
       if (book) onImported(book)
     } catch (err) {
@@ -359,6 +361,11 @@ export function ImportDialog({
                   />
                 </label>
                 <p className="field-hint">{t('一次最多 120 页。先用小范围试一页，确认效果再扩大。')}</p>
+                <Checkbox
+                  checked={visionStructure}
+                  onChange={setVisionStructure}
+                  label={t('生成表格与公式索引')}
+                />
                 <Checkbox
                   checked={visionMaintain}
                   onChange={setVisionMaintain}

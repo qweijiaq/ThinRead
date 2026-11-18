@@ -102,6 +102,7 @@ export async function importBookFile(
         maintainFormat: options.visionPdfMaintainFormat === true,
         pages: options.visionPdfPages,
         dataDir,
+        extractStructure: options.visionPdfStructure !== false,
         signal,
         onProgress: (done, total) => onDoclingProgress?.({ phase: 'pages', done, total }),
       })
@@ -231,6 +232,7 @@ export async function reparseBookFile(
           maintainFormat: options.visionPdfMaintainFormat === true,
           pages: options.visionPdfPages,
           dataDir,
+          extractStructure: options.visionPdfStructure !== false,
           onProgress: (done, total) => onDoclingProgress?.({ phase: 'pages', done, total }),
         }),
       )

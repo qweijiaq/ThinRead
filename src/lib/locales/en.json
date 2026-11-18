@@ -2024,5 +2024,6 @@
   "绿": "Green",
   "蓝": "Blue",
   "每天自动推送一次笔记库": "Auto-push notes DB once a day",
-  "启动时检查远端更新": "Check for remote updates at startup"
+  "启动时检查远端更新": "Check for remote updates at startup",
+  "生成表格与公式索引": "Build a table and formula index"
 }

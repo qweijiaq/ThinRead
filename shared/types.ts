@@ -1139,6 +1139,8 @@ export interface ImportBookOptions {
   visionPdfMaintainFormat?: boolean
   /** 视觉解析的页码范围，例如 "1-20,25"；留空表示全部（最多 120 页）。 */
   visionPdfPages?: string
+  /** 解析后额外生成表格与公式索引。 */
+  visionPdfStructure?: boolean
 }
 
 export interface DoclingStatus {
