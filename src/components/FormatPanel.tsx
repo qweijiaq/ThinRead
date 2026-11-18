@@ -111,7 +111,7 @@ export function FormatPanel({
   if (!chapter) {
     return (
       <div className="format-panel">
-        <div className="format-empty">{t('选择一章后，可以在这里让 AI 整理正文排版。')}</div>
+        <div className="format-empty">{t('选择一章后，可以在这里整理正文排版。')}</div>
       </div>
     )
   }
@@ -142,7 +142,7 @@ export function FormatPanel({
 
       {demo ? (
         <div className="format-hint">
-          {t('演示模式不支持 AI 排版。样式滑杆仍然可用；要让 AI 清理无关内容，请先在设置里配置真实模型。')}
+          {t('演示模式不支持排版。滑杆仍然可用；要清理无关内容，请先在设置里配置真实模型。')}
         </div>
       ) : null}
 
@@ -165,7 +165,7 @@ export function FormatPanel({
           label={t('忽略参考文献 / 注释 / 索引')}
         />
         <p className="field-hint">
-          {t('勾选后，AI 会把本章末尾的参考文献、注释、索引和延伸阅读从排版结果中移除；原文仍可还原。')}
+          {t('勾选后，本章末尾的参考文献、注释、索引和延伸阅读会从排版结果中移除；原文仍可还原。')}
         </p>
       </div>
 
@@ -205,7 +205,7 @@ export function FormatPanel({
         </section>
       ) : (
         <p className="format-section-note">
-          {t('AI 会保留全部正文，只清理广告、推广、重复标题、页码水印和乱码，并整理段落、标题与引用层级。原文不会被修改。')}
+          {t('只清理广告、推广、重复标题、页码水印和乱码，并整理段落、标题与引用层级。原文不会被修改。')}
         </p>
       )}
 

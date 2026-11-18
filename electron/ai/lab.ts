@@ -141,18 +141,28 @@ export async function runLab(args: {
   ]
     .filter(Boolean)
     .join('\n\n')
-  const response = await tracedGenerateText(
-    { step: `lab-run:${request.tool}`, provider: args.config.provider, model: args.config.model, promptVersion: LAB_PROMPT_VERSION },
-    {
-      model,
-      system: REPORT_SYSTEM,
-      prompt,
-      temperature: 0.35,
-      maxOutputTokens: 8_000,
-      maxRetries: 1,
-      abortSignal: labTimeout(args.signal, 120_000),
-    },
-  )
+  const timeout = AbortSignal.timeout(180_000)
+  const signal = args.signal ? AbortSignal.any([args.signal, timeout]) : timeout
+  let response: Awaited<ReturnType<typeof tracedGenerateText>>
+  try {
+    response = await tracedGenerateText(
+      { step: `lab-run:${request.tool}`, provider: args.config.provider, model: args.config.model, promptVersion: LAB_PROMPT_VERSION },
+      {
+        model,
+        system: REPORT_SYSTEM,
+        prompt,
+        temperature: 0.35,
+        maxOutputTokens: 8_000,
+        maxRetries: 1,
+        abortSignal: signal,
+      },
+    )
+  } catch (error) {
+    if (timeout.aborted && !args.signal?.aborted) {
+      throw new Error('模型 3 分钟内没有返回内容，可能是章节较长或服务较慢。可以再试一次，或在设置里换一个更快的模型。')
+    }
+    throw error
+  }
   const markdown = response.text.trim()
   if (!markdown) throw new Error('模型没有返回内容，请重试。')
   return { title: reportTitle(request.tool), markdown }

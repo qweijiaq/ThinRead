@@ -165,11 +165,26 @@ export function LabReport({
     }
   }
 
+  function regenerate(): void {
+    if (busy) return
+    if (!storedRequest && !ready) {
+      setError(needsQuestion ? t('先填写主题或原文，再重新生成。') : t('先选择章节，再重新生成。'))
+      return
+    }
+    void run(storedRequest ?? undefined)
+  }
+
   return (
     <div className="lab-report">
       <div className="lab-run-row">
         <span className="lab-run-hint">
-          {needsQuestion && !question.trim() ? t('先填写主题或原文') : needsChapter && !chapterId ? t('先选择章节') : t('准备好后运行')}
+          {busy
+            ? t('正在生成，通常需要 1–2 分钟，长章节可能更久')
+            : needsQuestion && !question.trim()
+              ? t('先填写主题或原文')
+              : needsChapter && !chapterId
+                ? t('先选择章节')
+                : t('准备好后运行')}
         </span>
         <button type="button" className="primary-button small" onClick={() => void run()} disabled={!ready || busy}>
           {busy ? t('生成中…') : t('运行')}
@@ -221,8 +236,8 @@ export function LabReport({
               <button type="button" className="text-button" onClick={() => void exportFile()}>
                 {t('导出')}
               </button>
-              <button type="button" className="text-button" onClick={() => void run(storedRequest ?? undefined)} disabled={busy}>
-                {t('重新生成')}
+              <button type="button" className="text-button" onClick={regenerate} disabled={busy}>
+                {busy ? t('生成中…') : t('重新生成')}
               </button>
               <button type="button" className="text-button" onClick={() => void save()}>
                 {status === 'saved' ? t('已存为笔记') : t('存为笔记')}

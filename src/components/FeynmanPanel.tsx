@@ -165,7 +165,7 @@ export function FeynmanPanel({ chapter, bookTitle, hasNotes, onSave }: FeynmanPa
         </button>
       </div>
       <p className="feynman-hint">
-        {t('不看笔记，用自己的话把这一章讲清楚。AI 会对照读薄稿和卡片，指出讲对、漏掉和理解偏的地方。')}
+        {t('不看笔记，用自己的话把这一章讲清楚。讲完会对照读薄稿和卡片，指出讲对、漏掉和理解偏的地方。')}
       </p>
       {!hasNotes ? <p className="feynman-warning">{t('这一章还没有读薄稿。先生成笔记，检查会更准确；也可以先凭记忆试一次。')}</p> : null}
 

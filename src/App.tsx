@@ -42,7 +42,15 @@ import { ChatPanel } from './components/ChatPanel.js'
 import { FeynmanPanel } from './components/FeynmanPanel.js'
 import { FormatPanel } from './components/FormatPanel.js'
 import { Library } from './components/Library.js'
-import { ViewSkeleton } from './components/Skeleton.js'
+import {
+  ComposeSkeleton,
+  ContentSkeleton,
+  LabSkeleton,
+  MapSkeleton,
+  NotesSkeleton,
+  StatsSkeleton,
+  WeeklySkeleton,
+} from './components/Skeleton.js'
 import { ListenPanel } from './components/ListenPanel.js'
 import { NotesPanel } from './components/NotesPanel.js'
 import { DeepParseOverlay } from './components/DeepParseOverlay.js'
@@ -895,11 +903,11 @@ export function App(): JSX.Element {
       {mainView === 'manual' ? (
         <ManualView onBack={() => setMainView(manualReturn)} />
       ) : mainView === 'lab' ? null : mainView === 'weekly' ? (
-        <Suspense fallback={<ViewSkeleton />}>
+        <Suspense fallback={<WeeklySkeleton />}>
           <WeeklyReviewsView onBack={() => setMainView('stats')} />
         </Suspense>
       ) : mainView === 'stats' ? (
-        <Suspense fallback={<ViewSkeleton />}>
+        <Suspense fallback={<StatsSkeleton />}>
           <StatsView
             books={books}
             onBack={() => setMainView('reader')}
@@ -920,7 +928,7 @@ export function App(): JSX.Element {
           />
         </Suspense>
       ) : mainView === 'notes' ? (
-        <Suspense fallback={<ViewSkeleton />}>
+        <Suspense fallback={<NotesSkeleton />}>
           <NotesLibrary
             books={books}
             onBack={() => setMainView('reader')}
@@ -930,7 +938,7 @@ export function App(): JSX.Element {
           />
         </Suspense>
       ) : mainView === 'map' ? (
-        <Suspense fallback={<ViewSkeleton />}>
+        <Suspense fallback={<MapSkeleton />}>
           <KnowledgeMap
             books={books}
             onBack={() => setMainView('reader')}
@@ -939,7 +947,7 @@ export function App(): JSX.Element {
           />
         </Suspense>
       ) : mainView === 'content' ? (
-        <Suspense fallback={<ViewSkeleton />}>
+        <Suspense fallback={<ContentSkeleton />}>
           <ContentView
             books={books}
             initialItemId={contentFocusId}
@@ -1230,7 +1238,7 @@ export function App(): JSX.Element {
 
       {composeMountedBookId && book && composeMountedBookId === book.id ? (
         <div className={`compose-shell${mainView === 'compose' ? ' is-active' : ''}`}>
-          <Suspense fallback={<ViewSkeleton />}>
+          <Suspense fallback={<ComposeSkeleton />}>
             <BookCompose
               key={book.id}
               book={book}
@@ -1256,7 +1264,7 @@ export function App(): JSX.Element {
 
       {labMounted ? (
         <div className={`lab-shell${mainView === 'lab' ? ' is-active' : ''}`}>
-          <Suspense fallback={<ViewSkeleton />}>
+          <Suspense fallback={<LabSkeleton />}>
             <LabView
               key={labTool}
               initialToolId={labTool}

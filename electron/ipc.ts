@@ -588,6 +588,8 @@ function tutorContextFor(chapterId: string): TutorContext {
   }
 }
 
+let activeImport: AbortController | null = null
+
 export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: string): void {
   configureSemantic(dataDir, () => {
     getWindow()?.webContents.send('semantic:ready')
@@ -609,42 +611,6 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     existing?: ReturnType<typeof getOcrJob>,
   ): OcrImportStarted {
     activeOcr?.controller.abort()
-    // 视觉解析前先告诉用户页数和大致费用，避免一上来跑掉大量 token。
-    if (importOptions?.visionPdf === true) {
-      try {
-        const buffer = await fs.readFile(result.filePaths[0]!)
-        const total = await getPdfPageCount(buffer)
-        const pages = parsePageSelection(importOptions.visionPdfPages, total)
-        const settings = getActiveSettings('notes')
-        const pricing = getAiPricing()
-        const price =
-          pricing[settings.model] ??
-          pricing[Object.keys(pricing).find((key) => key.toLowerCase() === settings.model.toLowerCase()) ?? '']
-        const cost = price
-          ? (pages.length * (2_000 * price.inputPerMTokens + 1_200 * price.outputPerMTokens)) / 1_000_000
-          : null
-        const detail = [
-          `将视觉解析 ${pages.length} 页（这本 PDF 共 ${total} 页）。`,
-          cost === null ? '当前模型没有配置价格，实际费用取决于服务商。' : `按当前模型价格粗估约 ¥${cost.toFixed(2)}，实际以服务商账单为准。`,
-          '页面结果会缓存，重复解析同一页不会再次消耗 token。',
-        ].join('\n')
-        const options = {
-          type: 'question' as const,
-          title: '开始视觉解析',
-          message: '这会使用视觉模型逐页识别 PDF。',
-          detail,
-          buttons: ['开始解析', '取消'],
-          defaultId: 0,
-          cancelId: 1,
-          noLink: true,
-        }
-        const confirm = win ? await dialog.showMessageBox(win, options) : await dialog.showMessageBox(options)
-        if (confirm.response !== 0) return null
-      } catch (error) {
-        if (error instanceof Error && /页码范围|最多/.test(error.message)) throw error
-      }
-    }
-
     const controller = new AbortController()
     const fileName = existing?.fileName ?? path.basename(filePath)
     const job =
@@ -690,8 +656,6 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     return { started: true, fileName, jobId: job.id }
   }
 
-  let activeImport: AbortController | null = null
-
   ipcMain.handle('books:list', () => listBooks())
 
   ipcMain.handle('books:import-cancel', () => {
@@ -712,6 +676,43 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
           filters: [{ name: '电子书', extensions: ['epub', 'pdf', 'mobi', 'azw3', 'docx', 'html', 'htm', 'md', 'markdown', 'txt'] }],
         })
     if (result.canceled || result.filePaths.length === 0) return null
+
+    // 视觉解析前先告诉用户页数和大致费用，避免一上来跑掉大量 token。
+    if (importOptions?.visionPdf === true) {
+      try {
+        const buffer = await fs.readFile(result.filePaths[0]!)
+        const total = await getPdfPageCount(buffer)
+        const pages = parsePageSelection(importOptions.visionPdfPages, total)
+        const settings = getActiveSettings('notes')
+        const pricing = getAiPricing()
+        const price =
+          pricing[settings.model] ??
+          pricing[Object.keys(pricing).find((key) => key.toLowerCase() === settings.model.toLowerCase()) ?? '']
+        const cost = price
+          ? (pages.length * (2_000 * price.inputPerMTokens + 1_200 * price.outputPerMTokens)) / 1_000_000
+          : null
+        const detail = [
+          `将视觉解析 ${pages.length} 页（这本 PDF 共 ${total} 页）。`,
+          cost === null ? '当前模型没有配置价格，实际费用取决于服务商。' : `按当前模型价格粗估约 ¥${cost.toFixed(2)}，实际以服务商账单为准。`,
+          '页面结果会缓存，重复解析同一页不会再次消耗 token。',
+        ].join('\n')
+        const options = {
+          type: 'question' as const,
+          title: '开始视觉解析',
+          message: '这会使用视觉模型逐页识别 PDF。',
+          detail,
+          buttons: ['开始解析', '取消'],
+          defaultId: 0,
+          cancelId: 1,
+          noLink: true,
+        }
+        const confirm = win ? await dialog.showMessageBox(win, options) : await dialog.showMessageBox(options)
+        if (confirm.response !== 0) return null
+      } catch (error) {
+        // 预估失败不阻塞导入；真正的解析器会给出更明确的错误。
+        if (error instanceof Error && /页码范围|最多/.test(error.message)) throw error
+      }
+    }
 
     const controller = new AbortController()
     activeImport = controller

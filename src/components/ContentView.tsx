@@ -417,7 +417,7 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
             </div>
           ) : null}
           {!loading && items.length === 0 ? (
-            <p className="content-empty">{t('还没有符合条件的生成内容。去阅读、出题或工作台生成一次吧。')}</p>
+            <p className="content-empty">{t('还没有符合条件的生成内容。')}</p>
           ) : null}
           {items.map((item) => (
             <button

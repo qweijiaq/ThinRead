@@ -273,8 +273,216 @@
   border-radius: 999px;
 }
 
-/* 博客视图兜底：用页面骨架代替一行“正在加载”文字 */
-.view-loading-shell {
+/* 分页面骨架：与各视图自身的外壳类配合，尺寸跟着真实布局走 */
+
+.sk-back {
+  width: 62px;
+  height: 12px;
+  margin-bottom: 14px;
+}
+.sk-text-btn {
+  width: 52px;
+  height: 12px;
+}
+.sk-title.is-tall {
+  height: 44px;
+  width: 280px;
+}
+.sk-label {
+  width: 44px;
+  height: 9px;
+}
+.sk-value {
+  width: 66px;
+  height: 22px;
+}
+.sk-section-title {
+  width: 128px;
+  height: 14px;
+  margin-bottom: 12px;
+}
+.sk-stat {
+  width: 46px;
+  height: 18px;
+}
+
+.sk-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 5px;
+  height: 132px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--white);
+}
+.sk-chart-bar {
+  flex: 1;
+  border-radius: 3px;
+  background: var(--paper-3);
+  animation: sk-shimmer 1.7s var(--ease-out) infinite;
+  background-image: linear-gradient(90deg, var(--paper-3) 0%, var(--paper-2) 50%, var(--paper-3) 100%);
+  background-size: 220% 100%;
+}
+
+.sk-rank-list {
+  display: grid;
+  gap: 11px;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--white);
+}
+.sk-rank-row {
+  display: grid;
+  grid-template-columns: minmax(80px, 160px) minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  height: 16px;
+}
+.sk-rank-name {
+  width: 100%;
+  height: 11px;
+}
+.sk-rank-track {
+  width: 100%;
+  height: 7px;
+  border-radius: 999px;
+}
+
+.sk-week {
+  width: 72px;
+  height: 10px;
+}
+.sk-item-title {
+  width: 46%;
+  height: 13px;
+}
+.sk-item-snippet {
+  width: 88%;
+  height: 10px;
+}
+.sk-item-time {
+  width: 56px;
+  height: 10px;
+}
+.weekly-item.is-skeleton .weekly-item-head {
+  gap: 8px;
+  cursor: default;
+}
+
+.sk-note-title {
+  flex: 1;
+  height: 15px;
+}
+.sk-note-date {
+  width: 52px;
+  height: 10px;
+}
+.sk-note-meta {
+  width: 38%;
+  height: 10px;
+  margin-top: 9px;
+}
+.sk-note-snippet {
+  width: 92%;
+  height: 10px;
+  margin-top: 7px;
+}
+.sk-note-snippet.is-short {
+  width: 64%;
+}
+.library-note.sk-note {
+  cursor: default;
+}
+.library-note.sk-note:hover {
+  transform: none;
+  border-color: var(--line);
+  box-shadow: none;
+}
+
+.sk-rail-label {
+  width: 52px;
+  height: 9px;
+  margin: 6px 9px 10px;
+}
+.sk-rail-item {
+  width: calc(100% - 18px);
+  height: 26px;
+  margin: 0 9px 6px;
+  border-radius: 7px;
+}
+
+.sk-panel {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+  padding: 22px 24px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--white);
+}
+.sk-panel .sk-block {
+  height: 10px;
+}
+.sk-panel .sk-block:first-child {
+  height: 14px;
+}
+
+.sk-chapter-index {
+  width: 18px;
+  height: 10px;
+}
+.sk-chapter-main {
+  display: grid;
+  gap: 7px;
+}
+.sk-chapter-title {
+  width: 68%;
+  height: 11px;
+}
+.sk-chapter-meta {
+  width: 42%;
+  height: 9px;
+}
+.compose-chapter-row.is-skeleton {
+  cursor: default;
+  border-bottom: 1px solid var(--line);
+}
+.compose-chapter-row.is-skeleton:hover {
+  background: transparent;
+}
+
+.sk-article {
+  display: grid;
+  gap: 13px;
+  padding-top: 8px;
+}
+.sk-article-title {
+  width: 52%;
+  height: 22px;
+  margin-bottom: 6px;
+}
+.sk-article-line {
+  width: 100%;
+  height: 11px;
+}
+.sk-article-line.is-narrow {
+  width: 72%;
+}
+.sk-article-gap {
+  height: 6px;
+  background: none;
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sk-chart-bar {
+    animation: none;
+  }
+}
+
+/* 博客视图兜底：用页面骨架代替一行“正在加载”文字 */.view-loading-shell {
   display: block;
   overflow-y: auto;
   padding: 44px 56px 80px;
