@@ -290,7 +290,7 @@ function setRoadmapNote(online) {
   const note = document.querySelector('#roadmapNote')
   if (!note) return
   note.textContent = online
-    ? '路线图由内测留言台同步；用户建议被处理后会自动出现在这里。'
+    ? '路线图由留言台同步；用户建议被处理后会自动出现在这里。'
     : '路线图根据开发记录和已知限制整理；已完成项写落地时间，未完成项只标当前阶段，不写虚构排期，也不代表承诺交付。'
 }
 
@@ -310,7 +310,7 @@ async function loadFeedbackService() {
     setFeedbackHint(
       feedbackModeration
         ? '留言会先进入审核；审核通过后才会出现在右侧。'
-        : '留言会送到内测留言台；勾选「允许公开展示」后会出现在右侧。',
+        : '留言会送到留言台；勾选「允许公开展示」后会出现在右侧。',
     )
     return true
   } catch {
@@ -832,7 +832,7 @@ function setupCopyFeedback() {
       })
       .join('\n\n')
     try {
-      await copyText(`页边 ThinRead 内测留言\n\n${text}`)
+      await copyText(`页边 ThinRead 留言\n\n${text}`)
       button.textContent = '已复制'
     } catch {
       button.textContent = '复制失败'
@@ -1057,7 +1057,7 @@ function setupFeedbackForm() {
       setFeedbackStatus(
         feedbackModeration
           ? '已送达，审核通过后会公开显示。可以在「我的留言」查看进度。'
-          : '已送达内测留言台，谢谢。可以在「我的留言」查看进度。',
+          : '已送达留言台，谢谢。可以在「我的留言」查看进度。',
       )
     } else if (remoteError) {
       setFeedbackStatus(remoteError)
