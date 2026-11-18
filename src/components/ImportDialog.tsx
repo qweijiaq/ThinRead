@@ -44,6 +44,9 @@ export function ImportDialog({
   const [visionStructure, setVisionStructure] = useState(true)
   const [opdsUrl, setOpdsUrl] = useState('')
   const [opdsEntries, setOpdsEntries] = useState<InputOpdsEntry[]>([])
+  const [opdsNext, setOpdsNext] = useState<string | null>(null)
+  const [opdsUser, setOpdsUser] = useState('')
+  const [opdsPass, setOpdsPass] = useState('')
   const [opdsBusy, setOpdsBusy] = useState<string | null>(null)
   const [doclingStatus, setDoclingStatus] = useState<DoclingStatus | null>(null)
   const [doclingProgress, setDoclingProgress] = useState<DoclingProgressEvent | null>(null)
@@ -215,7 +218,24 @@ export function ImportDialog({
     setOpdsBusy('list')
     setError(null)
     try {
-      setOpdsEntries(await bridge.listOpds(opdsUrl.trim()))
+      const page = await bridge.listOpds(opdsUrl.trim(), { username: opdsUser, password: opdsPass })
+      setOpdsEntries(page.entries)
+      setOpdsNext(page.next)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setOpdsBusy(null)
+    }
+  }
+
+  async function loadMoreOpds(): Promise<void> {
+    if (!opdsNext || opdsBusy) return
+    setOpdsBusy('more')
+    setError(null)
+    try {
+      const page = await bridge.listOpds(opdsNext, { username: opdsUser, password: opdsPass })
+      setOpdsEntries((current) => [...current, ...page.entries])
+      setOpdsNext(page.next)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -228,7 +248,7 @@ export function ImportDialog({
     setOpdsBusy(entry.url)
     setError(null)
     try {
-      const book = await bridge.importOpdsBook(entry)
+      const book = await bridge.importOpdsBook(entry, { username: opdsUser, password: opdsPass })
       onImported(book)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -511,6 +531,16 @@ export function ImportDialog({
               {t('OPDS 地址')}
               <input value={opdsUrl} onChange={(event) => setOpdsUrl(event.target.value)} placeholder="https://example.com/opds" />
             </label>
+            <div className="opds-auth">
+              <input value={opdsUser} onChange={(event) => setOpdsUser(event.target.value)} placeholder={t('用户名（可选）')} />
+              <input
+                type="password"
+                value={opdsPass}
+                onChange={(event) => setOpdsPass(event.target.value)}
+                placeholder={t('密码（可选）')}
+                autoComplete="current-password"
+              />
+            </div>
             <div className="import-actions">
               <button type="button" className="primary-button" onClick={() => void browseOpds()} disabled={opdsBusy !== null || !opdsUrl.trim()}>
                 {opdsBusy === 'list' ? t('正在读取…') : t('浏览书库')}
@@ -529,6 +559,13 @@ export function ImportDialog({
                     </button>
                   </div>
                 ))}
+              </div>
+            ) : null}
+            {opdsNext ? (
+              <div className="import-actions">
+                <button type="button" className="ghost-button" onClick={() => void loadMoreOpds()} disabled={opdsBusy !== null}>
+                  {opdsBusy === 'more' ? t('正在读取…') : t('加载更多')}
+                </button>
               </div>
             ) : null}
           </section>

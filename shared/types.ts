@@ -1076,6 +1076,16 @@ export interface OpdsEntry {
   url: string
 }
 
+export interface OpdsAuth {
+  username?: string
+  password?: string
+}
+
+export interface OpdsPage {
+  entries: OpdsEntry[]
+  next: string | null
+}
+
 export interface WebDavConfigView {
   url: string
   username: string
@@ -1655,8 +1665,8 @@ export interface GenerateNotesOptions {
 export interface ReadingApi {
   listBooks(): Promise<BookSummary[]>
   importBook(options?: ImportBookOptions): Promise<BookSummary | null>
-  listOpds(url: string): Promise<OpdsEntry[]>
-  importOpdsBook(entry: OpdsEntry): Promise<BookSummary>
+  listOpds(url: string, auth?: OpdsAuth): Promise<OpdsPage>
+  importOpdsBook(entry: OpdsEntry, auth?: OpdsAuth): Promise<BookSummary>
   cancelBookImport(): Promise<void>
   getDoclingStatus(): Promise<DoclingStatus>
   understandChapterImage(chapterId: string, imageSrc: string): Promise<ImageUnderstandingResult>

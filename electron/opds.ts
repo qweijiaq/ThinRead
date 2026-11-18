@@ -4,7 +4,7 @@ import path from 'node:path'
 
 import * as cheerio from 'cheerio'
 
-import type { BookSummary, OpdsEntry } from '../shared/types.js'
+import type { BookSummary, OpdsAuth, OpdsEntry, OpdsPage } from '../shared/types.js'
 import { importBookFile } from './import.js'
 
 const MAX_ENTRIES = 100
@@ -25,11 +25,16 @@ function formatOf(type: string, href: string): 'EPUB' | 'PDF' | '其他' {
   return '其他'
 }
 
-/** 读取一个 OPDS 1.x / Atom 目录，返回可下载的条目。 */
-export async function listOpds(url: string): Promise<OpdsEntry[]> {
+function authHeader(auth?: OpdsAuth): Record<string, string> {
+  if (!auth?.username && !auth?.password) return {}
+  return { Authorization: `Basic ${Buffer.from(`${auth.username ?? ''}:${auth.password ?? ''}`).toString('base64')}` }
+}
+
+/** 读取一个 OPDS 1.x / Atom 目录，返回当前页条目和下一页链接。 */
+export async function listOpds(url: string, auth?: OpdsAuth): Promise<OpdsPage> {
   const base = assertHttp(url)
   const response = await fetch(base, {
-    headers: { Accept: 'application/atom+xml, application/xml, text/xml' },
+    headers: { Accept: 'application/atom+xml, application/xml, text/xml', ...authHeader(auth) },
     signal: AbortSignal.timeout(30_000),
   })
   if (!response.ok) throw new Error(`读取 OPDS 失败：HTTP ${response.status}`)
@@ -54,13 +59,17 @@ export async function listOpds(url: string): Promise<OpdsEntry[]> {
     if (format === '其他') return
     entries.push({ title, author, format, url: target })
   })
-  return entries
+  const nextHref = $('link[rel="next"]').first().attr('href')
+  return {
+    entries,
+    next: nextHref ? new URL(nextHref, base).toString() : null,
+  }
 }
 
 /** 下载 OPDS 条目并交给现有导入流程。 */
-export async function importOpdsBook(entry: OpdsEntry, dataDir: string): Promise<BookSummary> {
+export async function importOpdsBook(entry: OpdsEntry, dataDir: string, auth?: OpdsAuth): Promise<BookSummary> {
   const url = assertHttp(entry.url)
-  const response = await fetch(url, { signal: AbortSignal.timeout(120_000) })
+  const response = await fetch(url, { headers: authHeader(auth), signal: AbortSignal.timeout(120_000) })
   if (!response.ok) throw new Error(`下载失败：HTTP ${response.status}`)
   const length = Number(response.headers.get('content-length') ?? 0)
   if (length > MAX_BYTES) throw new Error('这个文件超过 250MB，暂不导入。')

@@ -41,12 +41,14 @@ export function registerExtrasIpc({ getWindow, dataDir, cancelAllAiJobs }: Extra
 
   ipcMain.handle('stats:note-quality', () => getNoteQuality())
 
-  ipcMain.handle('opds:list', (_event, url: unknown) => {
+  ipcMain.handle('opds:list', (_event, url: unknown, auth?: unknown) => {
     if (typeof url !== 'string' || !url.trim()) throw new Error('请填写 OPDS 地址。')
-    return listOpds(url.trim())
+    return listOpds(url.trim(), auth as { username?: string; password?: string } | undefined)
   })
 
-  ipcMain.handle('opds:import', (_event, entry) => importOpdsBook(entry, dataDir))
+  ipcMain.handle('opds:import', (_event, entry, auth?: unknown) =>
+    importOpdsBook(entry, dataDir, auth as { username?: string; password?: string } | undefined),
+  )
 
   ipcMain.handle('sync:status', () => getSyncStatus())
 
