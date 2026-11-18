@@ -1,10 +1,10 @@
-/* ─── 笔记卡片：紧凑双列 ─────────────────────────────────── */
+/* ─── 笔记卡片：单列，右侧栏变窄时也能读 ─────────────────── */
 
 .note-group {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   align-items: start;
-  gap: 8px;
+  gap: 10px;
   margin-top: 20px;
 }
 
@@ -20,7 +20,7 @@
 
 .note-group .note-card {
   margin-bottom: 0;
-  padding: 10px 11px 9px;
+  padding: 14px 15px 13px;
   border-radius: var(--radius-sm);
 }
 
