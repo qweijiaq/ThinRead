@@ -147,7 +147,28 @@ export async function importBookFile(
   const storedPath = path.join(bookDir, textDocument ? 'source.txt' : `source${extension}`)
   await fs.writeFile(storedPath, storedBytes)
   try {
-    return await persistParsedBook(parsed, format, storedPath, bookId, dataDir)
+    const book = await persistParsedBook(parsed, format, storedPath, bookId, dataDir)
+    if (parsed.structured && parsed.structured.length > 0) {
+      const chapters = getChapters(bookId)
+      const chapter = chapters.find((item) => item.title === '表格与公式索引') ?? chapters[chapters.length - 1]
+      if (chapter) {
+        for (const block of parsed.structured.slice(0, 40)) {
+          try {
+            createNote({
+              bookId,
+              chapterId: chapter.id,
+              kind: 'point',
+              title: `${block.kind === 'table' ? '表格' : '公式'} · 第 ${block.page} 页`,
+              content: block.text,
+              tags: [block.kind === 'table' ? '表格' : '公式'],
+            })
+          } catch {
+            // 单条结构化卡片失败不影响导入。
+          }
+        }
+      }
+    }
+    return book
   } catch (error) {
     await fs.rm(bookDir, { recursive: true, force: true })
     throw error
