@@ -5,11 +5,12 @@ import { zipSync } from 'fflate'
 import os from 'node:os'
 import path from 'node:path'
 
-import type { MergeSnapshotResult, SyncSnapshot } from '../shared/types.js'
-import { backupDatabaseTo } from './db.js'
+import type { MergeSnapshotResult, SyncSnapshot, WebDavInspection } from '../shared/types.js'
+import { backupDatabaseTo, getDb } from './db.js'
 import { createBackup, exportSelfContainedBackup, importBackupArchive, restoreBackup } from './backup.js'
 import { mergeSnapshotArchive } from './sync.js'
 import { getWebDavConfig, getWebDavConfigView, setWebDavMeta } from './settings.js'
+import { unzipSync } from 'fflate'
 import { decryptSnapshot, encryptSnapshot } from './sync-crypto.js'
 import { deleteWebDav, getWebDav, listWebDav, putWebDav, testWebDav, type WebDavConfig } from './webdav.js'
 
@@ -57,6 +58,15 @@ function compactNotesDatabase(file: string): void {
     conn.exec('VACUUM')
   } finally {
     conn.close()
+  }
+}
+
+function countRows(db: DatabaseSync, table: string): number {
+  try {
+    const row = db.prepare(`SELECT COUNT(*) AS count FROM "${table}"`).get() as { count?: number } | undefined
+    return Number(row?.count ?? 0)
+  } catch {
+    return 0
   }
 }
 
@@ -188,6 +198,47 @@ export async function mergeWebDavSnapshot(
   } finally {
     fs.rmSync(archive, { force: true })
     fs.rmSync(decrypted, { force: true })
+  }
+}
+
+export async function inspectWebDavSnapshot(name: string, passphrase = ''): Promise<WebDavInspection> {
+  const cfg = config()
+  const safeName = path.basename(name)
+  const archive = path.join(os.tmpdir(), `${PREFIX}inspect-${Date.now()}.zip`)
+  const decrypted = path.join(os.tmpdir(), `${PREFIX}inspect-${Date.now()}-plain.zip`)
+  const dbPath = path.join(os.tmpdir(), `${PREFIX}inspect-${Date.now()}.db`)
+  try {
+    fs.writeFileSync(archive, await getWebDav(cfg, safeName))
+    const source = safeName.endsWith('.thinsync') ? decrypted : archive
+    if (safeName.endsWith('.thinsync')) decryptSnapshot(archive, decrypted, passphrase)
+    const files = unzipSync(new Uint8Array(fs.readFileSync(source)))
+    const db = files['db/reading-notes.db']
+    if (!db) throw new Error('这个快照里没有数据库。')
+    fs.writeFileSync(dbPath, db)
+    const remoteDb = new DatabaseSync(dbPath, { readOnly: true })
+    try {
+      const localDb = getDb()
+      return {
+        remote: {
+          notes: countRows(remoteDb, 'notes'),
+          annotations: countRows(remoteDb, 'pdf_annotations'),
+          bookmarks: countRows(remoteDb, 'bookmarks'),
+          positions: countRows(remoteDb, 'reading_positions'),
+        },
+        local: {
+          notes: countRows(localDb, 'notes'),
+          annotations: countRows(localDb, 'pdf_annotations'),
+          bookmarks: countRows(localDb, 'bookmarks'),
+          positions: countRows(localDb, 'reading_positions'),
+        },
+      }
+    } finally {
+      remoteDb.close()
+    }
+  } finally {
+    fs.rmSync(archive, { force: true })
+    fs.rmSync(decrypted, { force: true })
+    fs.rmSync(dbPath, { force: true })
   }
 }
 

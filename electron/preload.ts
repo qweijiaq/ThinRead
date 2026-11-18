@@ -13,6 +13,7 @@ import type {
   SyncStatus,
   WebDavConfigInput,
   WebDavConfigView,
+  WebDavInspection,
   PdfAnnotation,
   PdfAnnotationColor,
   AppNotice,
@@ -337,6 +338,8 @@ const api: ReadingApi = {
     ipcRenderer.invoke('sync:webdav-pull', name, passphrase) as Promise<{ ok: boolean }>,
   mergeWebDavSnapshot: (name: string, passphrase?: string) =>
     ipcRenderer.invoke('sync:webdav-merge', name, passphrase) as Promise<MergeSnapshotResult>,
+  inspectWebDavSnapshot: (name: string, passphrase?: string) =>
+    ipcRenderer.invoke('sync:webdav-inspect', name, passphrase) as Promise<WebDavInspection>,
   deleteWebDavSnapshot: (name: string) => ipcRenderer.invoke('sync:webdav-delete', name) as Promise<void>,
   chooseSyncFolder: () => ipcRenderer.invoke('sync:choose-folder') as Promise<SyncStatus>,
   pushSyncSnapshot: (passphrase?: string) => ipcRenderer.invoke('sync:push', passphrase) as Promise<SyncSnapshot>,

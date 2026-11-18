@@ -20,7 +20,7 @@ import {
 import { readAiUsage } from '../ai/usage.js'
 import { getAiPricing, getWebDavConfigView, saveWebDavConfig } from '../settings.js'
 import { chooseSyncFolder, deleteSyncSnapshot, getSyncStatus, mergeSyncSnapshot, pullSyncSnapshot, pushSyncSnapshot } from '../sync.js'
-import { deleteWebDavSnapshot, listWebDavSnapshots, mergeWebDavSnapshot, pullWebDavSnapshot, pushWebDavNotesSnapshot, pushWebDavSnapshot, testWebDavConnection } from '../webdav-sync.js'
+import { deleteWebDavSnapshot, inspectWebDavSnapshot, listWebDavSnapshots, mergeWebDavSnapshot, pullWebDavSnapshot, pushWebDavNotesSnapshot, pushWebDavSnapshot, testWebDavConnection } from '../webdav-sync.js'
 import { importOpdsBook, listOpds } from '../opds.js'
 import { parseIpc } from './parse.js'
 
@@ -67,6 +67,11 @@ export function registerExtrasIpc({ getWindow, dataDir, cancelAllAiJobs }: Extra
     await pullWebDavSnapshot(dataDir, name, typeof passphrase === 'string' ? passphrase.slice(0, 200) : '')
     return { ok: true }
   })
+  ipcMain.handle('sync:webdav-inspect', async (_event, name: unknown, passphrase?: unknown) => {
+    if (typeof name !== 'string' || !name.trim()) throw new Error('同步快照名称无效。')
+    return inspectWebDavSnapshot(name, typeof passphrase === 'string' ? passphrase.slice(0, 200) : '')
+  })
+
   ipcMain.handle('sync:webdav-merge', async (_event, name: unknown, passphrase?: unknown) => {
     if (typeof name !== 'string' || !name.trim()) throw new Error('同步快照名称无效。')
     return mergeWebDavSnapshot(dataDir, name, typeof passphrase === 'string' ? passphrase.slice(0, 200) : '')

@@ -1084,6 +1084,7 @@ export interface OpdsAuth {
 export interface OpdsPage {
   entries: OpdsEntry[]
   next: string | null
+  searchTemplate: string | null
 }
 
 export interface WebDavConfigView {
@@ -1095,6 +1096,11 @@ export interface WebDavConfigView {
   lastPullAt: string
   autoPushDaily: boolean
   checkOnStartup: boolean
+}
+
+export interface WebDavInspection {
+  remote: { notes: number; annotations: number; bookmarks: number; positions: number }
+  local: { notes: number; annotations: number; bookmarks: number; positions: number }
 }
 
 export interface WebDavConfigInput {
@@ -1871,6 +1877,7 @@ export interface ReadingApi {
   listWebDavSnapshots(): Promise<SyncSnapshot[]>
   pullWebDavSnapshot(name: string, passphrase?: string): Promise<{ ok: boolean }>
   mergeWebDavSnapshot(name: string, passphrase?: string): Promise<MergeSnapshotResult>
+  inspectWebDavSnapshot(name: string, passphrase?: string): Promise<WebDavInspection>
   deleteWebDavSnapshot(name: string): Promise<void>
   chooseSyncFolder(): Promise<SyncStatus>
   pushSyncSnapshot(passphrase?: string): Promise<SyncSnapshot>

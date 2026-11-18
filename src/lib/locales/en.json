@@ -2036,5 +2036,10 @@
   "颜色": "Color",
   "远端有新的同步快照。建议先点「合并笔记」，确认没问题再整库恢复。": "There is a newer snapshot on the remote. Try Merge notes first, then restore the full library only if needed.",
   "只给未标色的卡片按类型自动配色": "Auto-color cards that have no color yet, based on their type.",
-  "按类型配色": "Color by type"
+  "按类型配色": "Color by type",
+  "在书库中搜索": "Search the catalog",
+  "搜索中…": "Searching…",
+  "比较": "Compare",
+  "本地": "Local",
+  "远端": "Remote"
 }

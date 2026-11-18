@@ -1,6 +1,6 @@
 import { useEffect, useState, type JSX } from 'react'
 
-import type { SyncSnapshot, WebDavConfigView } from '../../shared/types.js'
+import type { SyncSnapshot, WebDavConfigView, WebDavInspection } from '../../shared/types.js'
 import { bridge } from '../lib/bridge.js'
 import { t } from '../lib/i18n.js'
 
@@ -25,6 +25,7 @@ export function WebDavPanel(): JSX.Element {
   const [busy, setBusy] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [remoteNew, setRemoteNew] = useState(false)
+  const [inspection, setInspection] = useState<WebDavInspection | null>(null)
 
   useEffect(() => {
     void bridge
@@ -78,6 +79,18 @@ export function WebDavPanel(): JSX.Element {
       setSnapshots(await bridge.listWebDavSnapshots())
       setRemoteNew(false)
       setNotice(`${t('已推送到 WebDAV')}：${snapshot.name}`)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function inspect(name: string): Promise<void> {
+    setBusy(name)
+    setNotice(null)
+    try {
+      setInspection(await bridge.inspectWebDavSnapshot(name, passphrase))
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error))
     } finally {
@@ -199,6 +212,12 @@ export function WebDavPanel(): JSX.Element {
           {t('远端有新的同步快照。建议先点「合并笔记」，确认没问题再整库恢复。')}
         </div>
       ) : null}
+      {inspection ? (
+        <div className="inline-notice" role="status">
+          <div>{t('本地')}：{t('笔记')} {inspection.local.notes} · {t('标注')} {inspection.local.annotations} · {t('书签')} {inspection.local.bookmarks} · {t('位置')} {inspection.local.positions}</div>
+          <div>{t('远端')}：{t('笔记')} {inspection.remote.notes} · {t('标注')} {inspection.remote.annotations} · {t('书签')} {inspection.remote.bookmarks} · {t('位置')} {inspection.remote.positions}</div>
+        </div>
+      ) : null}
       {notice ? <div className="inline-notice" role="status" aria-live="polite">{notice}</div> : null}
       {snapshots.length > 0 ? (
         <div className="backup-list">
@@ -213,6 +232,9 @@ export function WebDavPanel(): JSX.Element {
                 </span>
               </div>
               <div className="backup-row-actions">
+                <button type="button" className="text-button" onClick={() => void inspect(item.name)} disabled={busy !== null}>
+                  {t('比较')}
+                </button>
                 <button type="button" className="text-button" onClick={() => void merge(item.name)} disabled={busy !== null}>
                   {t('合并笔记')}
                 </button>
