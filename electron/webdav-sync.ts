@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import { DatabaseSync } from 'node:sqlite'
 import { Notification } from 'electron'
 import { zipSync } from 'fflate'
 import os from 'node:os'
@@ -30,6 +31,33 @@ function createdAtFromName(name: string): string {
 
 function isNotesSnapshot(name: string): boolean {
   return name.startsWith(NOTES_PREFIX)
+}
+
+const NOTES_DB_TABLES = new Set([
+  'notes',
+  'pdf_annotations',
+  'bookmarks',
+  'reading_positions',
+  'reading_stats_days',
+  'reading_stats_books',
+  'reading_stats_meta',
+  'reading_plans',
+  'weekly_reviews',
+])
+
+/** 把完整备份裁成只含用户笔记相关表的轻量数据库，删掉书籍和章节正文。 */
+function compactNotesDatabase(file: string): void {
+  const conn = new DatabaseSync(file)
+  try {
+    conn.exec('PRAGMA foreign_keys = OFF')
+    const tables = (conn.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all() as unknown as Array<{ name: string }>)
+    for (const table of tables) {
+      if (!NOTES_DB_TABLES.has(table.name)) conn.exec(`DROP TABLE IF EXISTS "${table.name}"`)
+    }
+    conn.exec('VACUUM')
+  } finally {
+    conn.close()
+  }
 }
 
 export async function testWebDavConnection(): Promise<{ ok: boolean; message: string }> {
@@ -97,6 +125,7 @@ export async function pushWebDavNotesSnapshot(_dataDir: string, passphrase = '')
   const encrypted = path.join(os.tmpdir(), `${NOTES_PREFIX}${stamp}.thinsync`)
   try {
     backupDatabaseTo(temp)
+    compactNotesDatabase(temp)
     fs.writeFileSync(zipPath, Buffer.from(zipSync({ 'db/reading-notes.db': new Uint8Array(fs.readFileSync(temp)) })))
     const source = secret ? encrypted : zipPath
     if (secret) encryptSnapshot(zipPath, encrypted, secret)
