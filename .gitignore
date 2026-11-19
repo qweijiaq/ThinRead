@@ -22,3 +22,16 @@ marketing/xhs-guide/assets/raw-*.png
 # Local build/test scratch
 __pycache__/
 .tmp-*
+
+# 营销、官网与内部文档：本地保留，不进软件仓库
+marketing/
+website/
+docs/blog/
+docs/superpowers/
+docs/feature-audit.md
+docs/extension-capabilities.md
+docs/release-drill.md
+docs/features/README.md
+docs/i18n-inventory.json
+docs/ai-baseline.json
+docs/*.png
