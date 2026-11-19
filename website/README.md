@@ -34,7 +34,7 @@ python3 -m http.server 4173
 
   或在 Finder 里双击 `feedback-desk/start.command`。
 
-- 官网在 `website/app.js` 里通过 `FEEDBACK_API` 和 `FEEDBACK_PROJECT` 连接留言台，默认是 `http://127.0.0.1:8787` + `thinread`。
+- 官网在 `website/app.js` 里通过 `FEEDBACK_API` 和 `FEEDBACK_PROJECT` 连接留言台，线上是 `https://feedback.weijia.asia` + `thinread`；本地开发时把 `FEEDBACK_API` 改回 `http://127.0.0.1:8787`。
 - 如果留言台项目启用了 submitKey，把后台生成的 key 填到 `FEEDBACK_KEY`。
 - 路线图文案以站点内置的整理结果为准；留言台只补充用户建议、公开留言和同感，避免服务端旧文案覆盖当前说明。
 - 官网的留言区有「最近公开 / 我的留言」两个视图：公开留言可以同感、看官方回复；我的留言用查询码看处理进度，不需要账号。
@@ -50,7 +50,9 @@ python3 -m http.server 4173
 
 ## 部署
 
-`website/` 是纯静态站点，可以直接部署到任意静态托管。部署时保留 `assets/`（含 `assets/shots/`）和 `.nojekyll`；用户手册链接指向 GitHub 上的 `docs/user-manual.pdf`，不依赖站点目录外的文件。
+`website/` 是纯静态站点，可以直接部署到任意静态托管。线上地址是 <https://thinread.weijia.asia>：服务器上的 `/opt/thinread/website` 由 `thinread-web` 容器托管，Caddy 反向代理并自动签发证书。部署时保留 `assets/`（含 `assets/shots/`）和 `.nojekyll`；用户手册链接指向 GitHub 上的 `docs/user-manual.pdf`，不依赖站点目录外的文件。
+
+留言台 `../feedback-desk` 部署在同机 `/opt/feedback-desk`，域名 <https://feedback.weijia.asia>，数据在容器的 `./data` 里。
 
 ## 文件
 

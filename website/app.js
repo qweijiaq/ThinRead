@@ -4,8 +4,8 @@ const LIKE_BASE = 'https://abacus.jasoncameron.dev'
 const LIKE_KEY = 'thinread/website-likes'
 const LIKED_STORAGE = 'thinread-website-liked'
 const FEEDBACK_STORAGE = 'thinread-website-feedback'
-// 本机留言台。部署到公网时，把它改成留言台的公网地址。
-const FEEDBACK_API = 'http://127.0.0.1:8787'
+// 公网留言台；本地开发时改回 http://127.0.0.1:8787。
+const FEEDBACK_API = 'https://feedback.weijia.asia'
 const FEEDBACK_PROJECT = 'thinread'
 // 如果留言台项目启用了提交 key，把它填在这里。
 const FEEDBACK_KEY = ''
