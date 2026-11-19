@@ -5,7 +5,7 @@ import path from 'node:path'
 import { app } from 'electron'
 import { zipSync } from 'fflate'
 
-import { getSchemaVersion, listBooks } from './db.js'
+import { getDataHealth, getSchemaVersion, listBooks } from './db.js'
 import { logDir, logInfo, readRecentLogs } from './logger.js'
 import { getSettingsView } from './settings.js'
 
@@ -89,6 +89,7 @@ export function buildDiagnosticsArchive(dataDir: string): Uint8Array {
       dbBytes: fileSize(dbFile),
       schemaVersion: getSchemaVersion(),
       logDir: logDir(),
+      ...getDataHealth(),
     },
     library: {
       books: books.length,
