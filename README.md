@@ -88,7 +88,7 @@ The product promises two things — local-first data and verifiable citations. B
 Parsing, storage, retrieval, and rendering all happen on-device. There are exactly two outbound paths: a model call you explicitly trigger, and the one-time ~23 MB quantized embedding model download.
 
 - Books, chapters, notes, and generation history live in local SQLite
-- API keys are encrypted in the system keychain, falling back to a `0600` file
+- API keys are encrypted in the system keychain; if the keychain is unavailable they fall back to a `0600` file and Settings explicitly says the key is stored in plain text
 - Embeddings are computed locally; note content never leaves the machine
 - AI traces record step, model, latency, tokens, and errors — never bodies or prompts
 
@@ -105,13 +105,14 @@ Model output is untrusted, so every generated artifact passes a verification gat
 ### Data integrity
 
 - Ordered SQLite migrations via `PRAGMA user_version`, applied in a transaction with rollback on failure
-- Notes are validated on read too; malformed enums or corrupt JSON are repaired so one bad row cannot lock a chapter
+- `settings.json` is replaced atomically via temp file + rename; a corrupt file is kept as `.corrupt-<timestamp>` and surfaced in the UI instead of being silently reset
+- Notes are validated on read too: malformed enums degrade to safe values, corrupt JSON is skipped and counted, and the count is included in diagnostics so one bad row cannot lock a chapter
 - 30-day recycle bins for books, chapters, notes, and generated artifacts
 - Automatic backups before merge, split, reparse, or delete; book files are content-hash deduplicated across backups
 
 ### Performance and cost
 
-- Condensing runs concurrently across sections (4-way by default); claim audit and card extraction run in parallel
+- Condensing runs concurrently across sections (up to 6-way in standard/fast, 4-way in deep); claim audit and card extraction run in parallel
 - Results are cached for 14 days by content hash across chapter + model + quality tier — cache hits cost 0 tokens
 - Deep mode reuses a 24k-token source prefix (explicit Anthropic `cache_control`; automatic prefix caching on OpenAI-compatible endpoints)
 - Short chapters, low compression ratios, and small card sets skip the stages that would not pay off
@@ -121,7 +122,7 @@ Model output is untrusted, so every generated artifact passes a verification gat
 
 ### Verification
 
-- 289 regression tests covering highlight parsing, OCR chaptering, publishing bundles, classification, relation graphs, full-text index, backup/restore, schema validation, and migrations
+- 295 regression tests covering highlight parsing, OCR chaptering, publishing bundles, classification, relation graphs, full-text index, backup/restore, schema validation, and migrations
 - Headless Electron smoke tests for library, search, selection actions, TTS, note editing, maps, import, and pagination
 - Storybook pixel baselines with CI diffing — layout drift fails the build
 - axe-core injected into UI smoke tests, scanning WCAG 2A/2AA critical/serious issues
@@ -153,7 +154,7 @@ ThinRead is a shipped independent product with a full feature surface and real e
 - A complete loop: import → read → condense → cards → compose → share / export
 - A clear local/cloud boundary: which capabilities must stay on-device and which can be hosted is already separated in the architecture
 - A replaceable model layer: OpenAI-compatible endpoints plus native Anthropic and Qwen TTS, with 13 built-in presets (12 providers plus demo)
-- An engineering baseline: typecheck, 289 regression tests, renderer and PDF smoke tests, pixel baselines, accessibility scans, and key-free AI record/replay
+- An engineering baseline: typecheck, 295 regression tests, renderer and PDF smoke tests, pixel baselines, accessibility scans, and key-free AI record/replay
 - Genuine long-tail inputs: a 392-page PDF, scanned-page OCR, code-block reconstruction, multilingual typesetting — not a toy dataset
 
 **Honest porting assessment**
@@ -185,7 +186,7 @@ The first launch shows an empty library. Click **Import**, pick an EPUB or PDF, 
 
 No book handy? Import [samples/sample.epub](samples/sample.epub) (a two-chapter sample). To use a real model, see [Connecting a model](#connecting-a-model).
 
-> macOS builds are published on [Releases](https://github.com/qweijiaq/ThinRead/releases). They are unsigned and not notarized.
+> macOS builds are published on [Releases](https://github.com/qweijiaq/ThinRead/releases). They are unsigned and not notarized. On first launch, right-click the app in Finder and choose **Open**; double-clicking is blocked by Gatekeeper.
 
 **First run path**: import a book → open a chapter → **✦ Condense** → review the core cards → **Compose**.
 
@@ -247,6 +248,7 @@ You can assign separate models to condensing, composition, and the workbench, an
 - **Ebooks**: EPUB / PDF / MOBI / AZW3. EPUB keeps chapter structure, layout, and images; MOBI reads its TOC and chapters; DRM-protected files fail with a clear error.
 - **PDF**: chapters come from the bookmark outline first, then from page-top `Chapter` / `Part` / `第 N 章` headings, and only then from page grouping. Pages with figures get layout previews.
 - **Deep parsing**: optional Docling pass for complex PDFs, preserving layout, tables, and figures, and reconstructing code-block line breaks and indentation from coordinates.
+- **Vision parsing**: render scans or chart-heavy PDFs page by page for a vision model; pages run in batches of 120 and merge into one book, with progress and cancellation under the same import.
 - **Scanned PDFs**: macOS PDFKit rendering plus per-page Vision OCR, with a page range, up to 300 pages per run, handled by the background task center.
 - **Documents and web**: DOCX / HTML / Markdown / TXT keep heading hierarchy and split into chapters automatically; web pages are stripped of navigation and ads, with images inlined locally.
 - **Highlights**: Readwise CSV, Kindle `My Clippings.txt`, and WeChat Reading exports. Each highlight becomes a highlight note, preserving tags and comments.
@@ -276,7 +278,7 @@ You can assign separate models to condensing, composition, and the workbench, an
 
 - **Concept map**: books and tag-concepts as nodes, edges from co-occurrence, cross-book concepts flagged separately. Filter, search, persist node positions, export Mermaid or PNG.
 - **Character graph**: local full-text scan proposes name candidates, then a two-step model pass extracts nodes and relations. Aliases merge automatically, chapters are annotated, and inverse relations are labeled directionally.
-- **AI workbench**: 19 tools across research, deep reading, learning, and organizing — library-wide research, author roundtable, cross-book synthesis, argument map, adaptive quizzes, concept merge, card dedupe.
+- **AI workbench**: 19 tools across research, deep reading, learning, and organizing — library-wide research, author roundtable, cross-book synthesis, argument map, adaptive quizzes, concept merge, card dedupe. A top "Frequently used" group surfaces five common entries without hiding the rest.
 - **Background jobs**: whole-book generation and formatting run in a task center persisted to SQLite. After a restart they resume as "paused", so finished chapters are never redone.
 
 ### Composition, sharing, and export
@@ -327,7 +329,12 @@ electron/
   ipc.ts              IPC contract between renderer and main
   ipc/extras.ts       Shelf status, stats, sync, and PDF annotation IPC
   ipc/parse.ts        Zod boundary validation for IPC arguments
-  db.ts               SQLite storage, versioned migrations, books/chapters/notes/marks/formatting
+  db.ts               SQLite entry, versioned migrations, content apply/undo
+  db-books.ts         Books, chapters, formatting, translation and trash
+  db-notes.ts         Notes, cards, notes library, embeddings and note trash
+  db-content.ts       Generated-content library and AI artifact versions
+  db-reading.ts       Reading positions, stats, plans, bookmarks, OCR and reader marks
+  db-health.ts        Read-time corruption counters and diagnostics
   db-pdf.ts           PDF annotation CRUD
   db-merge.ts         Merge notes, annotations, and bookmarks from a snapshot
   sync.ts             Folder snapshot push, restore, and merge
@@ -421,7 +428,7 @@ pnpm capture:storybook -- --check
 ## Known limitations
 
 - macOS is the primary verified platform. Windows and Linux build scripts exist, but OCR and PDF figure previews still depend on macOS Vision and fail with a clear message elsewhere.
-- Builds are unsigned and unnotarized; the first launch needs a manual allow in System Settings.
+- Builds are unsigned and unnotarized; on first launch, right-click the app in Finder and choose **Open**, or allow it manually in System Settings.
 - PDF reading defaults to reflowed text. Scanned books must go through the dedicated OCR import path.
 - Composition only reads existing condensed drafts; it does not re-check the source word by word. A human pass is still expected.
 - Claim audit covers only the first 24k characters of a chapter, so the tail of very long chapters may fall outside it.
@@ -437,7 +444,7 @@ For the full set of edge cases, see the [manual](docs/user-manual.md).
 
 ## Release
 
-Latest unsigned macOS builds are on [Releases](https://github.com/qweijiaq/ThinRead/releases). v0.2.1 is the latest beta pre-release with arm64 DMG / zip and a full bundle; v0.2.0 added Docling deep PDF parsing. v0.1.0 was the first public build.
+Latest unsigned macOS builds are on [Releases](https://github.com/qweijiaq/ThinRead/releases). v0.2.2 is the latest MIT-licensed public beta with arm64 DMG / zip and a full installer; it focuses on settings/sync reliability, automatic batching for vision PDF imports, and UI polish.
 
 Pushing a `v*` tag runs a hard gate: typecheck, tests, renderer and PDF smoke tests, and a check that the tag matches `package.json` — only then is the same build artifact packaged. The release job uploads dmg, zip, and blockmaps (needed for incremental updates).
 
@@ -460,6 +467,7 @@ Signing is optional: set `MAC_CERT_P12`, `MAC_CERT_PASSWORD`, `APPLE_ID`, `APPLE
 
 ## Changelog
 
+- **2026-11-19** — v0.2.2. Atomic `settings.json` writes with corrupt-file backups, and a fix for WebDAV config being dropped on restart; vision PDF imports now batch past 120 pages into one book; startup maintenance moved off the first-paint path; higher condense concurrency; reader progress no longer re-renders the whole chapter; database split into `db-books` / `db-notes` / `db-content` / `db-reading` / `db-health`; manual update check, English mistranslation fix, and 1080px alignment fixes; 295 tests.
 - **2026-11-14** — v0.2.1. Encrypted snapshot sync with cross-device merge, PDF original-page annotations, shelf status, AI budget guard and retry backoff, system TTS fallback, English Beta, OpenDesign Cloud, and redesigned editorial share cards. New warm-paper website with an 18-shot filterable gallery and lightbox; refreshed 12-image manual and README galleries.
 - **2026-11-11** — v0.2.0. Docling deep PDF parsing with outline-based chaptering and reconstructed code-block line breaks and indentation; direct body editing, image understanding, and code review/fix/explain; automatic selection of an available vision model; cleanup of small images, bullet symbols, and table noise in PDF imports.
 - **2026-11-08** — Repackaged v0.1.5 for macOS arm64; feature-identical to v0.1.4, with light/dark website updates.
@@ -478,9 +486,9 @@ Signing is optional: set `MAC_CERT_P12`, `MAC_CERT_PASSWORD`, `APPLE_ID`, `APPLE
 - Security reports: [SECURITY.md](SECURITY.md)
 - Code of conduct: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 
-Currently a `0.2.x` public beta: reading, notes, composition, sharing, folder snapshot sync, and the local data path are usable. Database encryption, real-time end-to-end sync, cross-platform OCR, and full English coverage remain ahead.
+Currently a `0.2.x` public beta: reading, notes, composition, sharing, folder snapshot sync, and the local data path are usable. Database encryption, real-time end-to-end sync, cross-platform OCR, and English coverage for a small set of main-process errors and export templates remain ahead.
 
-Last updated: 2026-11-14
+Last updated: 2026-11-19
 
 ## License
 

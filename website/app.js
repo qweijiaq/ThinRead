@@ -1,5 +1,5 @@
 const DOWNLOAD_URL =
-  'https://github.com/qweijiaq/ThinRead/releases/latest/download/ThinRead-0.2.1-mac-arm64.dmg'
+  'https://github.com/qweijiaq/ThinRead/releases/latest/download/ThinRead-0.2.2-mac-arm64.dmg'
 const LIKE_BASE = 'https://abacus.jasoncameron.dev'
 const LIKE_KEY = 'thinread/website-likes'
 const LIKED_STORAGE = 'thinread-website-liked'
@@ -75,7 +75,7 @@ const roadmap = [
     title: '完整英文界面',
     status: 'fixing',
     date: '进行中',
-    summary: '主要界面已支持英文，但工作台、概念合并、出题等仍有硬编码中文；目标在 v0.2 继续迁移。',
+    summary: '主要界面、工作台、概念合并和出题文案已接入英文；少量主进程错误与导出模板仍在补齐。',
   },
   {
     title: '任务级取消',
