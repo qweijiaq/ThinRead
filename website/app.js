@@ -180,7 +180,12 @@ function escapeHtml(value) {
 
 function renderRoadmap() {
   if (!roadmapGrid) return
-  const source = feedbackServiceOnline && Array.isArray(remoteRoadmap) ? remoteRoadmap : roadmap
+  // 本地路线图决定文案和状态；远端只补充用户建议，避免服务端旧文案覆盖站点。
+  const remoteUserItems = feedbackServiceOnline && Array.isArray(remoteRoadmap)
+    ? remoteRoadmap.filter((item) => item && item.source === 'user')
+    : []
+  const known = new Set(roadmap.map((item) => item.title))
+  const source = [...roadmap, ...remoteUserItems.filter((item) => item.title && !known.has(item.title))]
   const items = activeStatus === 'all' ? source : source.filter((item) => item.status === activeStatus)
   roadmapGrid.innerHTML = items
     .map(
@@ -217,6 +222,27 @@ roadmapTabs.forEach((tab) => {
 })
 renderRoadmap()
 
+function setupMobileNav() {
+  const toggle = document.querySelector('#navToggle')
+  const nav = document.querySelector('#siteNav')
+  if (!(toggle instanceof HTMLButtonElement) || !(nav instanceof HTMLElement)) return
+  const close = () => {
+    nav.classList.remove('is-open')
+    toggle.setAttribute('aria-expanded', 'false')
+    toggle.setAttribute('aria-label', '展开导航')
+  }
+  toggle.addEventListener('click', () => {
+    const open = !nav.classList.contains('is-open')
+    nav.classList.toggle('is-open', open)
+    toggle.setAttribute('aria-expanded', String(open))
+    toggle.setAttribute('aria-label', open ? '收起导航' : '展开导航')
+  })
+  nav.querySelectorAll('a').forEach((link) => link.addEventListener('click', close))
+  window.addEventListener('resize', () => {
+    if (window.innerWidth > 760) close()
+  })
+}
+
 function setupTheme() {
   const root = document.documentElement
   const toggle = document.querySelector('#themeToggle')
@@ -228,7 +254,7 @@ function setupTheme() {
       toggle.setAttribute('aria-pressed', String(theme === 'dark'))
     }
     if (meta instanceof HTMLMetaElement) {
-      meta.content = theme === 'dark' ? '#141310' : '#f7f4ee'
+      meta.content = theme === 'dark' ? '#101215' : '#f7f7f5'
     }
   }
   apply(root.dataset.theme === 'dark' ? 'dark' : 'light')
@@ -1205,6 +1231,7 @@ window.addEventListener('storage', (event) => {
 
 function boot() {
   setupTheme()
+  setupMobileNav()
   setupDownload()
   setupLike()
   setupFeedbackForm()
