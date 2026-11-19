@@ -50,6 +50,10 @@ function colorHex(color: NonNullable<Note['color']>): string {
   return color === 'red' ? '#d65345' : color === 'yellow' ? '#d8a53a' : color === 'green' ? '#4f8a63' : '#4f7fa8'
 }
 
+function colorLabel(color: NonNullable<Note['color']>): string {
+  return color === 'red' ? t('红') : color === 'yellow' ? t('黄') : color === 'green' ? t('绿') : t('蓝')
+}
+
 function titleFromContent(content: string): string {
   const first = content
     .replace(/^[#>\-\s]+/, '')
@@ -388,8 +392,8 @@ function NoteCardImpl({
               key={color}
               type="button"
               className={note.color === color ? 'active' : ''}
-              aria-label={color}
-              title={color}
+              aria-label={colorLabel(color)}
+              title={colorLabel(color)}
               style={{ background: hex }}
               onClick={() => {
                 void onUpdate(note.id, { color })
@@ -441,8 +445,8 @@ function NoteCardImpl({
                 key={color}
                 type="button"
                 className={note.color === color ? 'active' : ''}
-                aria-label={color}
-                title={color}
+                aria-label={colorLabel(color)}
+                title={colorLabel(color)}
                 style={{ background: hex }}
                 onClick={() => void onUpdate(note.id, { color })}
               />

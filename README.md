@@ -248,10 +248,11 @@ You can assign separate models to condensing, composition, and the workbench, an
 - **Ebooks**: EPUB / PDF / MOBI / AZW3. EPUB keeps chapter structure, layout, and images; MOBI reads its TOC and chapters; DRM-protected files fail with a clear error.
 - **PDF**: chapters come from the bookmark outline first, then from page-top `Chapter` / `Part` / `第 N 章` headings, and only then from page grouping. Pages with figures get layout previews.
 - **Deep parsing**: optional Docling pass for complex PDFs, preserving layout, tables, and figures, and reconstructing code-block line breaks and indentation from coordinates.
-- **Vision parsing**: render scans or chart-heavy PDFs page by page for a vision model; pages run in batches of 120 and merge into one book, with progress and cancellation under the same import.
+- **Vision parsing**: render scans or chart-heavy PDFs page by page for a vision model; pages run in batches of 120 and merge into one book, with progress and cancellation under the same import. Tables and formulas are indexed and become tagged, editable notes after import.
 - **Scanned PDFs**: macOS PDFKit rendering plus per-page Vision OCR, with a page range, up to 300 pages per run, handled by the background task center.
 - **Documents and web**: DOCX / HTML / Markdown / TXT keep heading hierarchy and split into chapters automatically; web pages are stripped of navigation and ads, with images inlined locally.
 - **Highlights**: Readwise CSV, Kindle `My Clippings.txt`, and WeChat Reading exports. Each highlight becomes a highlight note, preserving tags and comments.
+- **OPDS catalogs**: browse an OPDS 1.x catalog with pagination, Basic Auth, and OpenSearch search, then import EPUB / PDF entries in one click.
 - **Automatic cleanup**: local rules hide covers, copyright pages, TOCs, ads, indexes, and garbled pages, all reversible. Import itself never calls a model.
 
 ### Reading and formatting
@@ -294,13 +295,14 @@ You can assign separate models to condensing, composition, and the workbench, an
 ### Library, search, and data
 
 - **Global search**: `⌘K` / `Ctrl+K` across titles, chapter bodies, and notes. Keyword inverted index returns first, local semantic search follows, fused with RRF.
-- **Notes library**: filter by book, type, and tag; the audit view shows AI/human edits, citation verification status, and chapter coverage; export a Markdown folder with YAML frontmatter for Obsidian or Notion.
+- **Notes library**: filter by book, type, tag, and color; the audit view shows AI/human edits, citation verification status, and chapter coverage; export a Markdown folder with YAML frontmatter for Obsidian or Notion. Cards can be colored red / yellow / green / blue, filtered by color, or auto-colored by type without overwriting manual colors.
 - **Note linking**: `[[Note title]]` references, automatic backlinks, and same-book / cross-book related notes.
 - **Continue reading**: the shelf shows a continue card that jumps back to your last chapter. **Shelf status**: mark each book as to read / reading / finished / archived, filter the shelf by status with counts, and change it from the card. New imports start as to read and become reading when you open a chapter.
 - **Zero-config listening**: without a Qwen TTS key, ThinRead falls back to built-in macOS voices synthesized entirely on-device at no cost; with a key it still uses Qwen, with the same voices and cost estimates.
-- **Reading data**: time tracking, daily goals, streaks, 7/30/100-day milestone badges, monthly and yearly stats, weekly reviews, CSV export, plus note quality and citation pass rate.
+- **Reading data**: time tracking, daily goals, streaks, 7/30/100-day milestone badges, a 90 / 180 / 365-day reading heatmap, monthly and yearly stats, weekly reviews, CSV export, plus note quality and citation pass rate.
 - **Backup and restore**: manual and automatic backups, whole-library export/import, app lock, and a diagnostics bundle.
 - **Folder sync**: pick an iCloud Drive / Dropbox / NAS folder, push a full-library snapshot, and restore it on another device. Snapshots include the book files themselves, so restoring on another device does not lose books; this makes them larger than local backups. An optional passphrase encrypts the snapshot with AES-256-GCM into a `.thinsync` file; the passphrase is never stored. Besides a full restore, you can merge only the newer notes, PDF annotations, bookmarks, reading positions, reading statistics, reading plans, and weekly reviews from a snapshot into the current library without overwriting local content. Books that do not exist locally are imported with their chapters and book files. No self-hosted server; the current state is backed up before restoring.
+- **WebDAV sync**: point at Nextcloud, Nutstore, or Synology, push full-library or compact notes-only snapshots, auto-push notes once a day, check the remote on startup, and compare note / annotation / bookmark / position counts before merging or restoring. Notes-only snapshots can be merged but not used for a full restore.
 
 ---
 
@@ -467,7 +469,7 @@ Signing is optional: set `MAC_CERT_P12`, `MAC_CERT_PASSWORD`, `APPLE_ID`, `APPLE
 
 ## Changelog
 
-- **2026-11-19** — v0.2.2. Atomic `settings.json` writes with corrupt-file backups, and a fix for WebDAV config being dropped on restart; vision PDF imports now batch past 120 pages into one book; startup maintenance moved off the first-paint path; higher condense concurrency; reader progress no longer re-renders the whole chapter; database split into `db-books` / `db-notes` / `db-content` / `db-reading` / `db-health`; manual update check, English mistranslation fix, and 1080px alignment fixes; 295 tests.
+- **2026-11-19** — v0.2.2. Atomic `settings.json` writes with corrupt-file backups, and a fix for WebDAV config being dropped on restart; vision PDF imports now batch past 120 pages into one book; startup maintenance moved off the first-paint path; higher condense concurrency; reader progress no longer re-renders the whole chapter; database split into `db-books` / `db-notes` / `db-content` / `db-reading` / `db-health`; manual update check, English mistranslation fix, and 1080px alignment fixes; OPDS import with pagination, Basic Auth, and OpenSearch; note colors with color filters and auto-color by type; a 90 / 180 / 365-day reading heatmap; vision PDF tables and formulas turned into tagged notes; WebDAV notes-only snapshots, daily auto-push, startup checks, and local/remote comparison; 295 tests.
 - **2026-11-14** — v0.2.1. Encrypted snapshot sync with cross-device merge, PDF original-page annotations, shelf status, AI budget guard and retry backoff, system TTS fallback, English Beta, OpenDesign Cloud, and redesigned editorial share cards. New warm-paper website with an 18-shot filterable gallery and lightbox; refreshed 12-image manual and README galleries.
 - **2026-11-11** — v0.2.0. Docling deep PDF parsing with outline-based chaptering and reconstructed code-block line breaks and indentation; direct body editing, image understanding, and code review/fix/explain; automatic selection of an available vision model; cleanup of small images, bullet symbols, and table noise in PDF imports.
 - **2026-11-08** — Repackaged v0.1.5 for macOS arm64; feature-identical to v0.1.4, with light/dark website updates.

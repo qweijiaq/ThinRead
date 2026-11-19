@@ -203,6 +203,8 @@ function NotesPanelImpl({
   const [colorStatus, setColorStatus] = useState<string | null>(null)
   const byColor = (list: Note[]): Note[] =>
     colorFilter === 'all' ? list : list.filter((note) => note.color === colorFilter)
+  const colorLabel = (color: NoteColor): string =>
+    color === 'red' ? t('红') : color === 'yellow' ? t('黄') : color === 'green' ? t('绿') : t('蓝')
   const colorForKind: Record<Note['kind'], NoteColor> = {
     summary: 'red',
     point: 'blue',
@@ -666,7 +668,7 @@ function NotesPanelImpl({
             key={color}
             type="button"
             className={colorFilter === color ? 'active' : ''}
-            aria-label={color}
+            aria-label={colorLabel(color)}
             onClick={() => setColorFilter(colorFilter === color ? 'all' : color)}
           >
             <span style={{ background: hex }} />
