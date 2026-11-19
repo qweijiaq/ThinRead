@@ -178,6 +178,12 @@ function escapeHtml(value) {
     .replaceAll("'", '&#039;')
 }
 
+// 反馈列表里的界面文案不会被 i18n 的整页扫描覆盖（用户留言要保持原文），
+// 所以这些字符串在渲染时单独翻译。
+function tr(value) {
+  return window.THINREAD_I18N?.t ? window.THINREAD_I18N.t(value) : value
+}
+
 function renderRoadmap() {
   if (!roadmapGrid) return
   // 本地路线图决定文案和状态；远端只补充用户建议，避免服务端旧文案覆盖站点。
@@ -192,16 +198,16 @@ function renderRoadmap() {
       (item) => `
       <article class="roadmap-card reveal">
         <div class="roadmap-card-top">
-          <span class="status status-${escapeHtml(item.status)}">${STATUS_LABEL[item.status] || escapeHtml(item.status)}</span>
+          <span class="status status-${escapeHtml(item.status)}">${escapeHtml(tr(STATUS_LABEL[item.status] || item.status))}</span>
           <span class="roadmap-card-meta">
-            ${item.source === 'user' ? '<span class="roadmap-source">来自用户建议</span>' : ''}
+            ${item.source === 'user' ? `<span class="roadmap-source">${tr('来自用户建议')}</span>` : ''}
             ${item.version ? `<span class="roadmap-version">${escapeHtml(item.version)}</span>` : ''}
             <span class="roadmap-date">${escapeHtml(item.date || '')}</span>
           </span>
         </div>
-        <h3>${escapeHtml(item.title)}</h3>
-        <p>${escapeHtml(item.summary || '')}</p>
-        ${item.reason ? `<span class="reason">拒绝原因：${escapeHtml(item.reason)}</span>` : ''}
+        <h3>${escapeHtml(tr(item.title))}</h3>
+        <p>${escapeHtml(tr(item.summary || ''))}</p>
+        ${item.reason ? `<span class="reason">${escapeHtml(tr('拒绝原因：'))}${escapeHtml(tr(item.reason))}</span>` : ''}
         ${feedbackServiceOnline && item.id ? `<div class="roadmap-card-footer">${voteButtonHtml('roadmap', item.id, item.votes)}</div>` : ''}
       </article>
     `,
@@ -315,9 +321,11 @@ function setFeedbackHint(message) {
 function setRoadmapNote(online) {
   const note = document.querySelector('#roadmapNote')
   if (!note) return
-  note.textContent = online
-    ? '路线图由留言台同步；用户建议被处理后会自动出现在这里。'
-    : '路线图根据开发记录和已知限制整理；已完成项写落地时间，未完成项只标当前阶段，不写虚构排期，也不代表承诺交付。'
+  note.textContent = tr(
+    online
+      ? '路线图由留言台同步；用户建议被处理后会自动出现在这里。'
+      : '路线图根据开发记录和已知限制整理；已完成项写落地时间，未完成项只标当前阶段，不写虚构排期，也不代表承诺交付。',
+  )
 }
 
 async function loadFeedbackService() {
@@ -480,7 +488,7 @@ function voteButtonHtml(type, id, votes) {
   if (!id) return ''
   const voted = hasVoted(type, id)
   return `<button class="vote-button ${voted ? 'is-voted' : ''}" type="button" data-vote="${type}" data-id="${escapeHtml(id)}" ${voted ? 'disabled' : ''}>
-    ${voted ? '已同感' : '同感'} <span>${Number(votes) || 0}</span>
+    ${tr(voted ? '已同感' : '同感')} <span>${Number(votes) || 0}</span>
   </button>`
 }
 
@@ -498,9 +506,10 @@ function fileToBase64(file) {
 
 function attachmentBlock(attachment) {
   if (!attachment?.data) return ''
+  const name = attachment.name || tr('留言截图')
   return `<figure class="note-attachment">
-    <img src="data:${escapeHtml(attachment.type)};base64,${attachment.data}" alt="${escapeHtml(attachment.name || '留言截图')}" loading="lazy" />
-    <figcaption>${escapeHtml(attachment.name || '留言截图')}</figcaption>
+    <img src="data:${escapeHtml(attachment.type)};base64,${attachment.data}" alt="${escapeHtml(name)}" loading="lazy" />
+    <figcaption>${escapeHtml(name)}</figcaption>
   </figure>`
 }
 
@@ -533,8 +542,8 @@ function renderMyFeedback() {
     list.innerHTML = `
       <div class="note-empty">
         <span class="note-empty-spinner" aria-hidden="true">…</span>
-        <h3>正在读取</h3>
-        <p>正在向留言台查询你提交过的留言。</p>
+        <h3>${tr('正在读取')}</h3>
+        <p>${tr('正在向留言台查询你提交过的留言。')}</p>
       </div>
     `
     return
@@ -543,9 +552,9 @@ function renderMyFeedback() {
     list.innerHTML = `
       <div class="note-empty">
         <span aria-hidden="true">+</span>
-        <h3>还没有提交过留言</h3>
-        <p>提交留言后，查询码会保存在这个浏览器里；之后可以在这里看处理进度和官方回复。</p>
-        <button class="text-link" data-action="write-feedback" type="button">去写一条 →</button>
+        <h3>${tr('还没有提交过留言')}</h3>
+        <p>${tr('提交留言后，查询码会保存在这个浏览器里；之后可以在这里看处理进度和官方回复。')}</p>
+        <button class="text-link" data-action="write-feedback" type="button">${tr('去写一条 →')}</button>
       </div>
     `
     return
@@ -553,22 +562,23 @@ function renderMyFeedback() {
   list.innerHTML = myFeedback
     .map((entry) => {
       if (entry.error) {
-        const reason =
+        const reason = tr(
           entry.reason === 'offline'
             ? '留言台未连接，暂时读不到这条留言的状态。服务恢复后点「刷新」再试。'
-            : '这条留言可能已经被删除，或者查询码不完整。'
-        return `<article class="note-card"><h3>${entry.reason === 'offline' ? '暂时读不到状态' : '查询码失效'}</h3><p>${reason}</p></article>`
+            : '这条留言可能已经被删除，或者查询码不完整。',
+        )
+        return `<article class="note-card"><h3>${tr(entry.reason === 'offline' ? '暂时读不到状态' : '查询码失效')}</h3><p>${reason}</p></article>`
       }
       const item = entry.feedback
       const roadmap = item.roadmap
       const status = item.status
-        ? `<span class="note-status status-${escapeHtml(item.status)}">${FEEDBACK_STATUS_LABEL[item.status] || escapeHtml(item.status)}</span>`
+        ? `<span class="note-status status-${escapeHtml(item.status)}">${escapeHtml(tr(FEEDBACK_STATUS_LABEL[item.status] || item.status))}</span>`
         : ''
       return `
         <article class="note-card">
           <div class="note-card-top">
             <span class="note-card-badges">
-              <span class="note-kind">${escapeHtml(item.kind || '建议')}</span>
+              <span class="note-kind">${escapeHtml(tr(item.kind || '建议'))}</span>
               ${status}
             </span>
             <time class="note-date">${escapeHtml(formatDate(item.createdAt))}</time>
@@ -578,15 +588,15 @@ function renderMyFeedback() {
           ${attachmentBlock(item.attachment)}
           ${
             item.reply
-              ? `<div class="note-reply"><span>官方回复</span><p>${escapeHtml(item.reply)}</p></div>`
-              : '<p class="note-date">还没有官方回复。</p>'
+              ? `<div class="note-reply"><span>${tr('官方回复')}</span><p>${escapeHtml(item.reply)}</p></div>`
+              : `<p class="note-date">${tr('还没有官方回复。')}</p>`
           }
           ${
             roadmap
               ? `<div class="note-roadmap">
-                  <strong>路线图：</strong>${escapeHtml(roadmap.title)} · ${FEEDBACK_STATUS_LABEL[roadmap.status] || escapeHtml(roadmap.status)}
+                  <strong>${tr('路线图：')}</strong>${escapeHtml(roadmap.title)} · ${escapeHtml(tr(FEEDBACK_STATUS_LABEL[roadmap.status] || roadmap.status))}
                   ${roadmap.version ? ` · ${escapeHtml(roadmap.version)}` : ''}
-                  ${roadmap.reason ? `<br />拒绝原因：${escapeHtml(roadmap.reason)}` : ''}
+                  ${roadmap.reason ? `<br />${tr('拒绝原因：')}${escapeHtml(roadmap.reason)}` : ''}
                 </div>`
               : ''
           }
@@ -613,16 +623,16 @@ function renderNotes() {
       ? `
         <div class="note-empty">
           <span aria-hidden="true">+</span>
-          <h3>还没有公开留言</h3>
-          <p>写下建议时勾选「允许公开展示」，它会出现在这里。</p>
+          <h3>${tr('还没有公开留言')}</h3>
+          <p>${tr('写下建议时勾选「允许公开展示」，它会出现在这里。')}</p>
         </div>
       `
       : `
         <div class="note-empty">
           <span aria-hidden="true">+</span>
-          <h3>留言台未连接</h3>
-          <p>留言会先保存在这台设备上；服务恢复后可以再发送。</p>
-          <button class="text-link" data-action="retry-feedback" type="button">重试连接</button>
+          <h3>${tr('留言台未连接')}</h3>
+          <p>${tr('留言会先保存在这台设备上；服务恢复后可以再发送。')}</p>
+          <button class="text-link" data-action="retry-feedback" type="button">${tr('重试连接')}</button>
         </div>
       `
     return
@@ -632,14 +642,14 @@ function renderNotes() {
     .map((note) => {
       const status =
         note.status && note.status !== 'new' && FEEDBACK_STATUS_LABEL[note.status]
-          ? `<span class="note-status status-${escapeHtml(note.status)}">${FEEDBACK_STATUS_LABEL[note.status]}</span>`
+          ? `<span class="note-status status-${escapeHtml(note.status)}">${escapeHtml(tr(FEEDBACK_STATUS_LABEL[note.status]))}</span>`
           : ''
       const vote = online && note.id ? voteButtonHtml('feedback', note.id, note.votes) : ''
       return `
       <article class="note-card" ${note.id ? `id="feedback-${escapeHtml(note.id)}"` : ''}>
         <div class="note-card-top">
           <span class="note-card-badges">
-            <span class="note-kind">${escapeHtml(note.kind || '建议')}</span>
+            <span class="note-kind">${escapeHtml(tr(note.kind || '建议'))}</span>
             ${status}
           </span>
           <time class="note-date">${escapeHtml(formatDate(note.createdAt))}</time>
@@ -647,9 +657,9 @@ function renderNotes() {
         <h3>${escapeHtml(note.title)}</h3>
         <p>${escapeHtml(note.body)}</p>
         ${attachmentBlock(note.attachment)}
-        ${note.reply ? `<div class="note-reply"><span>官方回复</span><p>${escapeHtml(note.reply)}</p></div>` : ''}
+        ${note.reply ? `<div class="note-reply"><span>${tr('官方回复')}</span><p>${escapeHtml(note.reply)}</p></div>` : ''}
         ${vote ? `<div class="note-footer">${vote}</div>` : ''}
-        ${!online && note.remote ? '<span class="note-remote">已提交到在线留言板</span>' : ''}
+        ${!online && note.remote ? `<span class="note-remote">${tr('已提交到在线留言板')}</span>` : ''}
       </article>
     `
     })
@@ -749,13 +759,13 @@ async function vote(type, id, button) {
     const item = list?.find((entry) => entry.id === id)
     if (item) item.votes = data.votes
     button.classList.add('is-voted')
-    button.innerHTML = `已同感 <span>${Number(data.votes) || 0}</span>`
+    button.innerHTML = `${tr('已同感')} <span>${Number(data.votes) || 0}</span>`
     button.disabled = true
   } catch {
     button.disabled = false
-    button.textContent = '稍后再试'
+    button.textContent = tr('稍后再试')
     window.setTimeout(() => {
-      button.textContent = '同感'
+      button.textContent = tr('同感')
     }, 1800)
   }
 }
@@ -1227,6 +1237,13 @@ document.querySelectorAll('.section-head, .feature-card, .shot, .shot-note, .dow
 
 window.addEventListener('storage', (event) => {
   if (event.key === FEEDBACK_STORAGE) renderNotes()
+})
+
+// 反馈卡片的界面文案在 i18n 的扫描范围之外，语言切换后重新渲染一次。
+window.addEventListener('thinread:langchange', () => {
+  renderRoadmap()
+  renderNotes()
+  setRoadmapNote(feedbackServiceOnline)
 })
 
 function boot() {
