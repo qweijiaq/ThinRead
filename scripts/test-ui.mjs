@@ -5,6 +5,8 @@ import path from 'node:path'
 
 import electronPath from 'electron'
 
+import { electronEnv } from './electron-env.mjs'
+
 const root = process.cwd()
 const entry = path.join(root, 'dist', 'index.html')
 if (!fs.existsSync(entry)) {
@@ -37,7 +39,7 @@ if (process.platform === 'linux') args.push('--no-sandbox')
 const child = spawn(electronPath, args, {
   cwd: root,
   stdio: 'inherit',
-  env: { ...process.env, THINREAD_HEADLESS: '1' },
+  env: electronEnv({ THINREAD_HEADLESS: '1' }),
 })
 const timer = setTimeout(() => {
   console.error('[ui-smoke] 超时，结束 Electron 进程')

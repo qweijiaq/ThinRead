@@ -103,36 +103,7 @@ export function TopBar({
               >
                 {book.title}
               </button>
-            ) : (
-              <span
-                className="topbar-book"
-                title={
-                  labActive
-                    ? t('AI 工作台')
-                    : mapActive
-                      ? t('知识地图')
-                      : composeActive
-                        ? t('整本成稿')
-                        : contentActive
-                          ? t('生成内容库')
-                          : notesActive
-                            ? t('全库笔记')
-                            : book?.title
-                }
-              >
-                {labActive
-                  ? t('AI 工作台')
-                  : mapActive
-                    ? t('知识地图')
-                    : composeActive
-                      ? t('整本成稿')
-                      : contentActive
-                        ? t('生成内容库')
-                        : notesActive
-                          ? t('全库笔记')
-                          : book?.title}
-              </span>
-            )}
+            ) : null}
             <button type="button" className="ghost-button small" onClick={onLibrary}>
               {t('书架')}
             </button>

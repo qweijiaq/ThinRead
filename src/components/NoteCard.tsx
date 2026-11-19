@@ -99,6 +99,9 @@ function NoteCardImpl({
   const [autoSaved, setAutoSaved] = useState(false)
   const busyRef = useRef(false)
   const closeAfterRef = useRef(false)
+  const latestPatchRef = useRef<NotePatch | null>(null)
+  const onUpdateRef = useRef(onUpdate)
+  onUpdateRef.current = onUpdate
   const initialRef = useRef({ title: note.title, content: note.content, tags: note.tags })
   const [previewOpen, setPreviewOpen] = useState(false)
   const [colorOpen, setColorOpen] = useState(false)
@@ -188,6 +191,22 @@ function NoteCardImpl({
       closeAfterRef.current = false
     }
   }
+
+  // 记录当前未保存的草稿；切换章节/卸载时用它做最后一次落盘，避免防抖窗口里的输入丢失。
+  useEffect(() => {
+    const dirty = editing && isDirty() && Boolean(draftContent.trim() || draftTitle.trim())
+    latestPatchRef.current = dirty ? currentPatch() : null
+  })
+
+  useEffect(
+    () => () => {
+      const patch = latestPatchRef.current
+      if (!patch) return
+      latestPatchRef.current = null
+      void onUpdateRef.current(note.id, patch).catch(() => undefined)
+    },
+    [note.id],
+  )
 
   useEffect(() => {
     if (!editing || !isDirty()) return

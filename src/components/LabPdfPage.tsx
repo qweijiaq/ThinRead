@@ -31,6 +31,8 @@ export function LabPdfPage({ books }: LabPdfPageProps): JSX.Element {
       } catch {
         // 忽略旧格式。
       }
+    }).catch((err: unknown) => {
+      if (!cancelled) setError(`${t('加载上次的 PDF 分析失败')}：${err instanceof Error ? err.message : String(err)}`)
     })
     return () => {
       cancelled = true
@@ -60,6 +62,9 @@ export function LabPdfPage({ books }: LabPdfPageProps): JSX.Element {
         } catch {
           setResult({ title: artifact.title, markdown: artifact.content })
         }
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setError(`${t('加载这一页的分析失败')}：${err instanceof Error ? err.message : String(err)}`)
       })
     return () => {
       cancelled = true

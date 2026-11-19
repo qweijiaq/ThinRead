@@ -202,7 +202,7 @@
 .map-book-count {
   pointer-events: none;
   fill: var(--muted);
-  font-size: 9.5px;
+  font-size: 10.5px;
   text-anchor: middle;
 }
 .map-note-label {
@@ -232,7 +232,7 @@
 .map-tooltip-source {
   overflow: hidden;
   color: var(--muted);
-  font-size: 9.5px;
+  font-size: 10.5px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -247,16 +247,16 @@
   border-radius: 3px;
   background: var(--accent-soft);
   color: var(--accent-dark);
-  font-size: 9px;
+  font-size: 10px;
 }
 .map-tooltip-tags {
   color: var(--muted);
-  font-size: 9.5px;
+  font-size: 10.5px;
 }
 .map-tooltip-open {
   margin-top: 2px;
   color: var(--accent);
-  font-size: 9.5px;
+  font-size: 10.5px;
 }
 .map-legend {
   position: absolute;
@@ -270,7 +270,7 @@
   border-radius: 8px;
   background: color-mix(in srgb, var(--paper-2) 88%, transparent);
   color: var(--muted);
-  font-size: 9.5px;
+  font-size: 10.5px;
   pointer-events: none;
 }
 .map-legend span {
@@ -483,7 +483,7 @@
 .map-detail-links > span {
   width: 100%;
   color: var(--muted);
-  font-size: 9.5px;
+  font-size: 10.5px;
 }
 .map-detail-links button {
   max-width: 100%;
@@ -565,7 +565,7 @@
 .map-concept-cross {
   pointer-events: none;
   fill: var(--accent);
-  font-size: 9px;
+  font-size: 10px;
   text-anchor: middle;
 }
 .map-legend .legend-concept {
@@ -588,7 +588,7 @@
 }
 .map-detail-notes > span {
   color: var(--muted);
-  font-size: 9.5px;
+  font-size: 10.5px;
 }
 .map-detail-note {
   display: block;
@@ -614,7 +614,7 @@
   margin-top: 2px;
   overflow: hidden;
   color: var(--muted);
-  font-size: 9.5px;
+  font-size: 10.5px;
   font-style: normal;
   text-overflow: ellipsis;
   white-space: nowrap;

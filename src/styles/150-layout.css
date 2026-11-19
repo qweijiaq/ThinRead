@@ -446,6 +446,7 @@ body,
   overflow-wrap: anywhere;
 }
 .ui-select-option:hover,
+.ui-select-option.is-active,
 .ui-select-option:focus-visible {
   outline: none;
   background: var(--paper-3);

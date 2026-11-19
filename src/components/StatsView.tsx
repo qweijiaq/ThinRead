@@ -406,7 +406,11 @@ export function StatsView({ books, onBack, onOpenWeeklyReview, onOpenWeeklyRevie
             ))}
           </div>
         </div>
-        <div className="heatmap-grid" role="img" aria-label={t('最近 365 天阅读热力图')}>
+        <div
+          className="heatmap-grid"
+          role="img"
+          aria-label={`${t('最近')} ${heatmapDays} ${t('天阅读热力图')}`}
+        >
           {heatmap.map((day) => {
             const level =
               day.seconds <= 0 ? 0 : day.seconds < 300 ? 1 : day.seconds < 900 ? 2 : day.seconds < 1800 ? 3 : 4

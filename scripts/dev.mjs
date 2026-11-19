@@ -1,6 +1,8 @@
 import { spawn } from 'node:child_process'
 import { setTimeout as delay } from 'node:timers/promises'
 
+import { electronEnv } from './electron-env.mjs'
+
 const build = spawn(process.execPath, ['scripts/build-electron.mjs'], { stdio: 'inherit' })
 const buildCode = await new Promise((resolve) => build.on('exit', resolve))
 if (buildCode !== 0) process.exit(buildCode ?? 1)
@@ -28,7 +30,7 @@ if (!ready) {
 
 const electron = spawn('pnpm', ['exec', 'electron', '.'], {
   stdio: 'inherit',
-  env: { ...process.env, VITE_DEV_SERVER_URL: 'http://localhost:5173' },
+  env: electronEnv({ VITE_DEV_SERVER_URL: 'http://localhost:5173' }),
 })
 
 function shutdown(code = 0) {

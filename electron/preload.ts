@@ -18,6 +18,7 @@ import type {
   PdfAnnotationColor,
   AppNotice,
   AppInfo,
+  UpdateCheckResult,
   BackupInfo,
   BookComposeOptions,
   BookComposeProgress,
@@ -173,6 +174,8 @@ const api: ReadingApi = {
     ipcRenderer.invoke('chapters:code-assist', chapterId, code, mode, language) as Promise<CodeAssistResult>,
   saveChapterContent: (chapterId: string, html: string) =>
     ipcRenderer.invoke('chapters:save-content', chapterId, html) as Promise<ChapterContentSaveResult>,
+  undoChapterContent: (chapterId: string) =>
+    ipcRenderer.invoke('chapters:undo-content', chapterId) as Promise<ChapterContentSaveResult>,
   importText: (input: TextImportInput) => ipcRenderer.invoke('books:import-text', input) as Promise<BookSummary>,
   importUrl: (url: string, options?: ImportBookOptions) =>
     ipcRenderer.invoke('books:import-url', url, options) as Promise<BookSummary>,
@@ -305,6 +308,8 @@ const api: ReadingApi = {
   verifyAppLock: (passcode: string) => ipcRenderer.invoke('app:verify-lock', passcode) as Promise<boolean>,
   testConnection: () => ipcRenderer.invoke('settings:test') as Promise<TestResult>,
   getAppInfo: () => ipcRenderer.invoke('app:info') as Promise<AppInfo>,
+  checkUpdate: () => ipcRenderer.invoke('app:check-update') as Promise<UpdateCheckResult>,
+  openRelease: (url: string) => ipcRenderer.invoke('app:open-release', url) as Promise<void>,
   getAiUsage: (days?: number) => ipcRenderer.invoke('ai:usage', days) as Promise<AiUsageSummary>,
   getNoteQuality: () => ipcRenderer.invoke('stats:note-quality') as Promise<NoteQualitySummary>,
   listPdfAnnotations: (bookId: string, page: number) =>

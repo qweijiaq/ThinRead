@@ -5,6 +5,8 @@ import path from 'node:path'
 
 import electronPath from 'electron'
 
+import { electronEnv } from './electron-env.mjs'
+
 const root = process.cwd()
 const fixture = path.join(root, 'samples', 'sample.pdf')
 if (!fs.existsSync(path.join(root, 'dist', 'index.html')) || !fs.existsSync(fixture)) {
@@ -15,7 +17,7 @@ const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'reading-notes-ui-pdf-'))
 const imported = spawnSync(electronPath, ['.', `--data-dir=${dataDir}`, `--import=${fixture}`, '--store'], {
   cwd: root,
   stdio: 'inherit',
-  env: { ...process.env, THINREAD_HEADLESS: '1' },
+  env: electronEnv({ THINREAD_HEADLESS: '1' }),
 })
 if (imported.status !== 0) {
   fs.rmSync(dataDir, { recursive: true, force: true })
@@ -25,7 +27,7 @@ if (imported.status !== 0) {
 const child = spawn(
   electronPath,
   ['.', `--data-dir=${dataDir}`, `--exec-file=${path.join(root, 'tests', 'pdf-viewer-smoke.js')}`, '--dump-dom'],
-  { cwd: root, stdio: 'inherit', env: { ...process.env, THINREAD_HEADLESS: '1' } },
+  { cwd: root, stdio: 'inherit', env: electronEnv({ THINREAD_HEADLESS: '1' }) },
 )
 const timer = setTimeout(() => child.kill('SIGKILL'), 120_000)
 const code = await new Promise((resolve) => {

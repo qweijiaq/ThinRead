@@ -13,6 +13,7 @@ import type {
   SettingsView,
   SyncStatus,
   TestResult,
+  UpdateCheckResult,
   VisionMode,
 } from '../../shared/types.js'
 import { setLocale, t, useLocale } from '../lib/i18n.js'
@@ -133,6 +134,8 @@ export function SettingsDialog({
   const [syncBusy, setSyncBusy] = useState<string | null>(null)
   const [syncNotice, setSyncNotice] = useState<string | null>(null)
   const [syncPassphrase, setSyncPassphrase] = useState('')
+  const [updateBusy, setUpdateBusy] = useState(false)
+  const [updateResult, setUpdateResult] = useState<UpdateCheckResult | null>(null)
 
   useEffect(() => {
     if (!open) return
@@ -647,6 +650,25 @@ export function SettingsDialog({
     }
   }
 
+  async function checkUpdates(): Promise<void> {
+    if (updateBusy) return
+    setUpdateBusy(true)
+    setUpdateResult(null)
+    try {
+      setUpdateResult(await bridge.checkUpdate())
+    } catch (error) {
+      setUpdateResult({
+        current: appInfo?.version ?? '',
+        latest: null,
+        hasUpdate: false,
+        url: 'https://github.com/qweijiaq/ThinRead/releases',
+        error: error instanceof Error ? error.message : String(error),
+      })
+    } finally {
+      setUpdateBusy(false)
+    }
+  }
+
   return (
     <>
       <div className="modal-backdrop" onMouseDown={onClose}>
@@ -799,7 +821,7 @@ export function SettingsDialog({
             options={[
               { value: 'auto', label: t('自动（仅视觉模型）') },
               { value: 'always', label: t('总是发送图片') },
-              { value: 'off', label: t('关闭') },
+              { value: 'off', label: t('关闭视觉') },
             ]}
           />
           <p className="field-hint">
@@ -927,8 +949,11 @@ export function SettingsDialog({
                 placeholder={settings.apiKeyConfigured ? `${t('已保存')} ${settings.apiKeyHint}${t('，留空则不修改')}` : t('粘贴 API Key')}
                 spellCheck={false}
               />
-              <p className="field-hint">
-                {t('保存在本机，使用系统钥匙串加密。')}{preset?.keyUrl ? `${t('获取地址')}：${preset.keyUrl}` : ''}
+              <p className={`field-hint${settings.apiKeyStorage === 'plain' ? ' is-warning' : ''}`}>
+                {settings.apiKeyStorage === 'plain'
+                  ? t('系统钥匙串当前不可用，这个 Key 以明文保存在本机 settings.json（权限 0600）。修复钥匙串后重新填写一次即可恢复加密。')
+                  : t('保存在本机，使用系统钥匙串加密。')}
+                {preset?.keyUrl ? `${t('获取地址')}：${preset.keyUrl}` : ''}
               </p>
             </div>
             <div className="form-row settings-advanced">
@@ -1333,6 +1358,35 @@ export function SettingsDialog({
 
         {result ? <div className={`test-result ${result.ok ? 'ok' : 'fail'}`}>{result.message}</div> : null}
 
+        {appInfo?.settingsCorruptBackupPath ? (
+          <p className="inline-notice" role="status">
+            {`${t('上次启动发现设置文件损坏，已恢复默认设置。原文件备份在')} ${appInfo.settingsCorruptBackupPath}`}
+          </p>
+        ) : null}
+        {appInfo ? (
+          <div className="settings-version">
+            <p className="modal-meta">{t('页边')} v{appInfo.version} · {t('数据目录')} {appInfo.dataDir}</p>
+            <div className="settings-version-actions">
+              <button type="button" className="text-button" onClick={() => void checkUpdates()} disabled={updateBusy}>
+                {updateBusy ? t('检查中…') : t('检查更新')}
+              </button>
+              {updateResult ? (
+                updateResult.error ? (
+                  <button type="button" className="text-button muted" onClick={() => void bridge.openRelease(updateResult.url)}>
+                    {`${t('检查失败，打开 Releases')}`}
+                  </button>
+                ) : updateResult.hasUpdate ? (
+                  <button type="button" className="text-button accent" onClick={() => void bridge.openRelease(updateResult.url)}>
+                    {`${t('发现新版本')} v${updateResult.latest} · ${t('去下载')}`}
+                  </button>
+                ) : (
+                  <span className="field-hint">{t('已是最新版本。')}</span>
+                )
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+
         </div>
 
         <div className="modal-footer">
@@ -1367,7 +1421,6 @@ export function SettingsDialog({
           </div>
         </div>
 
-        {appInfo ? <p className="modal-meta">{t('页边')} v{appInfo.version} · {t('数据目录')} {appInfo.dataDir}</p> : null}
       </div>
       </div>
     </>

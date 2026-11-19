@@ -60,9 +60,29 @@ export async function listOpds(url: string, auth?: OpdsAuth): Promise<OpdsPage> 
     entries.push({ title, author, format, url: target })
   })
   const nextHref = $('link[rel="next"]').first().attr('href')
+  let searchTemplate: string | null = null
+  const searchHref = $('link[rel="search"]').first().attr('href')
+  if (searchHref) {
+    try {
+      const searchUrl = new URL(searchHref, base)
+      const description = await fetch(searchUrl, {
+        headers: { Accept: 'application/opensearchdescription+xml, application/xml', ...authHeader(auth) },
+        signal: AbortSignal.timeout(15_000),
+      })
+      if (description.ok) {
+        const descriptionXml = await description.text()
+        const descriptionDoc = cheerio.load(descriptionXml, { xmlMode: true })
+        const template = descriptionDoc('Url').first().attr('template')
+        if (template) searchTemplate = new URL(template, searchUrl).toString()
+      }
+    } catch {
+      // 搜索描述读取失败时仍然可以浏览目录。
+    }
+  }
   return {
     entries,
     next: nextHref ? new URL(nextHref, base).toString() : null,
+    searchTemplate,
   }
 }
 

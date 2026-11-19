@@ -3,6 +3,7 @@ import { useEffect, useState, type JSX } from 'react'
 import type { SyncSnapshot, WebDavConfigView, WebDavInspection } from '../../shared/types.js'
 import { bridge } from '../lib/bridge.js'
 import { t } from '../lib/i18n.js'
+import { confirmDialog } from './ConfirmDialog.js'
 
 function formatTime(value: string): string {
   if (!value) return ''
@@ -114,6 +115,14 @@ export function WebDavPanel(): JSX.Element {
   }
 
   async function pull(name: string): Promise<void> {
+    if (busy) return
+    const confirmed = await confirmDialog({
+      title: t('从 WebDAV 恢复整库'),
+      message: t('恢复会用远端快照覆盖当前的书、笔记和设置。应用会先自动备份当前状态，但本地较新的内容不会自动合并。继续？'),
+      confirmLabel: t('恢复并重载'),
+      danger: true,
+    })
+    if (!confirmed) return
     setBusy(name)
     setNotice(null)
     try {
@@ -128,6 +137,14 @@ export function WebDavPanel(): JSX.Element {
   }
 
   async function remove(name: string): Promise<void> {
+    if (busy) return
+    const confirmed = await confirmDialog({
+      title: t('删除远端同步快照'),
+      message: t('会从 WebDAV 删除这份快照，删除后无法恢复。继续？'),
+      confirmLabel: t('删除'),
+      danger: true,
+    })
+    if (!confirmed) return
     setBusy(name)
     try {
       await bridge.deleteWebDavSnapshot(name)

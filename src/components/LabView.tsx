@@ -2,7 +2,7 @@ import { bridge } from '../lib/bridge.js'
 import { useEffect, useMemo, useState, type JSX } from 'react'
 import type { BookSummary, ChapterMeta, LabToolId } from '../../shared/types.js'
 import { t, useLocale } from '../lib/i18n.js'
-import { LAB_TOOLS, labTool } from '../lib/lab-tools.js'
+import { LAB_TOOLS, labTool, type LabTool } from '../lib/lab-tools.js'
 import { LabChat } from './LabChat.js'
 import { LabDuplicateCards } from './LabDuplicateCards.js'
 import { LabMergeConcepts } from './LabMergeConcepts.js'
@@ -61,7 +61,11 @@ export function LabView({ books, onBack, onSaveReport, initialToolId, onListen, 
     }
   }, [bookId])
 
-  const groups = useMemo(() => [...new Set(LAB_TOOLS.map((item) => item.group))], [])
+  const recommended = useMemo(() => LAB_TOOLS.filter((item) => item.recommended), [])
+  const groups = useMemo(
+    () => [...new Set(LAB_TOOLS.filter((item) => !item.recommended).map((item) => item.group))],
+    [],
+  )
   const selectedBook = books.find((book) => book.id === bookId) ?? null
 
   function toggleBook(id: string): void {
@@ -77,6 +81,26 @@ export function LabView({ books, onBack, onSaveReport, initialToolId, onListen, 
       : tool.books === 'single'
         ? selectedBook?.title ?? t('还没有书')
         : null
+
+  function renderToolButton(item: LabTool): JSX.Element {
+    return (
+      <button
+        key={item.id}
+        type="button"
+        className={item.id === toolId ? 'is-active' : ''}
+        onClick={() => {
+          setToolId(item.id)
+          setVisited((current) => (current.has(item.id) ? current : new Set(current).add(item.id)))
+          if (item.id === 'author-roundtable' && bookIds.length === 0 && books.length > 0) {
+            setBookIds([bookId || books[0]!.id])
+          }
+        }}
+        title={t(item.description)}
+      >
+        {t(item.title)}
+      </button>
+    )
+  }
 
   return (
     <main className="lab-view">
@@ -102,26 +126,16 @@ export function LabView({ books, onBack, onSaveReport, initialToolId, onListen, 
 
       <div className={`lab-layout${railCollapsed ? ' is-rail-collapsed' : ''}`}>
         <nav className="lab-rail">
+          {recommended.length > 0 ? (
+            <div className="lab-rail-group lab-rail-recommended">
+              <span>{t('常用')}</span>
+              {recommended.map(renderToolButton)}
+            </div>
+          ) : null}
           {groups.map((group) => (
             <div key={group} className="lab-rail-group">
               <span>{t(group)}</span>
-              {LAB_TOOLS.filter((item) => item.group === group).map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  className={item.id === toolId ? 'is-active' : ''}
-                  onClick={() => {
-                    setToolId(item.id)
-                    setVisited((current) => (current.has(item.id) ? current : new Set(current).add(item.id)))
-                    if (item.id === 'author-roundtable' && bookIds.length === 0 && books.length > 0) {
-                      setBookIds([bookId || books[0]!.id])
-                    }
-                  }}
-                  title={t(item.description)}
-                >
-                  {t(item.title)}
-                </button>
-              ))}
+              {LAB_TOOLS.filter((item) => !item.recommended && item.group === group).map(renderToolButton)}
             </div>
           ))}
         </nav>

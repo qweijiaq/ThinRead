@@ -42,13 +42,14 @@ export interface VisionPdfResult {
   structured: StructuredBlock[]
 }
 
-const MAX_VISION_PAGES = 120
+/** 单批页数。渲染与请求仍按批进行，但一次导入会循环处理整本。 */
+export const VISION_BATCH_SIZE = 120
 const CONCURRENCY = 2
 
 export function parsePageSelection(spec: string | undefined, total: number): number[] {
   const raw = (spec ?? '').trim()
   if (!raw || /^全部$|^all$/i.test(raw)) {
-    return Array.from({ length: Math.min(total, MAX_VISION_PAGES) }, (_, index) => index + 1)
+    return Array.from({ length: Math.max(0, total) }, (_, index) => index + 1)
   }
   const pages = new Set<number>()
   for (const part of raw.split(/[,，\s]+/).filter(Boolean)) {
@@ -68,9 +69,6 @@ export function parsePageSelection(spec: string | undefined, total: number): num
   }
   const selected = [...pages].sort((a, b) => a - b)
   if (selected.length === 0) throw new Error('没有选择要解析的页码。')
-  if (selected.length > MAX_VISION_PAGES) {
-    throw new Error(`一次最多视觉解析 ${MAX_VISION_PAGES} 页，当前选择了 ${selected.length} 页。`)
-  }
   return selected
 }
 
@@ -151,7 +149,7 @@ function extractStructuredBlocks(pages: PdfPageText[]): StructuredBlock[] {
       if (formula) blocks.push({ page: page.page, kind: 'formula', text: `$$${formula}$$` })
     }
   }
-  return blocks.slice(0, 120)
+  return blocks.slice(0, 400)
 }
 
 function structuredChapter(blocks: StructuredBlock[]): NewChapter | null {
@@ -191,20 +189,27 @@ export async function parsePdfWithVision(options: VisionPdfOptions): Promise<Vis
     const pageNumbers = parsePageSelection(options.pages, doc.numPages)
     const imageDir = await fs.mkdtempSync(path.join(os.tmpdir(), 'thinread-vision-pdf-'))
     try {
-      const rendered = await renderPdfPages(options.sourcePath, imageDir, pageNumbers)
-      if (rendered.length === 0) {
-        throw new Error('PDF 页面渲染失败，请确认文件可正常打开，或改用普通 PDF 解析。')
-      }
-      const images = await readRenderedImages(imageDir, rendered)
       const model = createLanguageModel(options.config)
       const cacheDir = options.dataDir ? path.join(options.dataDir, 'vision-pdf-cache') : ''
       if (cacheDir) fs.mkdirSync(cacheDir, { recursive: true })
       let done = 0
       let failed = 0
-      const ocrPage = async (index: number, previous: string): Promise<PdfPageText> => {
+      let renderMissed = 0
+      let renderedAny = false
+
+      const loadBatchImages = async (batch: number[]): Promise<Map<number, string>> => {
+        const rendered = await renderPdfPages(options.sourcePath, imageDir, batch)
+        if (rendered.length === 0) {
+          renderMissed += batch.length
+          return new Map()
+        }
+        renderedAny = true
+        renderMissed += Math.max(0, batch.length - rendered.length)
+        return readRenderedImages(imageDir, rendered)
+      }
+
+      const ocrPage = async (page: number, image: string | undefined, previous: string): Promise<PdfPageText> => {
         options.signal?.throwIfAborted()
-        const page = pageNumbers[index]!
-        const image = images.get(page)
         let text = ''
         if (image) {
           const cacheKey = createHash('sha256')
@@ -221,75 +226,97 @@ export async function parsePdfWithVision(options: VisionPdfOptions): Promise<Vis
           }
           if (!text) {
             try {
-            const response = await tracedGenerateText(
-              {
-                step: 'pdf-vision',
-                provider: options.config.provider,
-                model: options.config.model,
-                promptVersion: options.maintainFormat ? 'pdf-vision-format-v1' : 'pdf-vision-v1',
-                timeoutMs: 180_000,
-              },
-              {
-                model,
-                system:
-                  '你是 PDF 页面转 Markdown 的助手。只转录页面内容，不总结、不翻译、不评论，不编造页面上没有的信息。',
-                messages: [
-                  {
-                    role: 'user',
-                    content: [
-                      {
-                        type: 'text',
-                        text: [
-                          `这是 PDF 的第 ${page} 页。请完整转成 Markdown。`,
-                          '保留标题层级、列表、表格、代码块和图表说明；页眉页脚可以省略。',
-                          '表格用 Markdown 表格；代码用代码块；无法辨认的内容写 [无法辨认]。',
-                          options.maintainFormat && previous
-                            ? '上一页末尾内容如下，仅用于延续跨页表格、列表或代码块，不要重复输出：\n' +
-                              previous.slice(-1_500)
-                            : '',
-                          '只输出 Markdown 正文，不要解释。',
-                        ]
-                          .filter(Boolean)
-                          .join('\n'),
-                      },
-                      { type: 'image', image: image.replace(/^data:[^;]+;base64,/, ''), mediaType: 'image/jpeg' },
-                    ],
-                  },
-                ],
-                temperature: 0.1,
-                maxOutputTokens: 4_000,
-                maxRetries: 1,
-                abortSignal: options.signal,
-              },
-            )
-            text = cleanMarkdown(response.text)
-            if (cachePath && text) fs.writeFileSync(cachePath, text)
+              const response = await tracedGenerateText(
+                {
+                  step: 'pdf-vision',
+                  provider: options.config.provider,
+                  model: options.config.model,
+                  promptVersion: options.maintainFormat ? 'pdf-vision-format-v1' : 'pdf-vision-v1',
+                  timeoutMs: 180_000,
+                },
+                {
+                  model,
+                  system:
+                    '你是 PDF 页面转 Markdown 的助手。只转录页面内容，不总结、不翻译、不评论，不编造页面上没有的信息。',
+                  messages: [
+                    {
+                      role: 'user',
+                      content: [
+                        {
+                          type: 'text',
+                          text: [
+                            `这是 PDF 的第 ${page} 页。请完整转成 Markdown。`,
+                            '保留标题层级、列表、表格、代码块和图表说明；页眉页脚可以省略。',
+                            '表格用 Markdown 表格；代码用代码块；无法辨认的内容写 [无法辨认]。',
+                            options.maintainFormat && previous
+                              ? '上一页末尾内容如下，仅用于延续跨页表格、列表或代码块，不要重复输出：\n' +
+                                previous.slice(-1_500)
+                              : '',
+                            '只输出 Markdown 正文，不要解释。',
+                          ]
+                            .filter(Boolean)
+                            .join('\n'),
+                        },
+                        { type: 'image', image: image.replace(/^data:[^;]+;base64,/, ''), mediaType: 'image/jpeg' },
+                      ],
+                    },
+                  ],
+                  temperature: 0.1,
+                  maxOutputTokens: 4_000,
+                  maxRetries: 1,
+                  abortSignal: options.signal,
+                },
+              )
+              text = cleanMarkdown(response.text)
+              if (cachePath && text) fs.writeFileSync(cachePath, text)
             } catch {
               text = ''
             }
           }
         }
         if (!text) {
-          failed += 1
+          if (image) failed += 1
           text = await pageFallbackText(doc, page)
         }
-        done += 1
-        options.onProgress?.(done, pageNumbers.length)
         return { page, text }
       }
-      let pages: PdfPageText[]
+
+      const pages: PdfPageText[] = []
       if (options.maintainFormat) {
-        pages = []
+        // 串行模式需要上一页正文；分批只影响渲染，跨批仍能延续表格和代码块。
         let previous = ''
-        for (let index = 0; index < pageNumbers.length; index += 1) {
-          const page = await ocrPage(index, previous)
-          pages.push(page)
-          previous = page.text
+        for (let start = 0; start < pageNumbers.length; start += VISION_BATCH_SIZE) {
+          const batch = pageNumbers.slice(start, start + VISION_BATCH_SIZE)
+          const images = await loadBatchImages(batch)
+          for (const page of batch) {
+            const result = await ocrPage(page, images.get(page), previous)
+            pages.push(result)
+            previous = result.text
+            done += 1
+            options.onProgress?.(done, pageNumbers.length)
+          }
         }
       } else {
-        pages = await runPool(pageNumbers.length, CONCURRENCY, (index) => ocrPage(index, ''))
+        for (let start = 0; start < pageNumbers.length; start += VISION_BATCH_SIZE) {
+          const batch = pageNumbers.slice(start, start + VISION_BATCH_SIZE)
+          const images = await loadBatchImages(batch)
+          const results = await runPool(batch.length, CONCURRENCY, async (index) => {
+            const page = batch[index]!
+            const result = await ocrPage(page, images.get(page), '')
+            done += 1
+            options.onProgress?.(Math.min(done, pageNumbers.length), pageNumbers.length)
+            return result
+          })
+          pages.push(...results)
+        }
       }
 
+      if (!renderedAny) {
+        throw new Error('PDF 页面渲染失败，请确认文件可正常打开，或改用普通 PDF 解析。')
+      }
+      if (pages.length === 0) {
+        throw new Error('没有可解析的页面。')
+      }
       if (failed === pages.length) {
         throw new Error('视觉解析没有返回可用内容。请换一个支持图片的模型，或改用普通 PDF 解析。')
       }
@@ -307,7 +334,7 @@ export async function parsePdfWithVision(options: VisionPdfOptions): Promise<Vis
       if (pageNumbers.length < doc.numPages) {
         chapters.push({
           title: '未解析的页面',
-          text: `这本 PDF 共 ${doc.numPages} 页，本次视觉解析了 ${pageNumbers.length} 页（${pageNumbers[0]}–${pageNumbers[pageNumbers.length - 1]}）。可以在「重新解析」里补上其他页码范围。`,
+          text: `这本 PDF 共 ${doc.numPages} 页，本次视觉解析了 ${pageNumbers.length} 页（${pageNumbers[0]}–${pageNumbers[pageNumbers.length - 1]}）。需要其余页面时，请按页码区间再次导入同一份 PDF，再在书架里用「合并书籍」合成一本。`,
           html: null,
         })
       }
@@ -316,10 +343,14 @@ export async function parsePdfWithVision(options: VisionPdfOptions): Promise<Vis
         const structured = structuredChapter(structuredBlocks)
         if (structured) chapters.push(structured)
       }
-      if (failed > 0) {
+      if (failed > 0 || renderMissed > 0) {
+        const details = [
+          failed > 0 ? `${failed} 页模型识别失败` : '',
+          renderMissed > 0 ? `${renderMissed} 页未能渲染成图片` : '',
+        ].filter(Boolean)
         chapters.push({
           title: '视觉解析提示',
-          text: `本次有 ${failed} 页视觉解析失败，已回退到 PDF 文字层；这些页面可能缺少图表或表格。`,
+          text: `本次有 ${details.join('、')}，已回退到 PDF 文字层；这些页面可能缺少图表或表格。`,
           html: null,
         })
       }

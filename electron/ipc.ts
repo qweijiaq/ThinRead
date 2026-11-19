@@ -143,12 +143,12 @@ import { askChapter, evaluateExplanation } from './ai/tutor.js'
 import { generateSessionSummary } from './ai/session-summary.js'
 import { traceAsync, tracedGenerateText } from './ai/trace.js'
 import { getPdfPageCount } from './parsers/pdf.js'
-import { parsePageSelection } from './parsers/pdf-vision.js'
+import { parsePageSelection, VISION_BATCH_SIZE } from './parsers/pdf-vision.js'
 import { classifyImportedChapters, importBookFile, importHighlightEntries, importHighlightsFile, importScannedPdf, importTextBook, importUrlBook, reparseBookFile } from './import.js'
 import { renderHtmlToPdf } from './pdf.js'
 import { buildKnowledgeMap } from './knowledge-map.js'
 import { configureSemantic, semanticRelatedNotes, semanticSearchNotes, warmSemanticIndex } from './semantic.js'
-import { getActiveSettings, getAiPricing, getProviderApiKey, getReadwiseToken, getSettingsView, getUiPreferences, getAppLockEnabled, isDemoMode, saveSettings, saveUiPreferences, setAppLockPasscode, verifyAppLockPasscode } from './settings.js'
+import { getActiveSettings, getAiPricing, getProviderApiKey, getReadwiseToken, getSettingsRecovery, getSettingsView, getUiPreferences, getAppLockEnabled, isDemoMode, saveSettings, saveUiPreferences, setAppLockPasscode, verifyAppLockPasscode } from './settings.js'
 import { fetchReadwiseEntries } from './readwise.js'
 import { parseWechatReadingNotes } from './parsers/wechat-reading.js'
 import { getDoclingStatus } from './parsers/docling.js'
@@ -546,6 +546,7 @@ async function formatChapterToDb(
       }),
   )
   if (signal?.aborted) throw new Error('排版已取消')
+  rememberChapterHtml(chapterId)
   const chars = saveChapterFormat(chapterId, result.html, result.removed)
   const savedStyle = saveBookStyle(chapter.bookId, result.style)
   saveLabArtifact({
@@ -589,6 +590,25 @@ function tutorContextFor(chapterId: string): TutorContext {
 }
 
 let activeImport: AbortController | null = null
+/** 正文保存/还原前的上一版 HTML，用于一次「撤销」；不跨重启保存。 */
+const chapterHtmlUndo = new Map<string, { html: string; chars: number }>()
+
+/** 记录当前显示层 HTML，供保存/还原后的一次撤销使用。 */
+function rememberChapterHtml(chapterId: string): void {
+  try {
+    const current = getChapter(chapterId)
+    const html = current.formattedHtml ?? current.html
+    if (!html) return
+    chapterHtmlUndo.set(chapterId, { html, chars: current.chars })
+    while (chapterHtmlUndo.size > 20) {
+      const oldest = chapterHtmlUndo.keys().next().value
+      if (typeof oldest !== 'string') break
+      chapterHtmlUndo.delete(oldest)
+    }
+  } catch {
+    // 章节不存在时不记录，保存会正常抛错。
+  }
+}
 
 export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: string): void {
   configureSemantic(dataDir, () => {
@@ -691,11 +711,20 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
         const cost = price
           ? (pages.length * (2_000 * price.inputPerMTokens + 1_200 * price.outputPerMTokens)) / 1_000_000
           : null
+        const remaining = Math.max(0, total - pages.length)
+        const batches = Math.ceil(pages.length / VISION_BATCH_SIZE)
         const detail = [
           `将视觉解析 ${pages.length} 页（这本 PDF 共 ${total} 页）。`,
+          batches > 1 ? `会自动分成 ${batches} 批完成，进度仍显示在同一个任务里。` : '',
+          remaining > 0
+            ? `其余 ${remaining} 页不在本次范围内，不会写入这本书。`
+            : '',
+          pages.length > 300 ? '页数较多，预计耗时较长；建议先用小范围确认效果。' : '',
           cost === null ? '当前模型没有配置价格，实际费用取决于服务商。' : `按当前模型价格粗估约 ¥${cost.toFixed(2)}，实际以服务商账单为准。`,
           '页面结果会缓存，重复解析同一页不会再次消耗 token。',
-        ].join('\n')
+        ]
+          .filter(Boolean)
+          .join('\n')
         const options = {
           type: 'question' as const,
           title: '开始视觉解析',
@@ -944,8 +973,18 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     ])
     const clean = sanitizeChapterHtml(stripEditorArtifacts(html))
     if (!htmlToText(clean).trim()) throw new Error('正文不能为空。')
+    rememberChapterHtml(chapterId)
     const chars = saveChapterContent(chapterId, clean)
     return { html: clean, chars }
+  })
+
+  ipcMain.handle('chapters:undo-content', (_event, chapterId: string) => {
+    if (typeof chapterId !== 'string') throw new Error('章节无效。')
+    const previous = chapterHtmlUndo.get(chapterId)
+    if (!previous) throw new Error('没有可撤销的正文修改。')
+    chapterHtmlUndo.delete(chapterId)
+    const chars = saveChapterContent(chapterId, previous.html)
+    return { html: previous.html, chars }
   })
 
   ipcMain.handle('chapters:apply-code-fix', async (_event, rawChapterId: unknown, rawCode: unknown, rawFixed: unknown) => {
@@ -1477,7 +1516,10 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     deleteBackgroundTask(id)
   })
 
-  ipcMain.handle('chapters:resetFormat', (_event, chapterId: string) => resetChapterFormat(chapterId))
+  ipcMain.handle('chapters:resetFormat', (_event, chapterId: string) => {
+    rememberChapterHtml(chapterId)
+    return resetChapterFormat(chapterId)
+  })
 
   ipcMain.handle('books:reparse', async (event, rawBookId: unknown, rawOptions: unknown) => {
     const [bookId, options] = parseIpc('books:reparse', bookReparseArgs, [rawBookId, rawOptions])
@@ -1487,19 +1529,26 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
     const record = getBookRecord(bookId)
     if (!record) throw new Error('找不到这本书')
     await autoBackup(`重新解析《${record.title}》前`)
-    const parsed = await reparseBookFile(
-      record,
-      dataDir,
-      {
-        skipReferences: options?.skipReferences === true,
-        deepPdf: options?.deepPdf === true,
-      },
-      (progress) => {
-        if (!event.sender.isDestroyed()) event.sender.send('docling:progress', { ...progress, bookId })
-      },
-    )
-    const chapters = classifyImportedChapters(parsed.chapters)
-    return replaceBookChapters(bookId, { title: parsed.title, author: parsed.author, chapters })
+    const controller = new AbortController()
+    activeImport = controller
+    try {
+      const parsed = await reparseBookFile(
+        record,
+        dataDir,
+        {
+          skipReferences: options?.skipReferences === true,
+          deepPdf: options?.deepPdf === true,
+        },
+        (progress) => {
+          if (!event.sender.isDestroyed()) event.sender.send('docling:progress', { ...progress, bookId })
+        },
+        controller.signal,
+      )
+      const chapters = classifyImportedChapters(parsed.chapters)
+      return replaceBookChapters(bookId, { title: parsed.title, author: parsed.author, chapters })
+    } finally {
+      if (activeImport === controller) activeImport = null
+    }
   })
 
   ipcMain.handle('books:merge', async (_event, rawIds: unknown, rawTitle: unknown, rawAuthor: unknown) => {
@@ -2791,9 +2840,59 @@ export function registerIpc(getWindow: () => BrowserWindow | null, dataDir: stri
   ipcMain.handle('app:info', () => ({
     version: app.getVersion(),
     dataDir,
-    demo: getSettingsView().demo,
+    // 只判断 provider，避免启动时为了读 demo 标志去解密全部 Key。
+    demo: isDemoMode(),
     lockEnabled: getAppLockEnabled(),
+    settingsCorruptBackupPath: getSettingsRecovery().corruptBackupPath,
   }))
+
+  ipcMain.handle('app:check-update', async () => {
+    const current = app.getVersion()
+    const fallback = 'https://github.com/qweijiaq/ThinRead/releases'
+    try {
+      const response = await fetch('https://api.github.com/repos/qweijiaq/ThinRead/releases/latest', {
+        headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'ThinRead' },
+        signal: AbortSignal.timeout(12_000),
+      })
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      const release = (await response.json()) as { tag_name?: unknown; html_url?: unknown }
+      const raw = typeof release.tag_name === 'string' ? release.tag_name.replace(/^v/i, '') : ''
+      const numbers = (value: string): number[] => value.split(/[^\d]+/).filter(Boolean).slice(0, 3).map(Number)
+      const left = numbers(raw)
+      const right = numbers(current)
+      let hasUpdate = false
+      for (let index = 0; index < 3; index += 1) {
+        const a = left[index] ?? 0
+        const b = right[index] ?? 0
+        if (a !== b) {
+          hasUpdate = a > b
+          break
+        }
+      }
+      return {
+        current,
+        latest: raw || null,
+        hasUpdate: Boolean(raw) && hasUpdate,
+        url: typeof release.html_url === 'string' ? release.html_url : fallback,
+      }
+    } catch (error) {
+      return {
+        current,
+        latest: null,
+        hasUpdate: false,
+        url: fallback,
+        error: error instanceof Error ? error.message : String(error),
+      }
+    }
+  })
+
+  ipcMain.handle('app:open-release', async (_event, url: unknown) => {
+    const target = typeof url === 'string' ? url : ''
+    if (!/^https:\/\/github\.com\/qweijiaq\/ThinRead(\/|$)/i.test(target)) {
+      throw new Error('更新地址无效。')
+    }
+    await shell.openExternal(target)
+  })
 
   ipcMain.handle('app:open-data', async () => {
     await shell.openPath(dataDir)

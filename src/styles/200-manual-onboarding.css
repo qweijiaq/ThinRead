@@ -53,7 +53,7 @@
 .manual-version {
   flex: 0 0 auto;
   margin-top: 7px;
-  color: var(--faint);
+  color: var(--muted);
   font-family: 'IBM Plex Mono', 'SFMono-Regular', Menlo, monospace;
   font-size: 10px;
   letter-spacing: 0.12em;
@@ -124,12 +124,12 @@
 .manual-toc nav button:hover { background: var(--paper-3); color: var(--ink); }
 .manual-toc nav button span {
   flex: 0 0 22px;
-  color: var(--faint);
+  color: var(--muted);
   font-family: 'IBM Plex Mono', Menlo, monospace;
-  font-size: 9px;
+  font-size: 10px;
 }
 
-.manual-empty { color: var(--faint); font-size: 11px; }
+.manual-empty { color: var(--muted); font-size: 11px; }
 
 .manual-content {
   min-height: 0;
@@ -339,7 +339,7 @@
   justify-content: space-between;
   gap: 16px;
   padding-top: 16px;
-  color: var(--faint);
+  color: var(--muted);
   font-size: 11px;
   line-height: 1.6;
 }

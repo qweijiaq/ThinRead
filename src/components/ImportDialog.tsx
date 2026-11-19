@@ -45,6 +45,8 @@ export function ImportDialog({
   const [opdsUrl, setOpdsUrl] = useState('')
   const [opdsEntries, setOpdsEntries] = useState<InputOpdsEntry[]>([])
   const [opdsNext, setOpdsNext] = useState<string | null>(null)
+  const [opdsSearchTemplate, setOpdsSearchTemplate] = useState<string | null>(null)
+  const [opdsQuery, setOpdsQuery] = useState('')
   const [opdsUser, setOpdsUser] = useState('')
   const [opdsPass, setOpdsPass] = useState('')
   const [opdsBusy, setOpdsBusy] = useState<string | null>(null)
@@ -221,6 +223,32 @@ export function ImportDialog({
       const page = await bridge.listOpds(opdsUrl.trim(), { username: opdsUser, password: opdsPass })
       setOpdsEntries(page.entries)
       setOpdsNext(page.next)
+      setOpdsSearchTemplate(page.searchTemplate)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setOpdsBusy(null)
+    }
+  }
+
+  async function searchOpds(): Promise<void> {
+    if (!opdsSearchTemplate || !opdsQuery.trim() || opdsBusy) return
+    setOpdsBusy('search')
+    setError(null)
+    try {
+      const term = opdsQuery.trim()
+      const url = opdsSearchTemplate
+        .replace(/\{([^}]+)\}/g, (_match, raw: string) => {
+          const key = raw.replace(/\?$/, '')
+          return key === 'searchTerms' ? encodeURIComponent(term) : ''
+        })
+        .replace(/[?&][^?&=]+=(?=&|$)/g, '')
+        .replace(/[?&]+$/g, '')
+        .replace(/\?&/g, '?')
+        .replace(/&&+/g, '&')
+      const page = await bridge.listOpds(url, { username: opdsUser, password: opdsPass })
+      setOpdsEntries(page.entries)
+      setOpdsNext(page.next)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -368,7 +396,7 @@ export function ImportDialog({
               label={t('PDF 视觉解析（Zerox 式，较慢）')}
             />
             <p className="field-hint">
-              {t('用当前笔记模型把每一页渲染成图片再转成 Markdown，适合扫描版、教材和图表/表格多的 PDF。一次最多 120 页，会消耗较多 token。')}
+              {t('用当前笔记模型把每一页渲染成图片再转成 Markdown，适合扫描版、教材和图表/表格多的 PDF。每批 120 页，超过会自动分批；会消耗较多 token。')}
             </p>
             {visionPdf ? (
               <div className="import-option">
@@ -377,10 +405,12 @@ export function ImportDialog({
                   <input
                     value={visionPages}
                     onChange={(event) => setVisionPages(event.target.value)}
-                    placeholder={t('例如 1-20,25；留空解析全部')}
+                    placeholder={t('例如 1-20,25；留空解析全书')}
                   />
                 </label>
-                <p className="field-hint">{t('一次最多 120 页。先用小范围试一页，确认效果再扩大。')}</p>
+                <p className="field-hint">
+                  {t('每批 120 页；超过 120 页会自动分批，进度仍显示在同一次导入里。先用小范围试一页，确认效果再扩大。')}
+                </p>
                 <Checkbox
                   checked={visionStructure}
                   onChange={setVisionStructure}
@@ -394,11 +424,6 @@ export function ImportDialog({
                 <p className="field-hint">
                   {t('开启后逐页解析，并把上一页末尾传给下一页，适合跨页表格和长代码；速度会明显变慢。')}
                 </p>
-                {busy ? (
-                  <button type="button" className="text-button danger" onClick={() => void bridge.cancelBookImport()}>
-                    {t('取消视觉解析')}
-                  </button>
-                ) : null}
               </div>
             ) : null}
             {busy && (deepPdf || visionPdf) && (deepPdf ? doclingStatus?.available === true : true) ? (
@@ -413,6 +438,15 @@ export function ImportDialog({
                         ? t('正在处理图表和表格…')
                         : t('正在解析…')}
               </p>
+            ) : null}
+            {busy && (deepPdf || visionPdf) ? (
+              <button
+                type="button"
+                className="text-button danger"
+                onClick={() => void bridge.cancelBookImport()}
+              >
+                {visionPdf ? t('取消视觉解析') : t('取消深度解析')}
+              </button>
             ) : null}
           </div>
         ) : null}
@@ -531,6 +565,34 @@ export function ImportDialog({
               {t('OPDS 地址')}
               <input value={opdsUrl} onChange={(event) => setOpdsUrl(event.target.value)} placeholder="https://example.com/opds" />
             </label>
+            {opdsSearchTemplate ? (
+              <div className="import-actions">
+                <input
+                  value={opdsQuery}
+                  onChange={(event) => setOpdsQuery(event.target.value)}
+                  placeholder={t('在书库中搜索')}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') void searchOpds()
+                  }}
+                />
+                <button type="button" className="ghost-button" onClick={() => void searchOpds()} disabled={opdsBusy !== null || !opdsQuery.trim()}>
+                  {opdsBusy === 'search' ? t('搜索中…') : t('搜索')}
+                </button>
+                {opdsQuery ? (
+                  <button
+                    type="button"
+                    className="text-button muted"
+                    onClick={() => {
+                      setOpdsQuery('')
+                      void browseOpds()
+                    }}
+                    disabled={opdsBusy !== null}
+                  >
+                    {t('清除')}
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
             <div className="opds-auth">
               <input value={opdsUser} onChange={(event) => setOpdsUser(event.target.value)} placeholder={t('用户名（可选）')} />
               <input

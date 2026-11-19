@@ -115,6 +115,7 @@ export async function importBookFile(
         title: info.title,
         author: info.author,
         onProgress: onDoclingProgress,
+        signal,
       })
     } else {
       const imageDir = await fs.mkdtemp(path.join(os.tmpdir(), 'thinread-pdf-pages-'))
@@ -224,6 +225,7 @@ export async function reparseBookFile(
   dataDir: string,
   options: ImportBookOptions = {},
   onDoclingProgress?: (progress: DoclingProgress) => void,
+  signal?: AbortSignal,
 ): Promise<{ title: string; author: string; chapters: NewChapter[] }> {
   const finish = (parsed: { title: string; author: string; chapters: NewChapter[] }) => ({
     ...parsed,
@@ -255,6 +257,7 @@ export async function reparseBookFile(
           dataDir,
           extractStructure: options.visionPdfStructure !== false,
           onProgress: (done, total) => onDoclingProgress?.({ phase: 'pages', done, total }),
+          signal,
         }),
       )
     }
@@ -268,6 +271,7 @@ export async function reparseBookFile(
           title: info.title,
           author: info.author,
           onProgress: onDoclingProgress,
+          signal,
         }),
       )
     }

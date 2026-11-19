@@ -12,8 +12,8 @@ const edits = [
         .replace(/BETA \d+\.\d+\.\d+/g, `BETA ${version}`)
         .replace(/(<span id="releaseLabel">)v\d+\.\d+\.\d+/g, `$1v${version}`)
         .replace(
-          /(<div class="stat-row"><strong>)v\d+\.\d+\.\d+(<\/strong><span>当前版本)/g,
-          `$1v${version}$2`,
+          /(<div class="stat-row"><strong>)v\d+\.\d+\.\d+(<\/strong><span>)(当前版本|最新发布)/g,
+          `$1v${version}$2$3`,
         ),
   },
   {

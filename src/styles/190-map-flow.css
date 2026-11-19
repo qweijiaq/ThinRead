@@ -155,7 +155,7 @@
   border-radius: 4px;
   background: var(--accent-soft);
   color: var(--accent-dark);
-  font-size: 9.5px;
+  font-size: 10.5px;
   white-space: nowrap;
 }
 .map-edge-detail-path {
@@ -218,7 +218,7 @@
 
 .xhs-audit-item em {
   color: var(--accent);
-  font-size: 9px;
+  font-size: 10px;
   font-style: normal;
 }
 

@@ -67,6 +67,7 @@ export const QWEN_TTS_DEFAULTS = {
 
 let filePath = ''
 let cached: StoredSettings | null = null
+let corruptBackupPath: string | null = null
 
 const DEFAULT_SETTINGS: StoredSettings = {
   version: 1,
@@ -88,6 +89,7 @@ const DEFAULT_SETTINGS: StoredSettings = {
 export function initSettings(dataDir: string): void {
   fs.mkdirSync(dataDir, { recursive: true })
   filePath = path.join(dataDir, 'settings.json')
+  corruptBackupPath = null
   cached = readFile()
 }
 
@@ -136,9 +138,28 @@ function normalizeSyncMeta(value: unknown): { lastPushAt?: string; lastPullAt?: 
   return { lastPushAt: pick('lastPushAt'), lastPullAt: pick('lastPullAt'), lastMergeAt: pick('lastMergeAt') }
 }
 
-function readFile(): StoredSettings {
+function backupCorruptFile(): string | null {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+  const target = `${filePath}.corrupt-${stamp}`
   try {
-    const raw = JSON.parse(fs.readFileSync(filePath, 'utf8')) as Partial<StoredSettings>
+    // 复制而不是改名：即使后续保存失败，原始损坏文件也还在。
+    fs.copyFileSync(filePath, target)
+    return target
+  } catch {
+    return null
+  }
+}
+
+function readFile(): StoredSettings {
+  let text = ''
+  try {
+    text = fs.readFileSync(filePath, 'utf8')
+  } catch {
+    // 首次启动或文件不可读时使用默认设置。
+    return { ...DEFAULT_SETTINGS, keys: {} }
+  }
+  try {
+    const raw = JSON.parse(text) as Partial<StoredSettings>
     return {
       version: 1,
       provider: (raw.provider ?? DEFAULT_SETTINGS.provider) as ProviderId,
@@ -154,6 +175,8 @@ function readFile(): StoredSettings {
       aiBudget: normalizeAiBudget(raw.aiBudget),
       syncFolder: typeof raw.syncFolder === 'string' ? raw.syncFolder : '',
       syncMeta: normalizeSyncMeta(raw.syncMeta),
+      webdav: raw.webdav,
+      webdavMeta: raw.webdavMeta,
       readwise: raw.readwise,
       ui: raw.ui,
       lock: raw.lock,
@@ -161,8 +184,13 @@ function readFile(): StoredSettings {
       keys: raw.keys ?? {},
     }
   } catch {
+    corruptBackupPath = backupCorruptFile()
     return { ...DEFAULT_SETTINGS, keys: {} }
   }
+}
+
+export function getSettingsRecovery(): { corruptBackupPath: string | null } {
+  return { corruptBackupPath }
 }
 
 function settings(): StoredSettings {
@@ -171,7 +199,24 @@ function settings(): StoredSettings {
 }
 
 function persist(): void {
-  fs.writeFileSync(filePath, JSON.stringify(settings(), null, 2), { mode: 0o600 })
+  const payload = JSON.stringify(settings(), null, 2)
+  const temp = `${filePath}.tmp-${process.pid}`
+  try {
+    fs.writeFileSync(temp, payload, { mode: 0o600 })
+    fs.renameSync(temp, filePath)
+    // 已存在的文件不会因为 writeFile 的 mode 自动收紧权限。
+    try {
+      fs.chmodSync(filePath, 0o600)
+    } catch {
+      // Windows 或不支持 chmod 的文件系统忽略即可。
+    }
+  } finally {
+    try {
+      fs.rmSync(temp, { force: true })
+    } catch {
+      // 临时文件清理失败不影响已完成的写入。
+    }
+  }
 }
 
 export function getActiveSettings(task?: 'notes' | 'compose' | 'lab'): {
@@ -232,13 +277,25 @@ function needsReentry(stored: StoredKey | undefined): boolean {
   return Boolean(stored?.enc) && readStoredKey(stored) === null
 }
 
+let reentryCacheKey = ''
+let reentryCacheValue = false
+
 function anyKeyNeedsReentry(): boolean {
   const current = settings()
-  return (
+  // 这个检查会尝试解密 Key；设置面板在一次会话里可能被反复读取。
+  const cacheKey = JSON.stringify([
+    safeStorage.isEncryptionAvailable(),
+    current.keys,
+    current.readwise,
+    current.qwenTts?.key,
+  ])
+  if (cacheKey === reentryCacheKey) return reentryCacheValue
+  reentryCacheValue =
     Object.values(current.keys).some((stored) => needsReentry(stored)) ||
     needsReentry(current.readwise) ||
     needsReentry(current.qwenTts?.key)
-  )
+  reentryCacheKey = cacheKey
+  return reentryCacheValue
 }
 
 export function getAiPricing(): AiModelPricing {
@@ -269,7 +326,7 @@ export function getWebDavConfigView(): WebDavConfigView {
     url: webdav?.url ?? '',
     username: webdav?.username ?? '',
     remotePath: webdav?.remotePath || 'ThinRead',
-    hasPassword: readStoredKey(webdav?.password) !== null,
+    hasPassword: Boolean(webdav?.password?.enc || webdav?.password?.plain),
     lastPushAt: current.webdavMeta?.lastPushAt ?? '',
     lastPullAt: current.webdavMeta?.lastPullAt ?? '',
     autoPushDaily: webdav?.autoPushDaily === true,
@@ -429,8 +486,10 @@ export function getSettingsView(): SettingsView {
     provider: current.provider,
     baseUrl: current.baseUrl,
     model: current.model,
-    apiKeyConfigured: demo || readKey(current.provider) !== null,
+    // 只检查是否存过，不在启动/打开设置时解密 Key；真正调用模型时才 readKey。
+    apiKeyConfigured: demo || Boolean(stored?.enc || stored?.plain),
     apiKeyHint: demo ? '演示模式' : (stored?.hint ?? ''),
+    apiKeyStorage: demo || !stored ? 'none' : stored.plain ? 'plain' : stored.enc ? 'keychain' : 'none',
     demo,
     generationMode: current.generationMode,
     notesLanguage: current.notesLanguage,
@@ -445,10 +504,12 @@ export function getSettingsView(): SettingsView {
     syncLastPushAt: current.syncMeta?.lastPushAt ?? '',
     syncLastPullAt: current.syncMeta?.lastPullAt ?? '',
     syncLastMergeAt: current.syncMeta?.lastMergeAt ?? '',
-    readwiseConfigured: readStoredKey(current.readwise) !== null,
+    readwiseConfigured: Boolean(current.readwise?.enc || current.readwise?.plain),
     keysNeedReentry: anyKeyNeedsReentry(),
     appLockEnabled: getAppLockEnabled(),
-    qwenTtsConfigured: readStoredKey(current.qwenTts?.key) !== null || readKey('alibaba') !== null,
+    qwenTtsConfigured:
+      Boolean(current.qwenTts?.key?.enc || current.qwenTts?.key?.plain) ||
+      Boolean(current.keys.alibaba?.enc || current.keys.alibaba?.plain),
     qwenTtsBaseUrl: current.qwenTts?.baseUrl || QWEN_TTS_DEFAULTS.baseUrl,
     qwenTtsModel: current.qwenTts?.model || QWEN_TTS_DEFAULTS.model,
     qwenTtsVoiceA: current.qwenTts?.voiceA || QWEN_TTS_DEFAULTS.voiceA,

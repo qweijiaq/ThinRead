@@ -1007,6 +1007,8 @@ export interface SettingsView {
   model: string
   apiKeyConfigured: boolean
   apiKeyHint: string
+  /** 当前服务商 Key 的保存方式；plain 表示系统钥匙串不可用时的明文回退。 */
+  apiKeyStorage: 'keychain' | 'plain' | 'none'
   demo: boolean
   generationMode: GenerationMode
   notesLanguage: NotesLanguage
@@ -1167,7 +1169,7 @@ export interface DoclingStatus {
 }
 
 export interface ChapterContentSaveResult {
-  html: string
+  html: string | null
   chars: number
 }
 
@@ -1649,6 +1651,16 @@ export interface AppInfo {
   dataDir: string
   demo: boolean
   lockEnabled: boolean
+  /** 上次启动发现 settings.json 损坏时的备份路径；正常为 null。 */
+  settingsCorruptBackupPath: string | null
+}
+
+export interface UpdateCheckResult {
+  current: string
+  latest: string | null
+  hasUpdate: boolean
+  url: string
+  error?: string
 }
 
 export interface ShareCopyInput {
@@ -1679,6 +1691,7 @@ export interface ReadingApi {
   codeAssist(chapterId: string, code: string, mode: 'review' | 'explain' | 'fix', language?: string): Promise<CodeAssistResult>
   applyCodeFix(chapterId: string, code: string, fixed: string): Promise<{ changed: boolean; html?: string; chars?: number }>
   saveChapterContent(chapterId: string, html: string): Promise<ChapterContentSaveResult>
+  undoChapterContent(chapterId: string): Promise<ChapterContentSaveResult>
   onDoclingProgress(cb: (event: DoclingProgressEvent) => void): () => void
   importText(input: TextImportInput): Promise<BookSummary>
   importUrl(url: string, options?: ImportBookOptions): Promise<BookSummary>
@@ -1852,6 +1865,8 @@ export interface ReadingApi {
   verifyAppLock(passcode: string): Promise<boolean>
   testConnection(): Promise<TestResult>
   getAppInfo(): Promise<AppInfo>
+  checkUpdate(): Promise<UpdateCheckResult>
+  openRelease(url: string): Promise<void>
   getAiUsage(days?: number): Promise<AiUsageSummary>
   listPdfAnnotations(bookId: string, page: number): Promise<PdfAnnotation[]>
   listPdfAnnotationsForBook(bookId: string): Promise<PdfAnnotation[]>

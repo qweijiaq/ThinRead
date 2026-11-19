@@ -247,10 +247,11 @@ export async function renderPdfPages(sourcePath: string, imageDir: string, pages
     stderr += chunk.toString()
   })
   const code = await new Promise<number>((resolve) => {
+    // 批量渲染需要按页数放宽超时；固定 120 秒在整本解析时容易把一整批误判为失败。
     const timer = setTimeout(() => {
       child.kill()
       resolve(-1)
-    }, 120_000)
+    }, Math.max(120_000, pages.length * 2_000))
     child.on('error', () => {
       clearTimeout(timer)
       resolve(-1)

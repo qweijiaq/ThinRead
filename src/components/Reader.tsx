@@ -77,7 +77,7 @@ interface ReaderProps {
   focusMode?: boolean
   onToggleFocus?(): void
   onSaveSummary?(title: string, markdown: string): Promise<void>
-  onNotify?(toast: { kind: 'error' | 'info'; text: string }): void
+  onNotify?(toast: { kind: 'error' | 'info'; text: string; action?: { label: string; onClick(): void } }): void
 }
 
 /** 旧版本解析出的章节会把标题重复放进正文；渲染时去掉与章节标题相同的前导标题文本。 */
@@ -293,6 +293,7 @@ export function Reader({
   const [linkCopied, setLinkCopied] = useState(false)
   const [fullCopied, setFullCopied] = useState(false)
   const [readProgress, setReadProgress] = useState(0)
+  const progressFillRef = useRef<HTMLSpanElement | null>(null)
   const [helpOpen, setHelpOpen] = useState(false)
   const autoNext = useSyncExternalStore(subscribePreferences, getAutoNext, getAutoNext)
   const dailyGoal = useSyncExternalStore(subscribePreferences, getDailyGoal, getDailyGoal)
@@ -639,6 +640,7 @@ export function Reader({
       if (cancelled) return
       const max = Math.max(0, root.scrollHeight - root.clientHeight)
       root.scrollTop = Math.max(0, Math.min(max, ratio * max))
+      paintProgress(ratio)
     }
     const timer = window.setTimeout(() => {
       void apply().finally(() => {
@@ -680,6 +682,17 @@ export function Reader({
     return () => window.cancelAnimationFrame(frame)
   }, [showTranslation])
 
+  function paintProgress(ratio: number): void {
+    if (progressFillRef.current) {
+      progressFillRef.current.style.width = `${Math.round(ratio * 100)}%`
+    }
+    // 进度条通过 DOM 直接更新；只有接近底部/离开底部时才触发整章重渲染，
+    // 避免长章节滚动时每秒十次协调整棵正文树。
+    const wasNearEnd = readProgress >= 0.995
+    const isNearEnd = ratio >= 0.995
+    if (wasNearEnd !== isNearEnd) setReadProgress(ratio)
+  }
+
   function handleReaderScroll(): void {
     setToolbar((current) => (current ? null : current))
     const root = containerRef.current
@@ -693,7 +706,7 @@ export function Reader({
     if (progressTimerRef.current === null) {
       progressTimerRef.current = window.setTimeout(() => {
         progressTimerRef.current = null
-        setReadProgress(latestProgressRef.current)
+        paintProgress(latestProgressRef.current)
       }, 100)
     }
     const bookId = chapter.bookId
@@ -810,6 +823,7 @@ export function Reader({
   }, [marks, html, chapter?.id, loading, sentenceFocus, showTranslation])
 
   useEffect(() => {
+    if (progressFillRef.current) progressFillRef.current.style.width = '0%'
     setReadProgress(0)
     setCountdown(null)
     autoNextSuppressed.current = false
@@ -867,7 +881,25 @@ export function Reader({
       const result = await bridge.saveChapterContent(chapter.id, contentRef.current.innerHTML)
       setLocalHtml(result.html)
       setEditing(false)
-      onNotify?.({ kind: 'info', text: t('已保存正文') })
+      const chapterId = chapter.id
+      onNotify?.({
+        kind: 'info',
+        text: t('已保存正文'),
+        action: {
+          label: t('撤销'),
+          onClick: () => {
+            void bridge
+              .undoChapterContent(chapterId)
+              .then((undone) => {
+                setLocalHtml(undone.html)
+                onNotify?.({ kind: 'info', text: t('已撤销正文修改。') })
+              })
+              .catch((error: unknown) => {
+                onNotify?.({ kind: 'error', text: messageOf(error) })
+              })
+          },
+        },
+      })
     } catch (error) {
       onNotify?.({ kind: 'error', text: messageOf(error) })
     } finally {
@@ -969,7 +1001,8 @@ export function Reader({
         </div>
       ) : null}
       <div className="reader-progress" aria-hidden="true">
-        <span style={{ width: `${Math.round(readProgress * 100)}%` }} />
+        {/* 宽度由滚动时的 DOM 直接更新，React 不再在每次重渲染时覆盖它。 */}
+        <span ref={progressFillRef} style={{ width: '0%' }} />
       </div>
       <div
         className={`reader${sentenceFocus ? ' is-sentence-focus' : ''}`}
@@ -980,16 +1013,21 @@ export function Reader({
         {loading || !chapter ? (
           <div className="reader-skeleton" role="status" aria-busy="true" style={{ maxWidth: `${style.maxWidth}px` }}>
             <span className="sr-only">{t('正在加载…')}</span>
-            <div className="skeleton-line kicker" />
-            <div className="skeleton-line wide" />
-            <div className="skeleton-line" />
-            <div className="skeleton-line" />
-            <div className="skeleton-line" />
-            <div className="skeleton-line short" />
-            <div className="skeleton-quote" />
-            <div className="skeleton-line" />
-            <div className="skeleton-line" />
-            <div className="skeleton-line short" />
+            <div className="skeleton-line skeleton-chapter-kicker" />
+            <div className="skeleton-chapter-title" />
+            <div className="skeleton-chapter-meta">
+              <span />
+              <span />
+              <span />
+            </div>
+            <div className="skeleton-chapter-rule" />
+            <div className="skeleton-line skeleton-para" />
+            <div className="skeleton-line skeleton-para" />
+            <div className="skeleton-line skeleton-para skeleton-para-short" />
+            <div className="skeleton-chapter-subhead" />
+            <div className="skeleton-line skeleton-para" />
+            <div className="skeleton-line skeleton-para" />
+            <div className="skeleton-line skeleton-para skeleton-para-short" />
           </div>
         ) : (
           <article style={{ maxWidth: `${style.maxWidth}px` }}>

@@ -178,7 +178,7 @@
 
 .stats-compare-month small {
   color: var(--muted);
-  font-size: 9.5px;
+  font-size: 10.5px;
 }
 
 .weekly-view {
@@ -406,12 +406,12 @@
 
 .stats-year-month small {
   color: var(--muted);
-  font-size: 9.5px;
+  font-size: 10.5px;
 }
 
 .stats-month-day small {
   color: var(--muted);
-  font-size: 9.5px;
+  font-size: 10.5px;
 }
 
 .stats-modal {
@@ -561,7 +561,7 @@
 
 .stats-day small {
   color: var(--muted);
-  font-size: 9.5px;
+  font-size: 10.5px;
   white-space: nowrap;
 }
 
@@ -816,7 +816,7 @@
   border-radius: 3px;
   background: var(--accent-soft);
   color: var(--accent);
-  font-size: 9.5px;
+  font-size: 10.5px;
 }
 .search-result-title {
   overflow: hidden;
@@ -956,7 +956,7 @@
 
 .kind-tag {
   flex: 0 0 auto;
-  font-size: 9.5px;
+  font-size: 10.5px;
   padding: 2px 7px;
   border-radius: 999px;
   background: var(--paper-3);

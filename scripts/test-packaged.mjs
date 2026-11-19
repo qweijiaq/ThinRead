@@ -2,6 +2,8 @@ import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 
+import { electronEnv } from './electron-env.mjs'
+
 if (process.platform !== 'darwin') {
   console.error('[packaged] 当前只验证 macOS 产物。')
   process.exit(1)
@@ -37,7 +39,7 @@ if (!fs.existsSync(path.join(resources, 'app.asar.unpacked'))) {
 const child = spawn(executable, ['--smoke-test'], {
   cwd: process.cwd(),
   stdio: 'inherit',
-  env: { ...process.env, THINREAD_HEADLESS: '1' },
+  env: electronEnv({ THINREAD_HEADLESS: '1' }),
 })
 const timer = setTimeout(() => child.kill('SIGKILL'), 120_000)
 const code = await new Promise((resolve) => {

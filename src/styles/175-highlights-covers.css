@@ -53,7 +53,7 @@
   border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line));
   border-radius: 999px;
   color: var(--accent);
-  font-size: 9px;
+  font-size: 10px;
   line-height: 1.5;
 }
 
@@ -67,7 +67,7 @@
   display: block;
   margin-top: 2px;
   color: var(--muted);
-  font-size: 9.5px;
+  font-size: 10.5px;
 }
 
 /* CSS Custom Highlight API: reader marks do not mutate the chapter DOM. */
@@ -108,7 +108,7 @@
   flex: none;
   padding: 1px 5px;
   border-radius: 999px;
-  font-size: 9px;
+  font-size: 10px;
 }
 .reader-mark-style.style-highlight {
   background: color-mix(in srgb, var(--accent) 20%, transparent);
@@ -139,7 +139,7 @@
 }
 .reader-mark-row .text-button {
   flex: none;
-  font-size: 9.5px;
+  font-size: 10.5px;
 }
 
 .library-toolbar {
@@ -279,6 +279,6 @@
 }
 .book-cover-placeholder em {
   color: rgba(253, 243, 233, 0.7);
-  font-size: 9px;
+  font-size: 10px;
   font-style: normal;
 }

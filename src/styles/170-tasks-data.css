@@ -162,7 +162,7 @@
   background: transparent;
   color: var(--muted);
   font: inherit;
-  font-size: 9.5px;
+  font-size: 10.5px;
   padding: 1px 3px;
   cursor: pointer;
 }
@@ -170,7 +170,7 @@
   color: var(--accent);
 }
 .voice-chip .voice-chip-remove {
-  color: var(--faint);
+  color: var(--muted);
   font-size: 12px;
 }
 .backup-actions {

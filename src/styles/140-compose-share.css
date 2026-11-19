@@ -235,7 +235,7 @@
   border-radius: 999px;
   background: var(--paper-2);
   color: var(--muted);
-  font-size: 9.5px;
+  font-size: 10.5px;
   cursor: pointer;
   opacity: 0.45;
   transition: opacity 0.15s ease;
@@ -435,7 +435,7 @@
 .content-row-meta {
   overflow: hidden;
   color: var(--muted);
-  font-size: 9.5px;
+  font-size: 10.5px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -453,7 +453,7 @@
   border-radius: 999px;
   background: var(--paper-3);
   color: var(--ink-soft);
-  font-size: 9px;
+  font-size: 10px;
   white-space: nowrap;
 }
 .content-kind.kind-report,
@@ -614,7 +614,7 @@
 .diff-sign {
   flex: none;
   width: 12px;
-  color: var(--faint);
+  color: var(--muted);
   user-select: none;
 }
 .diff-line.is-add .diff-sign {

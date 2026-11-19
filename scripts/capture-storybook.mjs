@@ -6,6 +6,8 @@ import path from 'node:path'
 
 import { createCanvas, loadImage } from '@napi-rs/canvas'
 import electronPath from 'electron'
+
+import { electronEnv } from './electron-env.mjs'
 import pixelmatch from 'pixelmatch'
 
 const ROOT = process.cwd()
@@ -123,7 +125,7 @@ if (CHECK) {
 
 const child = spawn(electronPath, ['--force-device-scale-factor=1', path.join(ROOT, 'scripts', 'storybook-capture-main.cjs')], {
   cwd: ROOT,
-  env: { ...process.env, SB_URL: url, SB_OUT: outputDir, SB_STORIES: JSON.stringify(STORIES) },
+  env: electronEnv({ SB_URL: url, SB_OUT: outputDir, SB_STORIES: JSON.stringify(STORIES) }),
   stdio: 'inherit',
 })
 const code = await new Promise((resolve) => child.on('exit', (exitCode) => resolve(exitCode ?? 1)))

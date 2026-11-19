@@ -3,12 +3,16 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { ChapterContent, ReaderStyle } from '../../shared/types.js'
 import type { FormatMessage } from '../components/FormatPanel.js'
+import { confirmDialog } from '../components/ConfirmDialog.js'
 import { messageOf } from '../lib/errors.js'
+import { t } from '../lib/i18n.js'
+import type { ToastState } from './useToast.js'
 
 interface FormatPanelOptions {
   chapterId: string | null
   setChapter(updater: (current: ChapterContent | null) => ChapterContent | null): void
   setStyle(style: ReaderStyle): void
+  notify?(toast: ToastState): void
 }
 
 export interface FormatPanelState {
@@ -24,7 +28,7 @@ export interface FormatPanelState {
 
 /** 单章 AI 排版：请求、结果写回章节、切章后重新接上后台任务。 */
 export function useFormatPanel(options: FormatPanelOptions): FormatPanelState {
-  const { chapterId, setChapter, setStyle } = options
+  const { chapterId, setChapter, setStyle, notify } = options
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [note, setNote] = useState<string | null>(null)
@@ -75,6 +79,32 @@ export function useFormatPanel(options: FormatPanelOptions): FormatPanelState {
     }
   }, [chapterId, attachKey])
 
+  const offerFormatUndo = useCallback(
+    (id: string) => {
+      notify?.({
+        kind: 'info',
+        text: t('已完成排版'),
+        action: {
+          label: t('撤销'),
+          onClick: () => {
+            void bridge
+              .undoChapterContent(id)
+              .then((undone) => {
+                setChapter((current) =>
+                  current && current.id === id
+                    ? { ...current, formattedHtml: undone.html, removed: [], chars: undone.chars }
+                    : current,
+                )
+                notify?.({ kind: 'info', text: t('已撤销排版。') })
+              })
+              .catch((err: unknown) => notify?.({ kind: 'error', text: messageOf(err) }))
+          },
+        },
+      })
+    },
+    [notify, setChapter],
+  )
+
   useEffect(() => {
     const off = bridge.onChapterFormatted((event) => {
       if (event.chapterId !== chapterId) return
@@ -87,9 +117,10 @@ export function useFormatPanel(options: FormatPanelOptions): FormatPanelState {
           : current,
       )
       setStyle(event.style)
+      offerFormatUndo(event.chapterId)
     })
     return off
-  }, [chapterId, setChapter, setStyle])
+  }, [chapterId, offerFormatUndo, setChapter, setStyle])
 
   const formatCurrentChapter = useCallback(
     async (instruction?: string, options?: { skipReferences?: boolean }) => {
@@ -126,6 +157,13 @@ export function useFormatPanel(options: FormatPanelOptions): FormatPanelState {
 
   const resetChapterFormat = useCallback(async () => {
     if (!chapterId) return
+    const confirmed = await confirmDialog({
+      title: t('还原原文'),
+      message: t('会丢弃当前 AI 排版和手工修改过的正文，恢复导入时的原文。继续？'),
+      confirmLabel: t('还原原文'),
+      danger: true,
+    })
+    if (!confirmed) return
     tokenRef.current += 1
     setBusy(false)
     setError(null)
@@ -136,10 +174,30 @@ export function useFormatPanel(options: FormatPanelOptions): FormatPanelState {
       setChapter((current) =>
         current && current.id === chapterId ? { ...current, formattedHtml: null, removed: [], chars } : current,
       )
+      notify?.({
+        kind: 'info',
+        text: t('已还原原文'),
+        action: {
+          label: t('撤销'),
+          onClick: () => {
+            void bridge
+              .undoChapterContent(chapterId)
+              .then((undone) => {
+                setChapter((current) =>
+                  current && current.id === chapterId
+                    ? { ...current, formattedHtml: undone.html, removed: [], chars: undone.chars }
+                    : current,
+                )
+                notify?.({ kind: 'info', text: t('已撤销还原。') })
+              })
+              .catch((err: unknown) => notify?.({ kind: 'error', text: messageOf(err) }))
+          },
+        },
+      })
     } catch (err) {
       setError(messageOf(err))
     }
-  }, [chapterId, setChapter])
+  }, [chapterId, setChapter, notify])
 
   return { busy, error, note, messages, formatCurrentChapter, resetChapterFormat, resetFormatState }
 }

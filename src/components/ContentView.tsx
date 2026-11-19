@@ -147,6 +147,8 @@ export function ContentView({ books, initialItemId, onBack, onOpenSource, onAppl
     void bridge.getContent(initialItemId).then((item) => {
       if (!item) return
       setItems((current) => (current.some((row) => row.id === item.id) ? current : [item, ...current]))
+    }).catch((err: unknown) => {
+      setError(`${t('加载这条生成内容失败')}：${err instanceof Error ? err.message : String(err)}`)
     })
   }, [initialItemId])
 

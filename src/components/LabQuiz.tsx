@@ -41,6 +41,8 @@ export function LabQuiz({ chapterId, bookTitle, chapterTitle }: LabQuizProps): J
     void bridge.listLabArtifacts('adaptive-quiz', 50).then((items) => {
       if (cancelled) return
       setHistory(items.filter((item) => item.scope === chapterId))
+    }).catch(() => {
+      if (!cancelled) setHistory([])
     })
     void bridge.getLabArtifact('adaptive-quiz', chapterId).then((artifact) => {
       if (cancelled) return
@@ -62,6 +64,10 @@ export function LabQuiz({ chapterId, bookTitle, chapterTitle }: LabQuizProps): J
           // 忽略旧格式。
         }
       }
+      setHydrated(true)
+    }).catch((err: unknown) => {
+      if (cancelled) return
+      setError(`${t('加载已保存的题目失败')}：${err instanceof Error ? err.message : String(err)}`)
       setHydrated(true)
     })
     return () => {

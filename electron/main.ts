@@ -8,7 +8,7 @@ import { autoUpdater } from 'electron-updater'
 import { generateChapterNotes } from './ai/notes.js'
 import { installFetchReplay } from './ai/replay.js'
 import { initAiTrace } from './ai/trace.js'
-import { closeDatabase, createNote, getChapter, getChapters, initDatabase, insertBook, listBooks, markRunningOcrJobsInterrupted, pruneBookTrash, replaceAiNotes, setProgress } from './db.js'
+import { closeDatabase, createNote, getChapter, getChapters, initDatabase, insertBook, listBooks, markRunningOcrJobsInterrupted, optimizeDatabase, pruneBookTrash, pruneChapterTrash, pruneDeletedContent, pruneNoteTrash, replaceAiNotes, setProgress } from './db.js'
 import { ensureDailyBackup, recoverCorruptDatabase, recoverInterruptedRestore } from './backup.js'
 import { buildDiagnosticsArchive } from './diagnostics.js'
 import { registerIpc } from './ipc.js'
@@ -29,6 +29,7 @@ import { parseCaptureLink, parseDeepLink, type CaptureLinkTarget, type DeepLinkT
 let mainWindow: BrowserWindow | null = null
 let pendingDeepLink: DeepLinkTarget | null = null
 let pendingCapture: CaptureLinkTarget | null = null
+const startupAt = Date.now()
 
 // Windows/Linux 冷启动时自定义协议地址在 argv 里；macOS 走 open-url。
 const initialProtocolUrl = process.argv.find((arg) => arg.startsWith('thinread://'))
@@ -450,6 +451,45 @@ function setupAutoUpdater(): void {
   }, 8000).unref()
 }
 
+/**
+ * 把清理、每日备份和索引预热放到窗口显示之后。
+ * 这些任务都可能读写大量文件或 SQLite，放在 createWindow 之前会直接拖慢首屏。
+ */
+function scheduleStartupMaintenance(dataDir: string): void {
+  setTimeout(() => {
+    try {
+      for (const relative of pruneBookTrash()) {
+        const root = path.resolve(dataDir, 'trash', 'books')
+        const target = path.resolve(dataDir, relative)
+        if (target.startsWith(`${root}${path.sep}`)) {
+          fs.rmSync(target, { recursive: true, force: true })
+        }
+      }
+      pruneNoteTrash()
+      pruneChapterTrash()
+      pruneDeletedContent()
+      void optimizeDatabase()
+      if (listBooks().length > 0) ensureDailyBackup(dataDir)
+    } catch (error) {
+      logWarn('startup', '启动维护失败', {
+        message: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }, 10_000).unref()
+
+  setInterval(() => {
+    try {
+      if (listBooks().length > 0) ensureDailyBackup(dataDir)
+    } catch {
+      // 备份失败不打断使用。
+    }
+  }, 6 * 60 * 60 * 1000).unref()
+
+  // 窗口已经可见后再预热全文索引；第一次搜索仍会按需构建。
+  setTimeout(() => void warmSearchIndex(), 3_000).unref()
+  setTimeout(() => void runWebDavStartupTasks(dataDir), 8_000).unref()
+}
+
 app.whenReady().then(async () => {
   if (!hasSingleInstanceLock) return
   if (writeSampleArg) {
@@ -567,13 +607,6 @@ app.whenReady().then(async () => {
     logWarn('db', '数据库损坏，已从最近备份恢复', recovery)
     initDatabase(dataDir)
   }
-  for (const relative of pruneBookTrash()) {
-    const root = path.resolve(dataDir, 'trash', 'books')
-    const target = path.resolve(dataDir, relative)
-    if (target.startsWith(`${root}${path.sep}`)) {
-      fs.rmSync(target, { recursive: true, force: true })
-    }
-  }
   initSettings(dataDir)
   initAiTrace(dataDir)
   initTtsCache(dataDir)
@@ -597,15 +630,7 @@ app.whenReady().then(async () => {
     return
   }
 
-  if (listBooks().length > 0) {
-    ensureDailyBackup(dataDir)
-    setInterval(() => {
-      if (listBooks().length > 0) ensureDailyBackup(dataDir)
-    }, 6 * 60 * 60 * 1000).unref()
-    // 启动后空闲时预热全文索引，避免第一次搜索等待整库构建。
-    setTimeout(() => void warmSearchIndex(), 2_500).unref()
-    setTimeout(() => void runWebDavStartupTasks(dataDir), 6_000).unref()
-  }
+
 
   if (importArg) {
     try {
@@ -658,6 +683,8 @@ app.whenReady().then(async () => {
     app.setAsDefaultProtocolClient('thinread')
   }
   createWindow()
+  logInfo('startup', '窗口已创建', { ms: Date.now() - startupAt })
+  scheduleStartupMaintenance(dataDir)
   setupAutoUpdater()
   if (pendingCapture) {
     const capture = pendingCapture

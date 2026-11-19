@@ -265,6 +265,8 @@ export function LabRelationGraph({ bookId, bookTitle }: LabRelationGraphProps): 
       } catch {
         // 旧格式不是关系图，忽略。
       }
+    }).catch((err: unknown) => {
+      if (!cancelled) setError(`${t('加载已保存的人物关系失败')}：${err instanceof Error ? err.message : String(err)}`)
     })
     return () => {
       cancelled = true

@@ -65,18 +65,31 @@ async function runProcess(
   timeoutMs: number,
   onLine?: (line: string) => void,
   env?: NodeJS.ProcessEnv,
+  signal?: AbortSignal,
 ): Promise<{ code: number; stdout: string; stderr: string }> {
   return await new Promise((resolve) => {
     const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'], env })
     let settled = false
-    const finish = (code: number): void => {
-      if (settled) return
-      settled = true
-      resolve({ code, stdout, stderr })
-    }
     let stdout = ''
     let stderr = ''
     let lineBuffer = ''
+    const onAbort = (): void => {
+      stderr += '\n已取消深度解析'
+      child.kill('SIGTERM')
+      setTimeout(() => child.kill('SIGKILL'), 1_500)
+      finish(-1)
+    }
+    const finish = (code: number): void => {
+      if (settled) return
+      settled = true
+      signal?.removeEventListener('abort', onAbort)
+      resolve({ code, stdout, stderr })
+    }
+    if (signal?.aborted) {
+      onAbort()
+    } else {
+      signal?.addEventListener('abort', onAbort, { once: true })
+    }
     child.stdout.on('data', (chunk: Buffer) => {
       const text = chunk.toString()
       stdout += text
@@ -179,6 +192,7 @@ export async function parsePdfWithDocling(args: {
   title?: string
   author?: string
   onProgress?: (progress: DoclingProgress) => void
+  signal?: AbortSignal
 }): Promise<DoclingParseResult> {
   const status = await getDoclingStatus(args.dataDir)
   if (!status.available || !status.python) {
@@ -224,7 +238,8 @@ export async function parsePdfWithDocling(args: {
       } catch {
         // Ignore non-progress stdout lines.
       }
-    }, doclingEnvironment())
+    }, doclingEnvironment(), args.signal)
+    if (args.signal?.aborted) throw new Error('已取消深度解析。')
     if (result.code !== 0) {
       const detail = (result.stderr || result.stdout).trim().slice(-1200)
       throw new Error(`Docling 深度解析失败${detail ? `：${detail}` : '。'}`)

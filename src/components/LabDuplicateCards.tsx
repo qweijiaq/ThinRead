@@ -32,6 +32,10 @@ export function LabDuplicateCards(): JSX.Element {
         }
       }
       setHydrated(true)
+    }).catch((err: unknown) => {
+      if (cancelled) return
+      setError(`${t('加载已保存的重复卡片失败')}：${err instanceof Error ? err.message : String(err)}`)
+      setHydrated(true)
     })
     return () => {
       cancelled = true

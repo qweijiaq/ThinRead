@@ -110,7 +110,7 @@
 }
 .qa-role {
   color: var(--muted);
-  font-size: 9.5px;
+  font-size: 10.5px;
   letter-spacing: 0.04em;
 }
 .qa-bubble {
@@ -162,7 +162,7 @@
   flex: none;
   padding: 1px 4px;
   border-radius: 3px;
-  font-size: 9px;
+  font-size: 10px;
 }
 .qa-verify.ok {
   background: var(--ai-soft);

@@ -1,5 +1,5 @@
 import { bridge } from '../lib/bridge.js'
-import { useEffect, useMemo, useState, useSyncExternalStore, type JSX } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type JSX } from 'react'
 import type { BookShelfStatus, BookSummary, ReadingPlanRecord } from '../../shared/types.js'
 import { bookGenreLabel } from '../lib/genres.js'
 import { countUnit, getLocale, t, useLocale } from '../lib/i18n.js'
@@ -43,12 +43,63 @@ function formatWords(value: number): string {
 
 type LibrarySort = 'recent' | 'title' | 'progress' | 'chars'
 
+/** 封面按可视区域加载：书多时不再一次性把所有 base64 封面读进渲染层。 */
+function BookCover({ book }: { book: BookSummary }): JSX.Element {
+  const [src, setSrc] = useState<string | null>(null)
+  const frameRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (!book.hasCover || src) return
+    const element = frameRef.current
+    if (!element) return
+    let cancelled = false
+    const load = (): void => {
+      void bridge
+        .getBookCover(book.id)
+        .then((value) => {
+          if (!cancelled && value) setSrc(value)
+        })
+        .catch(() => undefined)
+    }
+    if (!('IntersectionObserver' in window)) {
+      load()
+      return
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          observer.disconnect()
+          load()
+        }
+      },
+      { rootMargin: '240px' },
+    )
+    observer.observe(element)
+    return () => {
+      cancelled = true
+      observer.disconnect()
+    }
+  }, [book.id, book.hasCover, src])
+
+  return (
+    <div ref={frameRef} className={`book-cover-frame ${book.format}`}>
+      {src ? (
+        <img src={src} alt={`${book.title} ${t('封面')}`} loading="lazy" decoding="async" />
+      ) : (
+        <div className="book-cover-placeholder">
+          <span>{book.title.slice(0, 14)}</span>
+          <em>{book.author || t('页边')}</em>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function Library({ books, loading = false, importing, onOpen, onImport, onOpenTrash, onDelete, onRename, onCompose, onPlan, onShelfStatus, onOpenPlan, planVersion, onMerge, onSettings, onStats, demo }: LibraryProps): JSX.Element {
   useLocale()
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState<LibrarySort>('recent')
   const [shelfFilter, setShelfFilter] = useState<'all' | BookShelfStatus>('all')
-  const [covers, setCovers] = useState<Record<string, string>>({})
   const continueBook = useMemo(() => {
     return (
       books
@@ -58,24 +109,6 @@ export function Library({ books, loading = false, importing, onOpen, onImport, o
   }, [books])
   const reading = getReadingSummary()
   const goalMinutes = useSyncExternalStore(subscribePreferences, getDailyGoal, getDailyGoal)
-  useEffect(() => {
-    let cancelled = false
-    const candidates = books.filter((book) => book.hasCover)
-    if (candidates.length === 0) {
-      setCovers({})
-      return
-    }
-    void Promise.all(
-      candidates.map(async (book) => [book.id, await bridge.getBookCover(book.id)] as const),
-    ).then((entries) => {
-      if (cancelled) return
-      setCovers(Object.fromEntries(entries.filter((entry): entry is readonly [string, string] => Boolean(entry[1]))))
-    }).catch(() => undefined)
-    return () => {
-      cancelled = true
-    }
-  }, [books])
-
   const [plans, setPlans] = useState<ReadingPlanRecord[]>([])
   useEffect(() => {
     let cancelled = false
@@ -367,16 +400,7 @@ export function Library({ books, loading = false, importing, onOpen, onImport, o
               }
             }}
           >
-            <div className={`book-cover-frame ${book.format}`}>
-              {covers[book.id] ? (
-                <img src={covers[book.id]} alt={`${book.title} ${t('封面')}`} />
-              ) : (
-                <div className="book-cover-placeholder">
-                  <span>{book.title.slice(0, 14)}</span>
-                  <em>{book.author || t('页边')}</em>
-                </div>
-              )}
-            </div>
+            <BookCover book={book} />
             <div className="book-body">
               <h3>{book.title}</h3>
               <p className="book-author">{book.author || t('未知作者')}</p>

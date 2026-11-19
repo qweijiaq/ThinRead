@@ -85,8 +85,11 @@ export function useBookshelf(actions: MutableRefObject<BookshelfActions>): Books
         ])
         setChapter(content)
         setReaderMarks(marks)
-        await helpers.refreshNotes(bookId, meta.id)
-        await bridge.setProgress(bookId, meta.id)
+        // 笔记列表和阅读进度互不依赖，并行取，章节切换少一次等待。
+        await Promise.all([
+          helpers.refreshNotes(bookId, meta.id),
+          bridge.setProgress(bookId, meta.id),
+        ])
         const visible = chapterList.filter((item) => !item.hidden)
         const position = visible.findIndex((item) => item.id === meta.id)
         const progress = visible.length === 0 ? 0 : position >= 0 ? (position + 1) / visible.length : 0

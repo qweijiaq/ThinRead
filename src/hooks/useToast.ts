@@ -20,16 +20,16 @@ const ACTION_MS = 9000
  */
 export function useToast(): [ToastState | null, Dispatch<SetStateAction<ToastState | null>>] {
   const [toast, setToastState] = useState<ToastState | null>(null)
-  const pendingRef = useRef<ToastState | null>(null)
+  const pendingRef = useRef<ToastState[]>([])
 
   const setToast = useCallback<Dispatch<SetStateAction<ToastState | null>>>((value) => {
     setToastState((current) => {
       const next = typeof value === 'function' ? value(current) : value
+      // 可撤销提示还在显示时，普通信息提示排队；错误提示仍然立即显示。
       if (current?.action && next?.kind === 'info' && !next.action) {
-        pendingRef.current = next
+        pendingRef.current = [...pendingRef.current, next].slice(-4)
         return current
       }
-      pendingRef.current = null
       return next
     })
   }, [])
@@ -37,9 +37,9 @@ export function useToast(): [ToastState | null, Dispatch<SetStateAction<ToastSta
   useEffect(() => {
     if (!toast) return
     const timer = window.setTimeout(() => {
-      const queued = pendingRef.current
-      pendingRef.current = null
-      setToastState(queued)
+      const [queued, ...rest] = pendingRef.current
+      pendingRef.current = rest
+      setToastState(queued ?? null)
     }, toast.action ? ACTION_MS : PLAIN_MS)
     return () => window.clearTimeout(timer)
   }, [toast])

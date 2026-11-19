@@ -4,6 +4,8 @@ import path from 'node:path'
 
 import electronPath from 'electron'
 
+import { electronEnv } from './electron-env.mjs'
+
 const dataDir =
   process.env.THINREAD_DATA_DIR ||
   (process.platform === 'darwin'
@@ -13,7 +15,7 @@ const dataDir =
 const child = spawn(electronPath, ['.', `--data-dir=${dataDir}`, '--eval-real'], {
   cwd: process.cwd(),
   stdio: 'inherit',
-  env: process.env,
+  env: electronEnv(),
 })
 const timer = setTimeout(() => {
   console.error('[eval-real] 超时')

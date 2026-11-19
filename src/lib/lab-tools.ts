@@ -13,6 +13,8 @@ export interface LabTool {
   question?: boolean
   questionLabel?: string
   questionPlaceholder?: string
+  /** 首屏「常用」分组；其余工具仍按研究/深读/学习/整理排列。 */
+  recommended?: boolean
 }
 
 /**
@@ -23,6 +25,7 @@ export const LAB_TOOLS: LabTool[] = [
   {
     id: 'library-research',
     group: '研究',
+    recommended: true,
     title: '全库研究',
     description: '跨所有书和笔记提问，答案带书名与章节依据。',
     kind: 'chat',
@@ -58,6 +61,7 @@ export const LAB_TOOLS: LabTool[] = [
   {
     id: 'cross-book-synthesis',
     group: '研究',
+    recommended: true,
     title: '跨书综述',
     description: '选几本书和一个主题，生成带引用的共同点、分歧和盲点。',
     kind: 'report',
@@ -105,6 +109,7 @@ export const LAB_TOOLS: LabTool[] = [
   {
     id: 'chapter-annotations',
     group: '深读',
+    recommended: true,
     title: '全章批注',
     description: '为整章生成克制的批注，只解释真正有信息增量的地方。',
     kind: 'report',
@@ -162,6 +167,7 @@ export const LAB_TOOLS: LabTool[] = [
   {
     id: 'podcast',
     group: '深读',
+    recommended: true,
     title: '双人播客',
     description: '把章节变成一段主持人与作者视角的对谈脚本，可复制、导出或存为笔记。',
     kind: 'report',
@@ -171,6 +177,7 @@ export const LAB_TOOLS: LabTool[] = [
   {
     id: 'adaptive-quiz',
     group: '学习',
+    recommended: true,
     title: '自适应出题',
     description: '按当前章节生成主旨、为什么、比较、应用和反例题，并检查自由回答。',
     kind: 'quiz',

@@ -47,6 +47,10 @@ export function FeynmanPanel({ chapter, bookTitle, hasNotes, onSave }: FeynmanPa
         }
       }
       setHydrated(true)
+    }).catch((err: unknown) => {
+      if (cancelled) return
+      setError(`${t('加载已保存的内容失败')}：${err instanceof Error ? err.message : String(err)}`)
+      setHydrated(true)
     })
     return () => {
       cancelled = true

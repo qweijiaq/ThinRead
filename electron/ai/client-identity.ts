@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import type { ProviderId } from '../../shared/types.js'
 
 /** 服务商要求客户端明确标识自己，而不是使用通用 SDK 默认 UA。 */
-export const THINREAD_USER_AGENT = 'ThinRead/0.2.1 (+https://github.com/qweijiaq/ThinRead)'
+export const THINREAD_USER_AGENT = 'ThinRead/0.2.2 (+https://github.com/qweijiaq/ThinRead)'
 
 /**
  * OpenCode Go 要求同一段对话使用稳定的 session ID，用于路由和 prompt 缓存。

@@ -54,6 +54,9 @@ export function ChatPanel({ chapter, bookTitle, seed, onJumpQuote, onSave }: Cha
       } catch {
         // 忽略旧格式。
       }
+    }).catch((err: unknown) => {
+      if (cancelled) return
+      setError(`${t('加载已保存的对话失败')}：${err instanceof Error ? err.message : String(err)}`)
     })
     return () => {
       cancelled = true

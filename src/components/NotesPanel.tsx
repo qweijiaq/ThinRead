@@ -184,16 +184,23 @@ function NotesPanelImpl({
     },
     [allNotes, onOpenNote],
   )
-  const condensedNote = notes.find((note) => note.kind === 'condensed') ?? null
-  const summaryNotes = notes.filter((note) => note.kind === 'summary')
-  const pointNotes = notes.filter((note) => note.kind === 'point' || note.kind === 'claim')
-  const questionNotes = notes.filter((note) => note.kind === 'question')
-  const mineNotes = notes.filter((note) => note.kind === 'highlight' || note.kind === 'thought')
+  const { condensedNote, summaryNotes, pointNotes, questionNotes, mineNotes } = useMemo(() => {
+    return {
+      condensedNote: notes.find((note) => note.kind === 'condensed') ?? null,
+      summaryNotes: notes.filter((note) => note.kind === 'summary'),
+      pointNotes: notes.filter((note) => note.kind === 'point' || note.kind === 'claim'),
+      questionNotes: notes.filter((note) => note.kind === 'question'),
+      mineNotes: notes.filter((note) => note.kind === 'highlight' || note.kind === 'thought'),
+    }
+  }, [notes])
   const [verifyOnly, setVerifyOnly] = useState(false)
   const [sentenceCheck, setSentenceCheck] = useState(false)
   const [compareOriginal, setCompareOriginal] = useState(false)
   const [panelTab, setPanelTab] = useState<'draft' | 'cards' | 'audit'>('draft')
   const [colorFilter, setColorFilter] = useState<NoteColor | 'all'>('all')
+  const [colorBusy, setColorBusy] = useState(false)
+  const [colorProgress, setColorProgress] = useState({ done: 0, total: 0 })
+  const [colorStatus, setColorStatus] = useState<string | null>(null)
   const byColor = (list: Note[]): Note[] =>
     colorFilter === 'all' ? list : list.filter((note) => note.color === colorFilter)
   const colorForKind: Record<Note['kind'], NoteColor> = {
@@ -206,19 +213,52 @@ function NotesPanelImpl({
     condensed: 'red',
   }
   async function colorByKind(): Promise<void> {
-    for (const note of notes) {
-      if (!note.color) await onUpdate(note.id, { color: colorForKind[note.kind] })
+    if (colorBusy) return
+    const pending = notes.filter((note) => !note.color)
+    if (pending.length === 0) {
+      setColorStatus(t('所有卡片都已有颜色。'))
+      return
+    }
+    setColorBusy(true)
+    setColorStatus(null)
+    setColorProgress({ done: 0, total: pending.length })
+    let done = 0
+    try {
+      for (let start = 0; start < pending.length; start += 6) {
+        const chunk = pending.slice(start, start + 6)
+        await Promise.all(chunk.map((note) => onUpdate(note.id, { color: colorForKind[note.kind] })))
+        done += chunk.length
+        setColorProgress({ done, total: pending.length })
+      }
+      setColorStatus(`${t('已为')} ${done} ${t('张卡片配色。')}`)
+    } catch (err) {
+      setColorStatus(`${t('配色失败')}：${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setColorBusy(false)
     }
   }
-  const evidenceNotes = pointNotes.filter((note) => note.author === 'ai')
-  const evidenceWithQuote = evidenceNotes.filter((note) => note.quote?.trim())
-  const evidenceVerified = evidenceWithQuote.filter((note) => note.quoteVerified)
-  const evidenceUnverified = evidenceWithQuote.filter((note) => !note.quoteVerified)
-  const evidenceMissing = evidenceNotes.filter((note) => !note.quote?.trim())
-  const pointNotesForDisplay = verifyOnly
-    ? pointNotes.filter((note) => note.author === 'ai' && note.quote?.trim() && !note.quoteVerified)
-    : pointNotes
-  const related = relatedNotes(chapter?.id ?? null, notes, allNotes)
+  const { evidenceNotes, evidenceWithQuote, evidenceVerified, evidenceUnverified, evidenceMissing } = useMemo(() => {
+    const notesWithQuote = pointNotes.filter((note) => note.author === 'ai')
+    const withQuote = notesWithQuote.filter((note) => note.quote?.trim())
+    return {
+      evidenceNotes: notesWithQuote,
+      evidenceWithQuote: withQuote,
+      evidenceVerified: withQuote.filter((note) => note.quoteVerified),
+      evidenceUnverified: withQuote.filter((note) => !note.quoteVerified),
+      evidenceMissing: notesWithQuote.filter((note) => !note.quote?.trim()),
+    }
+  }, [pointNotes])
+  const pointNotesForDisplay = useMemo(
+    () =>
+      verifyOnly
+        ? pointNotes.filter((note) => note.author === 'ai' && note.quote?.trim() && !note.quoteVerified)
+        : pointNotes,
+    [pointNotes, verifyOnly],
+  )
+  const related = useMemo(
+    () => relatedNotes(chapter?.id ?? null, notes, allNotes),
+    [chapter?.id, notes, allNotes],
+  )
   const [includeCards, setIncludeCards] = useState(false)
   const [exportState, setExportState] = useState<'idle' | 'copied' | 'saved'>('idle')
   const [exportError, setExportError] = useState<string | null>(null)
@@ -231,6 +271,7 @@ function NotesPanelImpl({
     setExportState('idle')
     setExportError(null)
     setSentenceCheck(false)
+    setColorStatus(null)
   }, [chapter?.id])
 
   function markdown(): string {
@@ -635,11 +676,20 @@ function NotesPanelImpl({
           type="button"
           className="notes-color-auto"
           title={t('只给未标色的卡片按类型自动配色')}
+          disabled={colorBusy}
+          aria-busy={colorBusy}
           onClick={() => void colorByKind()}
         >
-          {t('按类型配色')}
+          {colorBusy
+            ? `${t('配色中')} ${colorProgress.done}/${colorProgress.total}`
+            : t('按类型配色')}
         </button>
       </div>
+      {colorStatus ? (
+        <p className="notes-color-status" role="status">
+          {colorStatus}
+        </p>
+      ) : null}
       <div className="notes-tab-section" data-tab="cards">{renderGroup(t('摘要'), byColor(summaryNotes))}</div>
       {evidenceNotes.length > 0 ? (
         <section className="evidence-summary" id="notes-audit" aria-label={t('原文依据核查')}>

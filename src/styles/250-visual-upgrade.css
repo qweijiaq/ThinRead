@@ -471,7 +471,7 @@
 .kind-badge,
 .author-badge {
   padding: 2px 8px;
-  font-size: 9.5px;
+  font-size: 10.5px;
   letter-spacing: 0.06em;
 }
 .note-time {
@@ -510,7 +510,7 @@
 }
 .related-chapter {
   color: var(--accent);
-  font-size: 9.5px;
+  font-size: 10.5px;
   letter-spacing: 0.1em;
 }
 .related-title {

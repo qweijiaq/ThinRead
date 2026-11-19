@@ -232,7 +232,7 @@ export function Select({
                   type="button"
                   role="option"
                   aria-selected={option.value === value}
-                  className={`ui-select-option${option.value === value ? ' is-selected' : ''}`}
+                  className={`ui-select-option${option.value === value ? ' is-selected' : ''}${index === activeIndex ? ' is-active' : ''}`}
                   disabled={option.disabled}
                   onMouseEnter={() => setActiveIndex(index)}
                   onClick={() => choose(option)}

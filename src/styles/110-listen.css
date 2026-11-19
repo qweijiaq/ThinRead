@@ -43,7 +43,7 @@
 }
 .listen-mini-kicker {
   color: var(--muted);
-  font-size: 9.5px;
+  font-size: 10.5px;
 }
 .listen-mini-info strong {
   overflow: hidden;
@@ -237,7 +237,7 @@
   background: var(--paper-3);
   color: var(--muted);
   font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 600;
   line-height: 1;
 }

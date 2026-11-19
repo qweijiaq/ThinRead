@@ -1,0 +1,407 @@
+/* ─── 书架：1080 宽度下给卡片正文留出足够空间 ───────────── */
+
+.book-grid {
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+}
+
+/* ─── 命中区下限：图标按钮与复选框至少 24px ─────────────── */
+
+.ui-checkbox {
+  min-height: 24px;
+}
+
+.chapter-row {
+  position: relative;
+}
+
+.chapter-rename,
+.chapter-delete {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  z-index: 2;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  margin: 0;
+  background: var(--paper-2);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.chapter-rename {
+  right: 30px;
+}
+
+.chapter-row:hover .chapter-rename,
+.chapter-row:hover .chapter-delete,
+.chapter-row:focus-within .chapter-rename,
+.chapter-row:focus-within .chapter-delete {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* 选中态不再常驻两个图标，避免窄侧栏把章节标题挤成“第一章 论...”。 */
+.chapter-row.active .chapter-rename,
+.chapter-row.active .chapter-delete {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.chapter-row:hover .chapter-item,
+.chapter-row:focus-within .chapter-item {
+  padding-right: 56px;
+}
+
+.toast > button[aria-label] {
+  display: grid;
+  min-width: 24px;
+  min-height: 24px;
+  place-items: center;
+}
+
+/* ─── 工作台：常用工具置顶 ───────────────────────────────── */
+
+.lab-rail-recommended {
+  padding-bottom: 10px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+/* ─── 设置：Key 明文回退提示 ─────────────────────────────── */
+
+.field-hint.is-warning {
+  color: var(--warn);
+}
+
+/* ─── 设置底部版本与更新检查 ─────────────────────────────── */
+
+.settings-version {
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+  margin-top: 18px;
+}
+
+.settings-version .modal-meta {
+  font-size: 11px;
+}
+
+.settings-version-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.settings-version-actions .accent {
+  color: var(--accent);
+}
+
+/* ─── 阅读笔记栏：宽度足够时恢复紧凑双列 ─────────────────── */
+
+.notes-panel {
+  container-type: inline-size;
+}
+
+@container (min-width: 440px) {
+  .note-group {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .note-group .note-card:has(.note-textarea) {
+    grid-column: 1 / -1;
+  }
+}
+
+/* ─── 阅读器骨架：按真实章节头/段落结构占位 ─────────────── */
+
+.reader-skeleton {
+  padding-top: 6px;
+}
+
+.skeleton-chapter-kicker {
+  width: 26%;
+  height: 10px;
+  margin-bottom: 16px;
+}
+
+.skeleton-chapter-title {
+  width: 68%;
+  height: 34px;
+  margin: 0 0 14px;
+  border-radius: 7px;
+  background: linear-gradient(90deg, var(--paper-3), var(--white), var(--paper-3));
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite linear;
+}
+
+.skeleton-chapter-meta {
+  display: flex;
+  gap: 14px;
+  margin-bottom: 26px;
+}
+
+.skeleton-chapter-meta span {
+  width: 56px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--paper-3);
+}
+
+.skeleton-chapter-rule {
+  height: 1px;
+  margin-bottom: 30px;
+  background: var(--line);
+}
+
+.skeleton-line.skeleton-para {
+  height: 13px;
+  margin-bottom: 18px;
+}
+
+.skeleton-line.skeleton-para-short {
+  width: 64%;
+  margin-bottom: 30px;
+}
+
+.skeleton-chapter-subhead {
+  width: 34%;
+  height: 22px;
+  margin: 10px 0 22px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--paper-3), var(--white), var(--paper-3));
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite linear;
+}
+
+/* ─── 笔记批量配色状态 ───────────────────────────────────── */
+
+.notes-color-auto:disabled {
+  cursor: progress;
+  opacity: 0.7;
+}
+
+.notes-color-status {
+  margin: 6px 0 2px;
+  color: var(--muted);
+  font-size: 10.5px;
+}
+
+/* ─── 深度解析遮罩的取消按钮 ─────────────────────────────── */
+
+.deep-parse-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+/* ─── 近期增量样式：WebDAV、笔记配色、阅读热力图、OPDS ───────
+ * 这些规则原先追加在入口 styles.css 的 @import 之后；这里单独成层，
+ * 保持在 270-deep-components.css 之后，级联顺序与重构后一致。
+ */
+
+.webdav-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(120px, 0.6fr);
+  gap: 10px;
+}
+
+.webdav-fields input {
+  min-width: 0;
+}
+
+@media (max-width: 720px) {
+  .webdav-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ─── reading heatmap ─────────────────────────────────────── */
+.reading-heatmap .stats-section-head {
+  margin-bottom: 14px;
+}
+
+.heatmap-grid {
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(7, 12px);
+  gap: 4px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+}
+
+.heatmap-cell {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--ink) 7%, var(--paper-2));
+}
+
+.heatmap-cell.level-1 {
+  background: color-mix(in srgb, var(--accent) 24%, var(--paper-2));
+}
+
+.heatmap-cell.level-2 {
+  background: color-mix(in srgb, var(--accent) 42%, var(--paper-2));
+}
+
+.heatmap-cell.level-3 {
+  background: color-mix(in srgb, var(--accent) 62%, var(--paper-2));
+}
+
+.heatmap-cell.level-4 {
+  background: var(--accent);
+}
+
+.heatmap-legend {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.heatmap-legend .heatmap-cell {
+  width: 10px;
+  height: 10px;
+}
+
+.opds-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 320px;
+  overflow-y: auto;
+  border-top: 1px solid var(--line);
+}
+
+.opds-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 2px;
+  border-bottom: 1px solid var(--line);
+}
+
+.opds-row div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.opds-row strong {
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.opds-row span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.note-color-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.note-color-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+}
+
+.note-color-picker button {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.note-color-picker button.active {
+  border-color: var(--ink);
+}
+
+.note-color-picker .note-color-clear {
+  width: auto;
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent !important;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.notes-color-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0 4px;
+}
+
+.notes-color-filter button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--white);
+  color: var(--muted);
+  font-size: 10.5px;
+  cursor: pointer;
+}
+
+.notes-color-filter button.active {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+.notes-color-filter button span {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+.heatmap-range {
+  display: flex;
+  gap: 4px;
+}
+
+.heatmap-range button {
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--white);
+  color: var(--muted);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.heatmap-range button.active {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+.opds-auth {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+@media (max-width: 720px) {
+  .opds-auth {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

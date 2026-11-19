@@ -8,6 +8,7 @@ interface DeepParseOverlayProps {
   title: string
   startedAt: number
   progress: DoclingProgressEvent | null
+  onCancel?(): void
 }
 
 function phaseLabel(progress: DoclingProgressEvent | null): string {
@@ -41,10 +42,14 @@ function elapsedLabel(ms: number): string {
   return `${minutes}:${String(seconds).padStart(2, '0')}`
 }
 
-export function DeepParseOverlay({ open, title, startedAt, progress }: DeepParseOverlayProps): JSX.Element | null {
+export function DeepParseOverlay({ open, title, startedAt, progress, onCancel }: DeepParseOverlayProps): JSX.Element | null {
   const [now, setNow] = useState(Date.now())
+  const [cancelling, setCancelling] = useState(false)
   useEffect(() => {
-    if (!open) return
+    if (!open) {
+      setCancelling(false)
+      return
+    }
     setNow(Date.now())
     const timer = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(timer)
@@ -73,6 +78,21 @@ export function DeepParseOverlay({ open, title, startedAt, progress }: DeepParse
         <p className="deep-parse-hint">
           {t('Docling 会重新分析版面、表格和图表。一本几百页的书通常需要 1–3 分钟，请不要关闭应用。')}
         </p>
+        {onCancel ? (
+          <div className="deep-parse-actions">
+            <button
+              type="button"
+              className="ghost-button"
+              disabled={cancelling}
+              onClick={() => {
+                setCancelling(true)
+                onCancel()
+              }}
+            >
+              {cancelling ? t('正在取消…') : t('取消解析')}
+            </button>
+          </div>
+        ) : null}
       </div>
     </div>
   )

@@ -442,8 +442,11 @@ async function generateChapterNotesInner(
       })
     }
   }
+  // 标准/快速模式最多 6 路；精读模式保留 4 路；本地模型只开 2 路，避免 CPU/显存被并发拖慢。
+  const localModel = args.config.provider === 'ollama' || args.config.provider === 'lmstudio'
+  const concurrency = localModel ? 2 : mode === 'deep' ? CONCURRENCY : Math.min(6, chunks.length)
   await Promise.all(
-    Array.from({ length: Math.min(CONCURRENCY, chunks.length) }, condenseWorker),
+    Array.from({ length: Math.min(concurrency, chunks.length) }, condenseWorker),
   )
   await checkpointWrite
 

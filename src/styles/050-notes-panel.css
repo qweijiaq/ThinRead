@@ -327,7 +327,7 @@
 .divergence-title span {
   margin-left: 6px;
   color: var(--muted);
-  font-size: 9.5px;
+  font-size: 10.5px;
   letter-spacing: 0;
 }
 .divergence {
@@ -364,7 +364,7 @@
 }
 
 .importance-badge {
-  font-size: 9.5px;
+  font-size: 10.5px;
   padding: 2px 6px;
   border-radius: 999px;
   background: var(--accent-soft);
@@ -526,7 +526,7 @@
 .note-expansion summary span {
   margin-left: 6px;
   color: var(--muted);
-  font-size: 9.5px;
+  font-size: 10.5px;
   letter-spacing: 0;
 }
 
@@ -638,7 +638,7 @@
 .quote-label {
   flex: 0 0 auto;
   font-family: -apple-system, 'PingFang SC', sans-serif;
-  font-size: 9.5px;
+  font-size: 10.5px;
   letter-spacing: 0.08em;
   color: var(--accent);
   padding-top: 2px;
@@ -650,7 +650,7 @@
 .verify-chip {
   flex: 0 0 auto;
   font-family: -apple-system, 'PingFang SC', sans-serif;
-  font-size: 9.5px;
+  font-size: 10.5px;
   padding: 2px 6px;
   border-radius: 999px;
 }

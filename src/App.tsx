@@ -175,11 +175,18 @@ export function App(): JSX.Element {
   }, [sideWidth])
 
   const wideViewportRef = useRef(window.innerWidth > 1150)
+  const autoCollapsedRef = useRef(false)
 
   useEffect(() => {
     function onResize(): void {
       const wide = window.innerWidth > 1150
-      if (wideViewportRef.current && !wide) setSidePanelCollapsed(true)
+      if (wideViewportRef.current && !wide) {
+        autoCollapsedRef.current = true
+        setSidePanelCollapsed(true)
+      } else if (!wideViewportRef.current && wide && autoCollapsedRef.current) {
+        autoCollapsedRef.current = false
+        setSidePanelCollapsed(false)
+      }
       wideViewportRef.current = wide
     }
     window.addEventListener('resize', onResize)
@@ -335,6 +342,7 @@ export function App(): JSX.Element {
     chapterId: chapter?.id ?? null,
     setChapter,
     setStyle: setReaderStyle,
+    notify: setToast,
   })
   const {
     translating,
@@ -535,8 +543,13 @@ export function App(): JSX.Element {
   const toggleReaderFocus = useCallback(() => setReaderFocus((value) => !value), [])
 
   const loadAppData = useCallback(async () => {
-    await Promise.all([hydrateReadingStats(), hydratePreferences()])
-    const [nextBooks, nextSettings] = await Promise.all([bridge.listBooks(), bridge.getSettings()])
+    // 四项互不依赖，放在同一个 Promise.all 里，少两次串行 IPC 往返。
+    const [, , nextBooks, nextSettings] = await Promise.all([
+      hydrateReadingStats(),
+      hydratePreferences(),
+      bridge.listBooks(),
+      bridge.getSettings(),
+    ])
     setBooks(nextBooks)
     setSettings(nextSettings)
     setBooksLoaded(true)
@@ -547,6 +560,12 @@ export function App(): JSX.Element {
       .getAppInfo()
       .then((info) => {
         setAppInfo(info)
+        if (info.settingsCorruptBackupPath) {
+          setToast({
+            kind: 'info',
+            text: `${t('设置文件损坏，已恢复默认设置。原文件备份在')} ${info.settingsCorruptBackupPath}`,
+          })
+        }
         if (info.lockEnabled) {
           setLocked(true)
           setBooksLoaded(true)
@@ -1514,6 +1533,7 @@ export function App(): JSX.Element {
         title={deepParse?.title ?? ''}
         startedAt={deepParse?.startedAt ?? Date.now()}
         progress={deepParse?.progress ?? null}
+        onCancel={() => void bridge.cancelBookImport()}
       />
 
       <ConfirmHost />
