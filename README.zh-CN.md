@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  <a href="README.md">English</a> · <strong>简体中文</strong> · <a href="https://qweijiaq.github.io/ThinRead/">官网</a> · <a href="docs/user-manual.md">用户手册</a> · <a href="docs/user-manual.pdf">PDF</a> · <a href="docs/user-manual.html">HTML</a> · <a href="https://github.com/qweijiaq/ThinRead/releases">Releases</a>
+  <a href="README.md">English</a> · <strong>简体中文</strong> · <a href="https://thinread.weijia.asia/">官网</a> · <a href="docs/user-manual.md">用户手册</a> · <a href="docs/user-manual.pdf">PDF</a> · <a href="docs/user-manual.html">HTML</a> · <a href="https://github.com/qweijiaq/ThinRead/releases">Releases</a>
 </p>
 
 > 大多数读书工具优化的是「收集」：划更多线、存更多摘录、建更大的库。
