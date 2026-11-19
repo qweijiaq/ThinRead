@@ -21,6 +21,62 @@ type PdfJs = {
   getDocument(options: Record<string, unknown>): { promise: Promise<PdfDocument> }
 }
 
+type PdfRenderPage = {
+  getViewport(params: { scale: number }): { width: number; height: number }
+  render(params: Record<string, unknown>): { promise: Promise<void> }
+  cleanup?(): void
+}
+
+type PdfRenderSource = {
+  getPage(pageNumber: number): Promise<PdfRenderPage>
+}
+
+/**
+ * 跨平台兜底：Swift 渲染只在 macOS 可用，Windows / Linux 用 pdfjs 栅格化。
+ * 输出文件名和 macOS 路径保持一致（page-<n>.jpg）。
+ */
+export async function renderPdfPagesWithCanvas(
+  source: PdfRenderSource,
+  imageDir: string,
+  pages: number[],
+  signal?: AbortSignal,
+): Promise<number[]> {
+  const imported = (await import('@napi-rs/canvas')) as unknown as {
+    createCanvas: (width: number, height: number) => {
+      width: number
+      height: number
+      getContext(type: '2d'): Record<string, unknown> & { fillStyle: string; fillRect(x: number, y: number, w: number, h: number): void }
+      toBuffer(type: 'image/jpeg', quality?: number): Buffer
+    }
+    default?: { createCanvas: unknown }
+  }
+  const { createCanvas } = imported
+  await fsp.rm(imageDir, { recursive: true, force: true })
+  await fsp.mkdir(imageDir, { recursive: true })
+  const written: number[] = []
+  for (const pageNumber of pages) {
+    signal?.throwIfAborted()
+    try {
+      const page = await source.getPage(pageNumber)
+      const viewport = page.getViewport({ scale: 1.5 })
+      const canvas = createCanvas(Math.max(1, Math.ceil(viewport.width)), Math.max(1, Math.ceil(viewport.height)))
+      const context = canvas.getContext('2d')
+      context.fillStyle = '#ffffff'
+      context.fillRect(0, 0, canvas.width, canvas.height)
+      await page.render({ canvasContext: context, canvas, viewport }).promise
+      const jpeg = canvas.toBuffer('image/jpeg', 0.72)
+      if (jpeg.length > 0) {
+        await fsp.writeFile(path.join(imageDir, `page-${pageNumber}.jpg`), jpeg)
+        written.push(pageNumber)
+      }
+      page.cleanup?.()
+    } catch {
+      // 单页栅格化失败时跳过，交给失败页兜底。
+    }
+  }
+  return written
+}
+
 export interface VisionPdfOptions {
   buffer: Buffer
   sourcePath: string
@@ -173,15 +229,15 @@ export async function parsePdfWithVision(options: VisionPdfOptions): Promise<Vis
   if (!options.config.apiKey && options.config.provider !== 'ollama' && options.config.provider !== 'lmstudio') {
     throw new Error('还没有配置 API Key，无法使用 PDF 视觉解析。')
   }
-  if (process.platform !== 'darwin') {
-    throw new Error('PDF 视觉解析目前需要 macOS 的页面渲染能力；Windows / Linux 会先回退到普通 PDF 解析。')
-  }
-
   const pdfjs = (await import('pdfjs-dist/legacy/build/pdf.mjs')) as unknown as PdfJs
   const doc = await pdfjs.getDocument({
     data: new Uint8Array(options.buffer),
     isEvalSupported: false,
     useSystemFonts: true,
+    // 在 Node 里默认会禁用字体，pdfjs 随即改用 Path2D 描字，
+    // 而 @napi-rs/canvas 的 Path2D 与 pdfjs 自带实现不兼容，会直接抛错。
+    // 关闭后走正常的 fillText，跨平台栅格化才能出图。
+    disableFontFace: false,
     verbosity: 0,
   }).promise
 
@@ -198,7 +254,11 @@ export async function parsePdfWithVision(options: VisionPdfOptions): Promise<Vis
       let renderedAny = false
 
       const loadBatchImages = async (batch: number[]): Promise<Map<number, string>> => {
-        const rendered = await renderPdfPages(options.sourcePath, imageDir, batch)
+        let rendered = await renderPdfPages(options.sourcePath, imageDir, batch)
+        if (rendered.length === 0) {
+          // macOS 的 Swift 渲染不可用或失败时（包括 Windows / Linux），改用 pdfjs 栅格化。
+          rendered = await renderPdfPagesWithCanvas(doc as unknown as PdfRenderSource, imageDir, batch, options.signal)
+        }
         if (rendered.length === 0) {
           renderMissed += batch.length
           return new Map()

@@ -29,7 +29,7 @@ for (const entry of entries) {
     platform: 'node',
     format: 'cjs',
     target: 'node22',
-    external: ['electron', '@napi-rs/canvas', 'mermaid'],
+    external: ['electron', '@napi-rs/canvas', 'pdfjs-dist', 'pdfjs-dist/*', 'mermaid'],
     sourcemap: 'inline',
     logLevel: 'warning',
   })
